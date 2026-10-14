@@ -38,9 +38,24 @@
     ],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "./windows/hooks.nsh"
       }
-    }
+    },
+    "resources": {
+      "icons/lust.ico": "lust.ico"
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "lust"
+        ],
+        "name": "Lust.Source",
+        "description": "Lust source file",
+        "role": "Editor",
+        "mimeType": "text/plain"
+      }
+    ]
   },
   "mainBinaryName": "Ledger"
 }
