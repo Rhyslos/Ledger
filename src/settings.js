@@ -4,9 +4,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { keyString, showKey } from "./keys.js";
 import { esc } from "./ansi.js";
-import iconPlain from "./assets/app-icons/plain.svg";
-import iconCodeBehind from "./assets/app-icons/code-behind.svg";
-import iconEditorPage from "./assets/app-icons/editor-page.svg";
 
 export const DEFAULTS = {
   theme: "system",
@@ -14,7 +11,6 @@ export const DEFAULTS = {
   fontFamily: "",
   uiSize: 14,
   statusBar: "bottom",
-  appIcon: "plain",
   wordWrap: false,
   bracketColors: true,
   indentGuides: true,
@@ -104,10 +100,6 @@ const select = (id, key, opts) =>
   `<select id="${id}" data-set="${key}">${opts.map(([v, l]) => `<option value="${esc(v)}"${String(settings[key]) === String(v) ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
 const check = (id, key, label) => `<label class="chk"><input type="checkbox" id="${id}" data-set="${key}"${settings[key] ? " checked" : ""}> ${label}</label>`;
 const text = (id, key, ph = "", type = "text", extra = "") => `<input type="${type}" id="${id}" data-set="${key}" value="${esc(settings[key] ?? "")}" placeholder="${esc(ph)}" spellcheck="false" ${extra}>`;
-// The app icon picker: one radio button per icon, showing the icon itself.
-const APP_ICONS = [["plain", "Plain", iconPlain], ["code-behind", "Code behind", iconCodeBehind], ["editor-page", "Editor page", iconEditorPage]];
-const iconPick = () =>
-  `<div class="iconpick" role="radiogroup" aria-label="App icon">${APP_ICONS.map(([v, l, src]) => `<label class="ip"><input type="radio" name="appIcon" data-set="appIcon" value="${v}"${settings.appIcon === v ? " checked" : ""}><img src="${src}" alt="" width="48" height="48"><span>${l}</span></label>`).join("")}</div>`;
 const found = (p, missing) => (p ? `<span class="ok">Found</span> <code>${esc(p)}</code>` : `<span class="bad">Not found.</span> ${missing}`);
 const copyRow = (label, value) =>
   `<div class="copyrow"><span class="k">${label}</span><code>${esc(value)}</code><button class="btn" data-copy="${esc(value)}">Copy</button></div>`;
@@ -127,7 +119,6 @@ export function settingsHtml() {
       ${row("Editor font size", text("sFont", "fontSize", "14", "number", 'min="9" max="32" step="0.5"'), "Ctrl + and Ctrl - change it too; Ctrl 0 resets.", "sFont")}
       ${row("Editor font", text("sFamily", "fontFamily", "IBM Plex Mono"), "Any installed font, like Cascadia Code or Consolas. Leave empty for the default.", "sFamily")}
       ${row("Interface text size", text("sUi", "uiSize", "14", "number", 'min="11" max="20" step="0.5"'), "", "sUi")}
-      ${row("App icon", iconPick(), "Ledger's windows and taskbar button change right away. The .exe file and the Start menu keep the built-in icon (Plain).")}
       ${row("Status bar", select("sStatus", "statusBar", [["bottom", "Along the bottom"], ["top", "Along the top"]]), "The bar with Run, Build, problems and the cursor position.", "sStatus")}
     </section>
 
