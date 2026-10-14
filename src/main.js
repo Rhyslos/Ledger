@@ -1800,10 +1800,14 @@ function applySetting(key) {
   if (key === "godot") renderStatus();
   if (["bracketColors", "indentGuides", "stickyScroll", "codeLens", "gitGutter", "dependencyHints"].includes(key)) reconfigureExtras();
   if (key === "statusBar") applyStatusBar();
+  if (key === "appIcon") applyAppIcon();
   if (["theme", "fontSize", "fontFamily"].includes(key)) requestAnimationFrame(() => term?.restyle());
   for (const f of settingHooks) f(key);
 }
 const settingHooks = [];
+function applyAppIcon() {
+  invoke("set_app_icon", { name: settings.appIcon }).catch((e) => console.warn("app icon:", e));
+}
 function applyStatusBar() {
   $("app").classList.toggle("status-top", settings.statusBar === "top");
 }
@@ -2529,6 +2533,7 @@ async function boot() {
   applyFonts();
   applySizes();
   applyStatusBar();
+  applyAppIcon();
   $("app").classList.toggle("collapsed", !!prefs.collapsed);
   showSideView(sideView);
   term = initTerminal(app);

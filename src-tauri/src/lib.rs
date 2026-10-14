@@ -162,6 +162,20 @@ fn startup_args(window: tauri::WebviewWindow, procs: State<'_, Procs>) -> Args {
     }
 }
 
+/// Gives this window one of Ledger's app icons ("plain", "code-behind" or
+/// "editor-page"): the title bar, the taskbar button and Alt+Tab. The .exe
+/// file keeps the icon it was built with (src-tauri/icons).
+#[tauri::command]
+fn set_app_icon(window: tauri::WebviewWindow, name: String) -> Res<()> {
+    let png: &[u8] = match name.as_str() {
+        "code-behind" => include_bytes!("../app-icons/ledger-code-behind-256.png"),
+        "editor-page" => include_bytes!("../app-icons/ledger-editor-page-256.png"),
+        _ => include_bytes!("../app-icons/ledger-plain-256.png"),
+    };
+    let icon = tauri::image::Image::from_bytes(png).map_err(err)?;
+    window.set_icon(icon).map_err(err)
+}
+
 #[tauri::command]
 fn exe_path() -> String {
     std::env::current_exe().map(|p| plain_path(&p)).unwrap_or_default()
@@ -1189,6 +1203,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             js_log,
             startup_args,
+            set_app_icon,
             exe_path,
             resolve_path,
             find_project_root,

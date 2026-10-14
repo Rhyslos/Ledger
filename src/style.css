@@ -399,3 +399,12 @@ kbd { font-family: var(--mono); font-size: .86em; color: var(--muted); }
 [style*="--t-lust)"] > .dot, .dot[style*="--t-lust)"] { width: 13px; height: 13px; border-radius: 3px; background: url("./assets/lust.svg") center / contain no-repeat; }
 .node[style*="--t-lust)"] > .dot { margin: 0 1.5px; }
 .li[style*="--t-lust)"] > .dot { margin: 4px 0 0 2px; }
+
+/* Settings › App icon */
+.iconpick { display: flex; flex-wrap: wrap; gap: 10px; }
+.iconpick .ip { position: relative; display: grid; justify-items: center; gap: 5px; padding: 10px 12px 8px; min-width: 92px; border: 1px solid var(--line); border-radius: var(--r); color: var(--muted); font-size: 12.5px; cursor: pointer; }
+.iconpick .ip:hover { background: var(--hover); color: var(--ink); }
+.iconpick .ip input { position: absolute; opacity: 0; pointer-events: none; }
+.iconpick .ip:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); color: var(--ink); }
+.iconpick .ip:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.iconpick img { display: block; border-radius: 10px; }

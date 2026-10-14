@@ -18,7 +18,7 @@ To change the name, see [Renaming](#renaming).
 - **Git**: changed files are coloured in the explorer, changed lines are marked next to the line numbers, a side-by-side diff view, and a Source control view to stage, commit, pull and push (Ctrl Shift G).
 - **Dependencies**: in Cargo.toml and .csproj files, the newest version of each package shows at the end of its line; click it to update.
 - **Snippets**: your own, per language, in snippets.json (Settings › Editing › Edit snippets).
-- **Settings** on Ctrl P: theme, fonts, status bar position, tab size, wrapping, format on save, auto save, editor extras, tool paths, terminal shell, debuggers, Godot setup, and every Ledger command's shortcut can be changed.
+- **Settings** on Ctrl P: theme, app icon, fonts, status bar position, tab size, wrapping, format on save, auto save, editor extras, tool paths, terminal shell, debuggers, Godot setup, and every Ledger command's shortcut can be changed.
 
 Each window has one folder open. Ctrl Shift N opens another window (or Ctrl Enter on a recent folder on the start page), each with its own program, language servers, debugger and terminals. Open a project folder (with `Cargo.toml`, a `.sln`/`.csproj`, or `project.godot`), or a folder that holds several projects, like a course folder with one project per lesson. Run, Build and Test always use the project of the file you have open; its name shows at the left of the status bar. New project (in the command list) can create the project inside the open folder.
 
@@ -130,6 +130,10 @@ Every command is in the command list (Ctrl Shift P or F1) with its shortcut. Cha
 In dialogs, arrow keys move and Enter picks; in choice dialogs the number keys pick directly.
 
 In a terminal, Ctrl+letter keys go to the shell (Ctrl C, Ctrl R…), except Ctrl P, Ctrl T, Ctrl J and Ctrl B. Function keys, Ctrl Shift and Ctrl Alt shortcuts always reach Ledger; F6 or Ctrl ` gets you out.
+
+## App icon
+
+Settings › Appearance › **App icon** switches Ledger's windows and taskbar button between three designs: Plain, Code behind and Editor page. The `.exe`, installer and Start menu use the icon built into the program, which is Plain. To build with another one, run `npx tauri icon src-tauri/app-icons/ledger-code-behind.svg -o src-tauri/icons`, copy that design's `.ico` over `src-tauri/icons/icon.ico`, and rebuild. All three designs, in every size, are in `src-tauri/app-icons`.
 
 ## Renaming
 
