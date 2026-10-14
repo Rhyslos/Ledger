@@ -12,7 +12,7 @@
   --accent: #2f6db0; --accent-ink: #ffffff; --seal: #a3262e; --good: #2f7a3e; --warn: #a8670f; --info: #2f6db0;
   --guide: #e6e6e3; --mark: #fbe7a1; --scrim: rgba(0, 0, 0, .3); --shadow: 0 16px 48px rgba(0,0,0,.2);
   /* file dots */
-  --t-rs: #b7410e; --t-toml: #7a3fa8; --t-md: #2f6db0; --t-json: #a8670f; --t-lock: #8a8f93; --t-cfg: #1f7a80; --t-other: #8a8f93; --t-cs: #5b3fb3; --t-shader: #b0367a; --t-gd: #3f78a8; --t-godot: #357fb5; --t-proj: #8a6a3b; --t-xml: #6f7f8c;
+  --t-rs: #b7410e; --t-toml: #7a3fa8; --t-md: #2f6db0; --t-json: #a8670f; --t-lock: #8a8f93; --t-cfg: #1f7a80; --t-other: #8a8f93; --t-cs: #5b3fb3; --t-shader: #b0367a; --t-gd: #3f78a8; --t-godot: #357fb5; --t-proj: #8a6a3b; --t-xml: #6f7f8c; --t-lust: #d9433b;
   /* syntax */
   --syn-kw: #7a3fa8; --syn-ctl: #a3262e; --syn-type: #1f7a80; --syn-fn: #2f5fa0; --syn-macro: #b7410e; --syn-str: #2f7a3e;
   --syn-num: #a8670f; --syn-com: #9d9d99; --syn-attr: #8a6a3b; --syn-life: #b0670f; --syn-const: #a8670f; --syn-punct: #6b6b68; --syn-self: #a3262e;
@@ -26,7 +26,7 @@
   :root:not([data-theme="light"]) {
     --bg: #1e1e1e; --side: #232323; --tabbar: #191919; --hover: #2c2c2c; --select: #23374d; --ink: #e2e2e0; --muted: #9b9b97; --faint: #6e6e6a; --line: #303030; --line-hl: #242424;
     --accent: #6ea8e6; --accent-ink: #10202e; --seal: #e05a60; --good: #6fcf83; --warn: #e3a24e; --info: #6ea8e6; --mark: #5c4a12; --guide: #333333; --scrim: rgba(0,0,0,.55); --shadow: 0 16px 48px rgba(0,0,0,.5);
-    --t-rs: #e9784a; --t-toml: #c18ef0; --t-md: #6ea8e6; --t-json: #e3a24e; --t-lock: #a3a8ac; --t-cfg: #56b9bf; --t-other: #a3a8ac; --t-cs: #a493f0; --t-shader: #e07ab8; --t-gd: #7fb3ec; --t-godot: #6eb0e0; --t-proj: #d1aa82; --t-xml: #9fb0bd;
+    --t-rs: #e9784a; --t-toml: #c18ef0; --t-md: #6ea8e6; --t-json: #e3a24e; --t-lock: #a3a8ac; --t-cfg: #56b9bf; --t-other: #a3a8ac; --t-cs: #a493f0; --t-shader: #e07ab8; --t-gd: #7fb3ec; --t-godot: #6eb0e0; --t-proj: #d1aa82; --t-xml: #9fb0bd; --t-lust: #ff6f66;
     --syn-kw: #c18ef0; --syn-ctl: #f08a8f; --syn-type: #56b9bf; --syn-fn: #7fb3ec; --syn-macro: #e9784a; --syn-str: #8fd19e;
     --syn-num: #e3a24e; --syn-com: #6e6e6a; --syn-attr: #d1aa82; --syn-life: #e3a24e; --syn-const: #e3a24e; --syn-punct: #9b9b97; --syn-self: #f08a8f;
     color-scheme: dark;
@@ -35,7 +35,7 @@
 :root[data-theme="dark"] {
   --bg: #1e1e1e; --side: #232323; --tabbar: #191919; --hover: #2c2c2c; --select: #23374d; --ink: #e2e2e0; --muted: #9b9b97; --faint: #6e6e6a; --line: #303030; --line-hl: #242424;
   --accent: #6ea8e6; --accent-ink: #10202e; --seal: #e05a60; --good: #6fcf83; --warn: #e3a24e; --info: #6ea8e6; --mark: #5c4a12; --guide: #333333; --scrim: rgba(0,0,0,.55); --shadow: 0 16px 48px rgba(0,0,0,.5);
-  --t-rs: #e9784a; --t-toml: #c18ef0; --t-md: #6ea8e6; --t-json: #e3a24e; --t-lock: #a3a8ac; --t-cfg: #56b9bf; --t-other: #a3a8ac; --t-cs: #a493f0; --t-shader: #e07ab8; --t-gd: #7fb3ec; --t-godot: #6eb0e0; --t-proj: #d1aa82; --t-xml: #9fb0bd;
+  --t-rs: #e9784a; --t-toml: #c18ef0; --t-md: #6ea8e6; --t-json: #e3a24e; --t-lock: #a3a8ac; --t-cfg: #56b9bf; --t-other: #a3a8ac; --t-cs: #a493f0; --t-shader: #e07ab8; --t-gd: #7fb3ec; --t-godot: #6eb0e0; --t-proj: #d1aa82; --t-xml: #9fb0bd; --t-lust: #ff6f66;
   --syn-kw: #c18ef0; --syn-ctl: #f08a8f; --syn-type: #56b9bf; --syn-fn: #7fb3ec; --syn-macro: #e9784a; --syn-str: #8fd19e;
   --syn-num: #e3a24e; --syn-com: #6e6e6a; --syn-attr: #d1aa82; --syn-life: #e3a24e; --syn-const: #e3a24e; --syn-punct: #9b9b97; --syn-self: #f08a8f;
   color-scheme: dark;
@@ -393,3 +393,9 @@ kbd { font-family: var(--mono); font-size: .86em; color: var(--muted); }
 .cm-merge-b .cm-changedText { background: color-mix(in srgb, var(--good) 30%, transparent) !important; }
 .cm-collapsedLines { background: var(--side) !important; color: var(--muted) !important; font-family: var(--sans); font-size: 12px; }
 .hint.spin::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
+
+/* Lust files show the L# icon instead of a dot. Every dot gets its colour from
+   --tc:var(--t-<kind>) on itself or its row, so match on that. */
+[style*="--t-lust)"] > .dot, .dot[style*="--t-lust)"] { width: 13px; height: 13px; border-radius: 3px; background: url("./assets/lust.svg") center / contain no-repeat; }
+.node[style*="--t-lust)"] > .dot { margin: 0 1.5px; }
+.li[style*="--t-lust)"] > .dot { margin: 4px 0 0 2px; }

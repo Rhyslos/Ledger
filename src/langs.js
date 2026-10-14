@@ -78,6 +78,98 @@ const godotResource = {
   languageData: { commentTokens: { line: ";" } },
 };
 
+// ----- Lust (.lust) -----
+// Lust is our own language: C#'s skeleton, a Lua accent, and checks written as
+// questions (`is hp 0? then { } or { }`). Highlighting only for now; Run comes
+// with the compiler.
+const LUST_CONTROL = "is then or either loop stop skip give";
+const LUST_DEFINE = "class object method do has state new";
+const LUST_MODULE = "send fetch get end";
+const LUST_TYPES = "int float string truth array cArray";
+const LUST_BUILTINS = "print wait random";
+const lustSet = (s) => new Set(s.split(" "));
+const LK = { control: lustSet(LUST_CONTROL), define: lustSet(LUST_DEFINE), module: lustSet(LUST_MODULE), types: lustSet(LUST_TYPES), builtins: lustSet(LUST_BUILTINS) };
+
+const lustMode = {
+  name: "lust",
+  // depth: open { and [ for indenting. def: the next name is being defined
+  // ("type" after class/object, "fn" after method/do). after: the last
+  // punctuation that matters for the next word (":" or ".").
+  startState: () => ({ depth: 0, def: null, after: null }),
+  copyState: (s) => ({ ...s }),
+  token(stream, st) {
+    if (stream.eatSpace()) return null;
+    if (stream.match("//")) { stream.skipToEnd(); return "lineComment"; }
+    const after = st.after;
+    st.after = null;
+    if (stream.match(/^"(?:[^"\\]|\\.)*"?/)) return "string";
+    if (stream.match(/^\d+(?:\.\d+)?/)) return "number";
+    const w = stream.match(/^[A-Za-z_]\w*/);
+    if (w) {
+      const word = w[0];
+      if (after === ":") return stream.match(/^\s*\(/, false) ? "propertyName.function" : "propertyName";
+      if (after === ".") return stream.match(/^\s*\(/, false) ? "propertyName.function" : "propertyName";
+      if (word === "true") return "bool";
+      if (word === "nothing") return "atom";
+      if (word === "not") return "operatorKeyword";
+      if (word === "in") return "controlKeyword";
+      if (LK.control.has(word)) return "controlKeyword";
+      if (LK.define.has(word)) { st.def = word === "class" || word === "object" ? "type" : word === "method" || word === "do" ? "fn" : null; return "definitionKeyword"; }
+      if (LK.module.has(word)) return "moduleKeyword";
+      if (LK.types.has(word)) return "typeName";
+      if (st.def === "type") { st.def = null; return "className.definition"; }
+      const call = stream.match(/^\s*\(/, false);
+      if (st.def === "fn" && call) { st.def = null; return "variableName.function.definition"; }
+      if (/^[A-Z]/.test(word)) return "className";
+      if (LK.builtins.has(word)) return "variableName.standard";
+      return call ? "variableName.function" : "variableName";
+    }
+    const ch = stream.next();
+    if (ch === "{" || ch === "[") { st.depth++; st.def = null; return "bracket"; }
+    if (ch === "}" || ch === "]") { st.depth = Math.max(0, st.depth - 1); return "bracket"; }
+    if (ch === "(" || ch === ")") { st.def = null; return "bracket"; }
+    if (ch === "?") return "controlKeyword";
+    if (ch === ":" || ch === ".") { st.after = ch; return "operator"; }
+    if (ch === ";" || ch === ",") { st.def = null; return "separator"; }
+    if (ch === "#") return "operator";
+    if (/[=<>!+\-*\/%&|]/.test(ch)) { stream.eatWhile(/[=<>&|]/); return "operator"; }
+    return null;
+  },
+  indent(st, textAfter, cx) {
+    return Math.max(0, st.depth - (/^\s*[}\]]/.test(textAfter) ? 1 : 0)) * cx.unit;
+  },
+  languageData: {
+    commentTokens: { line: "//" },
+    closeBrackets: { brackets: ["(", "[", "{", '"'] },
+    indentOnInput: /^\s*[}\]]$/,
+  },
+};
+
+const lustCompletions = completeFromList([
+  ...LUST_CONTROL.split(" ").map((l) => ({ label: l, type: "keyword" })),
+  ...LUST_DEFINE.split(" ").map((l) => ({ label: l, type: "keyword" })),
+  ...LUST_MODULE.split(" ").map((l) => ({ label: l, type: "keyword" })),
+  ...LUST_TYPES.split(" ").map((l) => ({ label: l, type: "type" })),
+  ...LUST_BUILTINS.split(" ").map((l) => ({ label: l, type: "function", apply: l + "()", detail: "built-in" })),
+  { label: "true", type: "constant" }, { label: "not true", type: "constant" }, { label: "nothing", type: "constant" },
+  snip("class ${Name} {\n\thas {\n\t\t${}\n\t}\n}", { label: "class", detail: "blueprint, made with new", type: "class" }),
+  snip("object ${Name} {\n\thas {\n\t\t${}\n\t}\n}", { label: "object", detail: "one ready-made thing", type: "class" }),
+  snip("has {\n\t${int}[${name} ${0}];\n}", { label: "has", detail: "fields", type: "text" }),
+  snip("method ${name}(${}) {\n\t${}\n}", { label: "method", detail: "belongs to a class or object", type: "function" }),
+  snip("do ${name}(${}) {\n\t${}\n}", { label: "do", detail: "function", type: "function" }),
+  snip("is ${value} ${check}? then {\n\t${}\n}", { label: "is", detail: "question check", type: "text" }),
+  snip("is ${value} ${check}? then {\n\t${}\n} or {\n\t${}\n}", { label: "is … or", detail: "question check with fallback", type: "text" }),
+  snip("either ${check}? ${yes} or ${no}", { label: "either", detail: "one-line check", type: "text" }),
+  snip("loop {\n\t${}\n}", { label: "loop", detail: "forever, until stop", type: "text" }),
+  snip("loop ${3} {\n\t${}\n}", { label: "loop times", detail: "repeat", type: "text" }),
+  snip("loop (${check}) {\n\t${}\n}", { label: "loop while", detail: "while true", type: "text" }),
+  snip("loop (${type} ${item} in ${list}) {\n\t${}\n}", { label: "loop in", detail: "each item", type: "text" }),
+  snip("state = [${idle}, ${busy}];", { label: "state", detail: "this file's state", type: "text" }),
+  snip("cArray(${string name}) ${bag} = [];", { label: "cArray", detail: "connected array", type: "type" }),
+  snip("fetch ${file}:${Thing};", { label: "fetch", detail: "bring in", type: "keyword" }),
+  snip("get ${file}:${thing};", { label: "get", detail: "bring in one", type: "keyword" }),
+]);
+
 // ----- the table -----
 const legacy = (mode, data) => {
   const lang = StreamLanguage.define(mode);
@@ -88,6 +180,7 @@ export const LANGS = {
   rust: { name: "Rust", dot: "rs", server: "rust", languageId: "rust", ext: () => [rust(), rustLanguage.data.of({ closeBrackets: { brackets: ["(", "[", "{", '"'] } })] },
   csharp: { name: "C#", dot: "cs", server: "csharp", languageId: "csharp", ext: () => legacy(csharp, { closeBrackets: { brackets: ["(", "[", "{", '"', "'"] }, commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }) },
   gdshader: { name: "Godot shader", dot: "shader", ext: () => new LanguageSupport(StreamLanguage.define(gdshaderMode)), complete: gdshaderCompletions },
+  lust: { name: "Lust", dot: "lust", ext: () => new LanguageSupport(StreamLanguage.define(lustMode)), complete: lustCompletions },
   gdscript: { name: "GDScript", dot: "gd", ext: () => legacy(python, { commentTokens: { line: "#" } }) },
   godot: { name: "Godot resource", dot: "godot", ext: () => legacy(godotResource) },
   toml: { name: "TOML", dot: "toml", ext: () => legacy(toml) },
@@ -101,7 +194,7 @@ export const LANGS = {
 };
 
 const BY_EXT = {
-  rs: "rust", cs: "csharp", csx: "csharp", gdshader: "gdshader", gdshaderinc: "gdshader", gd: "gdscript",
+  rs: "rust", cs: "csharp", csx: "csharp", lust: "lust", gdshader: "gdshader", gdshaderinc: "gdshader", gd: "gdscript",
   tscn: "godot", tres: "godot", godot: "godot", import: "godot", cfg: "ini", ini: "ini", editorconfig: "ini",
   toml: "toml", json: "json", md: "markdown",
   csproj: "xml", fsproj: "xml", props: "xml", targets: "xml", slnx: "xml", xml: "xml", resx: "xml", xaml: "xml", config: "xml", svg: "xml",

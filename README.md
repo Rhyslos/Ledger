@@ -9,6 +9,7 @@ To change the name, see [Renaming](#renaming).
 - **Rust**: run, check, test and Clippy with cargo; live errors, completions, hover docs, go to definition, rename, quick fixes and formatting through rust-analyzer.
 - **C#**: build, run and test with dotnet; the same editor features through a C# language server (csharp-ls by default).
 - **Godot**: Play builds the C# project, then starts the game with its output in the panel. Play scene runs the open `.tscn`. Godot can open scripts in Ledger at the right line, and shaders (`.gdshader`) get highlighting and completion for Godot's shading language. Scene and resource files are highlighted too.
+- **Lust**: our own language. `.lust` files get highlighting, completions and snippets (`class`, `is`, `loop`, `either`…), and show the L# icon in the explorer and tabs. The installer makes `.lust` files open in Ledger with the same icon in File Explorer. Running Lust comes with its compiler.
 - **Editor**: tabs, split editor (Ctrl \\), search and replace (Ctrl F), multiple cursors, folding, coloured bracket pairs, indent guides, sticky scroll (the line that opens the current function or block stays pinned at the top), problems list, clickable file:line links in build output, back and forward through your jumps, a warning when a file you're editing changes on disk.
 - **Getting around**: find all references (Shift F12), an Outline of the open file (Ctrl Shift O), symbol search (type @ or # in Ctrl E), parameter hints while you type a call.
 - **Debugging**: breakpoints (F9), start with Shift F9, step with F10, F11 and Shift F11, continue with F5. Variables, watches, call stack and a debug console. Rust uses codelldb, C# and Godot use netcoredbg; Ledger downloads them the first time you need them.
@@ -171,11 +172,13 @@ src/snippets.js       your snippets.json
 src/win.js            per-window events
 src/settings.js       settings file and the settings page
 src/keys.js           shortcut parsing and the remappable keymap
-src/langs.js          file types, highlighting, Godot shader and scene support
+src/langs.js          file types, highlighting, Godot shader and scene support, Lust
+src/assets/lust.svg   the Lust file icon
 src/lsp.js            the language server client (rust-analyzer, csharp-ls)
 src/ansi.js           build output colours and clickable file:line links
 src/style.css         colours and layout; light and dark tokens are at the top
 src-tauri/src/lib.rs  files, running cargo/dotnet/Godot, language servers and debuggers, terminals, git, downloads, windows
+src-tauri/windows/hooks.nsh  installer step that gives .lust files the L# icon
 build.ps1, build.cmd  local Windows build
 scripts/              rename and collect helpers
 ```
