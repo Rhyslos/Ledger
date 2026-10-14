@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ledger</title>
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="side" aria-label="Side bar">
+    <div class="views" id="views" role="tablist" aria-label="Side bar views">
+      <button role="tab" data-view="files" id="vbFiles" aria-label="Files" title="Files (Ctrl Shift E)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.8h5l3.2 3.2v9.2H4z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M9 1.8V5h3.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><span>Files</span></button>
+      <button role="tab" data-view="outline" id="vbOutline" aria-label="Outline" title="Outline (Ctrl Shift O)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11M5 8h8.5M5 12.5h8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="2.6" cy="8" r=".9" fill="currentColor"/><circle cx="2.6" cy="12.5" r=".9" fill="currentColor"/></svg><span>Outline</span></button>
+      <button role="tab" data-view="git" id="vbGit" aria-label="Source control" title="Source control (Ctrl Shift G)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4.5" cy="3.5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="4.5" cy="12.5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="11.5" cy="5.5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 5.2v5.6M11.5 7.2c0 2.6-2.5 2.8-5.4 4.4" fill="none" stroke="currentColor" stroke-width="1.3"/></svg><span>Git</span><i class="badge" id="gitBadge" hidden></i></button>
+      <button role="tab" data-view="debug" id="vbDebug" aria-label="Debug" title="Debug (Ctrl Shift D)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="9.2" rx="3.6" ry="4.3" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 5v8.5M4.4 8H1.8M14.2 8h-2.6M4.6 11.6l-2 1.4M11.4 11.6l2 1.4M5.6 5.4L4 3.6M10.4 5.4L12 3.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>Debug</span><i class="badge live" id="dbgBadge" hidden></i></button>
+    </div>
+    <div class="sview" id="vFiles">
+    <div class="side-head"><b id="rootName">EXPLORER</b>
+      <button class="ibtn" id="bNewFile" title="New file (Ctrl N)" aria-label="New file"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.8h5l3.2 3.2v9.2H4z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 7.5v4M6 9.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button>
+      <button class="ibtn" id="bNewFolder" title="New folder (Ctrl Alt N)" aria-label="New folder"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.8 4.2c0-.6.4-1 1-1h3.4l1.4 1.5h5.6c.6 0 1 .4 1 1v6.6c0 .6-.4 1-1 1H2.8c-.6 0-1-.4-1-1z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v3.6M6.2 9h3.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button>
+      <button class="ibtn" id="bRefresh" title="Refresh" aria-label="Refresh"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v2.8h-2.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="ibtn" id="bCollapse" title="Collapse all" aria-label="Collapse all folders"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 10l4-3 4 3M4 6l4-3 4 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" transform="rotate(180 8 8)"/></svg></button>
+    </div>
+    <div class="filter"><input type="search" id="treeFilter" placeholder="Filter files" aria-label="Filter files" spellcheck="false"></div>
+    <nav class="tree" id="tree" role="tree" aria-label="Files"></nav>
+    </div>
+    <div class="sview" id="vOutline" hidden>
+      <div class="side-head"><b id="outlineName">OUTLINE</b></div>
+      <div class="filter"><input type="search" id="outlineFilter" placeholder="Filter symbols" aria-label="Filter symbols" spellcheck="false"></div>
+      <nav class="tree" id="outline" role="tree" aria-label="Symbols in this file"></nav>
+    </div>
+    <div class="sview" id="vGit" hidden><div class="scroll" id="git"></div></div>
+    <div class="sview" id="vDebug" hidden><div class="scroll" id="debug"></div></div>
+    <div class="vsplit" id="sideSplit" aria-hidden="true"></div>
+  </aside>
+
+  <section class="main" aria-label="Editor">
+    <div class="tabs" id="tabs" role="tablist" aria-label="Open files"></div>
+    <div class="crumbs" id="crumbs"></div>
+    <div class="panes" id="panes">
+      <div class="pane" id="pane0">
+        <div class="phead" hidden></div>
+        <div class="cm-changedbar" hidden></div>
+        <div class="editor" id="editor"></div>
+        <div class="page" id="welcome"></div>
+        <div class="page" id="settings" hidden></div>
+        <div class="page diffpage" id="diff" hidden></div>
+      </div>
+      <div class="psplit" id="paneSplit" hidden aria-hidden="true"></div>
+      <div class="pane" id="pane1" hidden>
+        <div class="phead"></div>
+        <div class="cm-changedbar" hidden></div>
+        <div class="editor" id="editor2"></div>
+      </div>
+    </div>
+    <div class="panel" id="panel" hidden>
+      <div class="hsplit" id="panelSplit" aria-hidden="true"></div>
+      <div class="ptabs">
+        <button data-ptab="output" id="ptOutput">Output</button>
+        <button data-ptab="problems" id="ptProblems">Problems</button>
+        <button data-ptab="refs" id="ptRefs">References</button>
+        <button data-ptab="terminal" id="ptTerminal">Terminal</button>
+        <button data-ptab="dconsole" id="ptDconsole">Debug console</button>
+        <span class="sp"></span>
+        <span class="termtabs" id="termTabs"></span>
+        <button class="ibtn" id="bNewTerm" title="New terminal" aria-label="New terminal" hidden><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+        <button class="ibtn" id="bKillTerm" title="Close terminal" aria-label="Close terminal" hidden><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 4.5h9M6.5 4.5V3h3v1.5M4.8 4.5l.7 8.5h5l.7-8.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>
+        <button class="ibtn" id="bClearOut" title="Clear output" aria-label="Clear output"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.2 11.8l7.6-7.6" stroke="currentColor" stroke-width="1.3"/></svg></button>
+        <button class="ibtn" id="bClosePanel" title="Close panel (Ctrl J)" aria-label="Close panel"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      </div>
+      <pre class="out" id="out" tabindex="0" aria-label="Output"></pre>
+      <form class="stdin" id="stdinForm" hidden autocomplete="off">
+        <label for="stdinIn">Input</label>
+        <input id="stdinIn" spellcheck="false" placeholder="Your program is running. Type here and press Enter to send it a line.">
+        <button type="submit" class="btn">Send</button>
+        <button type="button" class="btn plain" id="bEndInput" title="Close the program's input, like Ctrl+Z then Enter in a Windows terminal">End input</button>
+      </form>
+      <div class="problems" id="problems" tabindex="-1" aria-label="Problems" hidden></div>
+      <div class="problems" id="refs" tabindex="-1" aria-label="References" hidden></div>
+      <div class="terms" id="terms" hidden></div>
+      <div class="dcon" id="dcon" hidden>
+        <pre class="out" id="dconOut" tabindex="0" aria-label="Debug console"></pre>
+        <form class="stdin" id="dconForm" autocomplete="off">
+          <label for="dconIn">Evaluate</label>
+          <input id="dconIn" spellcheck="false" placeholder="An expression to evaluate while the program is paused, then Enter">
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <footer class="status" id="statusbar" role="toolbar" aria-label="Status bar">
+    <button id="stToggle" aria-label="Toggle explorer"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 2.5v11" stroke="currentColor" stroke-width="1.3"/></svg></button>
+    <span class="seg proj" id="stProj" hidden></span>
+    <button id="stBranch" class="branch" hidden></button>
+    <span id="stTasks" class="tasks"></span>
+    <button id="stStop" class="stop" hidden><svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><rect x="1" y="1" width="8" height="8" rx="1" fill="currentColor"/></svg>Stop</button>
+    <span class="seg" id="stTask"></span>
+    <span id="stDebug" class="dbgbar" hidden></span>
+    <span class="sp"></span>
+    <button id="stProblems" title="Problems (Ctrl Shift M)"></button>
+    <button id="stServer" hidden></button>
+    <span class="seg" id="stPos"></span>
+    <span class="seg" id="stLang"></span>
+    <button id="stSearch"></button>
+    <button id="stSettings" aria-label="Settings"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8L3.4 3.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button>
+  </footer>
+</div>
+
+<div class="overlay" id="palOv" hidden><div class="pal" role="dialog" aria-modal="true" aria-label="Command palette">
+  <div class="pal-head" id="palHead"></div>
+  <input type="text" id="palIn" autocomplete="off" spellcheck="false" aria-label="Search">
+  <div class="res" id="palRes" role="listbox"></div>
+</div></div>
+<div class="menu" id="menu" role="menu" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

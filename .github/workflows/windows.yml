@@ -1,0 +1,39 @@
+# Builds the Windows installer and a portable .exe on every push.
+# Download them from the run's page: Actions tab → the latest run → Artifacts.
+name: Windows build
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - run: npm run tauri build
+
+      - name: Collect the installer and the portable exe
+        shell: pwsh
+        run: ./scripts/collect.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: release/
+          if-no-files-found: error
