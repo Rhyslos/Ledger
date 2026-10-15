@@ -194,6 +194,7 @@ export function initDebugger(app) {
   on("task-artifact", (e) => { artifacts.push(e.payload); if (artifacts.length > 200) artifacts.shift(); });
   const dllLines = [];
   on("task-line", (e) => {
+    if (e.payload.partial) return;
     const m = /^\s*([\w.-]+) -> (.+\.(?:dll|exe))\s*$/i.exec(e.payload.text.replace(/\x1b\[[0-9;]*m/g, ""));
     if (m) { dllLines.push({ run: e.payload.run, name: m[1], path: m[2].trim() }); if (dllLines.length > 200) dllLines.shift(); }
   });
