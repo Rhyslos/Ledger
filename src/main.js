@@ -108,6 +108,9 @@ function saveSession() {
 }
 
 // ---------- editor look ----------
+// "cm-selecting" on the editor while any text is selected (see .cm-activeLine in the theme).
+const selectingClass = EditorView.editorAttributes.compute(["selection"], (st) => (st.selection.ranges.some((r) => !r.empty) ? { class: "cm-selecting" } : {}));
+
 const hl = HighlightStyle.define([
   { tag: [t.keyword, t.modifier, t.definitionKeyword, t.moduleKeyword, t.operatorKeyword], color: "var(--syn-kw)", fontWeight: "var(--syn-kw-weight)" },
   { tag: t.controlKeyword, color: "var(--syn-ctl)" },
@@ -141,6 +144,8 @@ const theme = EditorView.theme({
   ".cm-gutters": { backgroundColor: "var(--bg)", color: "var(--faint)", border: "none" },
   ".cm-lineNumbers .cm-gutterElement": { padding: "0 8px 0 18px" },
   ".cm-activeLine": { backgroundColor: "var(--line-hl)" },
+  // The current line's background sits above the selection, so it steps aside while text is selected.
+  "&.cm-selecting .cm-activeLine": { backgroundColor: "transparent" },
   ".cm-activeLineGutter": { backgroundColor: "var(--line-hl)", color: "var(--muted)" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
   "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": { backgroundColor: "var(--select) !important" },
@@ -588,7 +593,7 @@ function extensionsFor(path, b) {
   return [
     lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), history(), foldGutter(), drawSelection(), dropCursor(),
     EditorState.allowMultipleSelections.of(true), indentOnInput(), syntaxHighlighting(hl), bracketMatching(), closeBrackets(),
-    rectangularSelection(), crosshairCursor(), highlightActiveLine(), highlightSelectionMatches(), search({ top: true }),
+    rectangularSelection(), crosshairCursor(), highlightActiveLine(), selectingClass, highlightSelectionMatches(), search({ top: true }),
     cfg.of(cfgExt()), infoField, xcfg.of(xExt(path, b)),
     autocompletion({
       override: [...(hasServer ? [completionSource(path)] : L.complete ? [L.complete] : []), ...(snippets ? [snippets.source(b.lang, L.languageId)] : [])],
