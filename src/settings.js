@@ -27,6 +27,7 @@ export const DEFAULTS = {
   csharpServer: "csharp-ls",
   csharpArgs: "",
   godot: "",
+  lust: "lust",
   terminalShell: "",
   debugRust: "",
   debugCsharp: "",
@@ -84,7 +85,7 @@ export function initSettings(c) { ctx = c; }
 export const refreshSettingsTools = () => refreshTools();
 
 async function refreshTools() {
-  const names = { cargo: "cargo", ra: settings.rustAnalyzer || "rust-analyzer", dotnet: "dotnet", cs: settings.csharpServer || "csharp-ls", godot: settings.godot, git: "git" };
+  const names = { cargo: "cargo", ra: settings.rustAnalyzer || "rust-analyzer", dotnet: "dotnet", cs: settings.csharpServer || "csharp-ls", godot: settings.godot, git: "git", lust: settings.lust || "lust" };
   const out = {};
   await Promise.all(Object.entries(names).map(async ([k, n]) => { out[k] = n ? await invoke("tool_info", { name: n }).catch(() => null) : null; }));
   out.lldb = await ctx.debuggerFor?.("rust").catch(() => null);
@@ -158,6 +159,10 @@ export function settingsHtml() {
       ${row("Server arguments", text("sCsArgs", "csharpArgs", "none"), "Separated by spaces.", "sCsArgs")}
     </section>
 
+    <section aria-labelledby="sLust"><h2 id="sLust">Lust</h2>
+      ${row("lust", text("sLustPath", "lust", "lust") + `<div class="tool">${found(tools.lust, 'Run build.cmd in the <a href="https://github.com/Rhyslos/Lust" target="_blank">Lust repo</a>, then put the full path to its bin\\lust.exe here.')}</div>`, "Runs .lust files (Run, Check, Build) and checks them for mistakes when you save. A name on PATH or a full path to lust.exe.", "sLustPath")}
+    </section>
+
     <section aria-labelledby="sGodot"><h2 id="sGodot">Godot</h2>
       ${row("Godot program", `<div class="pick">${text("sGodotPath", "godot", "C:\\Godot\\Godot_v4.x-stable_mono_win64.exe")}<button class="btn" data-act="godot-browse">Browse…</button></div><div class="tool">${settings.godot ? found(tools.godot, "That file wasn't found.") : ""}</div>`, "Used by Play. Pick the .NET (mono) build if your project uses C#.", "sGodotPath")}
       <div class="callout">
@@ -203,7 +208,7 @@ export function wireSettings(root, rerender) {
     if (el.type === "number") { v = parseFloat(v); if (!isFinite(v)) return; v = Math.min(+el.max || 99, Math.max(+el.min || 1, v)); }
     if (key === "tabSize") v = +v;
     setSetting(key, v);
-    if (["rustAnalyzer", "csharpServer", "godot", "debugRust", "debugCsharp"].includes(key)) refreshTools().then(() => rerender(true));
+    if (["rustAnalyzer", "csharpServer", "godot", "debugRust", "debugCsharp", "lust"].includes(key)) refreshTools().then(() => rerender(true));
   };
   root.oninput = (ev) => {
     if (ev.target.id === "sKeyFilter") { filter = ev.target.value; rerender(true); refocus("#sKeyFilter"); }

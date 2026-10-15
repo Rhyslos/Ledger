@@ -1056,6 +1056,28 @@ async fn git(cwd: String, args: Vec<String>) -> Res<Captured> {
     .map_err(err)?
 }
 
+/// Runs a tool and returns what it printed, without a console window.
+/// Used to check .lust files with `lust check` after they're saved.
+#[tauri::command]
+async fn run_capture(cwd: String, program: String, args: Vec<String>) -> Res<Captured> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let exe = if is_bare(&program) { find_tool(&program) } else { PathBuf::from(&program) };
+        let out = command_at(&exe)
+            .args(&args)
+            .current_dir(&cwd)
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| format!("Couldn't run {program} ({e})."))?;
+        Ok(Captured {
+            code: out.status.code().unwrap_or(-1),
+            out: String::from_utf8_lossy(&out.stdout).to_string(),
+            err: String::from_utf8_lossy(&out.stderr).to_string(),
+        })
+    })
+    .await
+    .map_err(err)?
+}
+
 // ---------- web (dependency versions, debugger downloads) ----------
 
 fn agent() -> ureq::Agent {
@@ -1220,6 +1242,7 @@ pub fn run() {
             term_resize,
             term_close,
             git,
+            run_capture,
             http_get,
             debugger_path,
             install_debugger,
