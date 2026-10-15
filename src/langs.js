@@ -87,8 +87,8 @@ const godotResource = {
 // Lust always uses the quiet colours (which every language can use too, with
 // Settings › Code colours): the words that give a program its shape (class,
 // object, has, method…) in the logo's red, states in marine green (the word
-// state and a state's name; its options stay plain), classes and objects (names
-// with a capital) in a soft blue, types muted, questions and loops in a lighter
+// state and a state's name; its options stay plain), classes (names with a
+// capital) in a soft blue, objects (Game:start(), Farm.gold) in orange, types muted, questions and loops in a lighter
 // red, comments green, text and numbers sand, punctuation grey, the rest plain. Structure, states and the names
 // being declared are a touch heavier (500), never fully bold.
 const LUST_CONTROL = "is then or either loop stop skip give";
@@ -109,7 +109,8 @@ const LT = {
   punct: Tag.define(),
   plain: Tag.define(),
   state: Tag.define(),      // state, and a state's name where it's declared
-  cls: Tag.define(),        // classes and objects: names that start with a capital (Player, Game)
+  cls: Tag.define(),        // classes: names that start with a capital (Player, new Player)
+  obj: Tag.define(),        // objects: object Game, and Game:start() or Farm.gold
 };
 const lustStyle = HighlightStyle.define([
   { tag: LT.structure, color: "var(--lust-red)", fontWeight: "500" },
@@ -117,6 +118,7 @@ const lustStyle = HighlightStyle.define([
   { tag: LT.name, color: "var(--ink)", fontWeight: "500" },
   { tag: LT.state, color: "var(--lust-state)", fontWeight: "500" },
   { tag: LT.cls, color: "var(--lust-class)" },
+  { tag: LT.obj, color: "var(--lust-object)" },
   { tag: LT.type, color: "var(--lust-type)" },
   { tag: LT.value, color: "var(--lust-value)" },
   { tag: LT.comment, color: "var(--lust-comment)", fontStyle: "italic" },
@@ -132,7 +134,7 @@ const lustMode = {
   // a state's [ options ] while inside them.
   startState: () => ({ depth: 0, def: null, after: null, opts: null }),
   copyState: (s) => ({ ...s }),
-  tokenTable: { lustStructure: LT.structure, lustFlow: LT.flow, lustName: LT.name, lustType: LT.type, lustValue: LT.value, lustComment: LT.comment, lustPunct: LT.punct, lustPlain: LT.plain, lustState: LT.state, lustClass: LT.cls },
+  tokenTable: { lustStructure: LT.structure, lustFlow: LT.flow, lustName: LT.name, lustType: LT.type, lustValue: LT.value, lustComment: LT.comment, lustPunct: LT.punct, lustPlain: LT.plain, lustState: LT.state, lustClass: LT.cls, lustObject: LT.obj },
   token(stream, st) {
     if (stream.eatSpace()) return null;
     if (stream.match("//")) { stream.skipToEnd(); return "lustComment"; }
@@ -154,11 +156,15 @@ const lustMode = {
       if (word === "true" || word === "nothing") return "lustValue";
       if (word === "not" || word === "in") return "lustFlow";
       if (LK.control.has(word)) return "lustFlow";
-      if (LK.define.has(word)) { st.def = word === "class" || word === "object" ? "type" : word === "method" || word === "do" ? "fn" : null; return "lustStructure"; }
+      if (LK.define.has(word)) { st.def = word === "class" ? "type" : word === "object" ? "obj" : word === "method" || word === "do" ? "fn" : null; return "lustStructure"; }
       if (LK.module.has(word)) return "lustStructure";
       if (LK.types.has(word)) return "lustType";
-      if (st.def === "type") { st.def = null; return "lustClass"; }      // class Player, object Game
-      if (/^[A-Z]/.test(word) && after !== "." && after !== ":") return "lustClass";   // Player ada = new Player; Game:start()
+      if (st.def === "type") { st.def = null; return "lustClass"; }      // class Player
+      if (st.def === "obj") { st.def = null; return "lustObject"; }      // object Game
+      if (/^[A-Z]/.test(word) && after !== "." && after !== ":") {
+        // An object is used directly (Game:start(), Farm.gold); a class only as a type (Player ada = new Player).
+        return stream.match(/^\s*[:.]/, false) ? "lustObject" : "lustClass";
+      }
       const call = stream.match(/^\s*\(/, false);
       if (st.def === "fn" && call) { st.def = null; return "lustName"; }
       return "lustPlain";
