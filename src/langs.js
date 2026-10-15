@@ -1,6 +1,8 @@
 // Every file type Ledger knows: how to highlight it, which language server
 // (if any) understands it, and what colour its dot is in the explorer.
-import { StreamLanguage, LanguageSupport } from "@codemirror/language";
+import { StreamLanguage, LanguageSupport, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { Tag } from "@lezer/highlight";
+import { Prec } from "@codemirror/state";
 import { rust, rustLanguage } from "@codemirror/lang-rust";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
@@ -80,15 +82,40 @@ const godotResource = {
 
 // ----- Lust (.lust) -----
 // Lust is our own language: C#'s skeleton, a Lua accent, and checks written as
-// questions (`is hp 0? then { } or { }`). Highlighting only for now; Run comes
-// with the compiler.
+// questions (`is hp 0? then { } or { }`).
+//
+// Lust has its own quiet colours rather than the shared theme: the words that
+// give a program its shape (class, object, state, has, method…) in the logo's
+// red, questions and loops in a lighter red, comments green, text and numbers
+// sand, punctuation grey, and everything else plain.
 const LUST_CONTROL = "is then or either loop stop skip give";
-const LUST_DEFINE = "class object method do has state new";
+const LUST_DEFINE = "class object method do has state new like";
 const LUST_MODULE = "send fetch get end";
 const LUST_TYPES = "int float string truth array cArray";
-const LUST_BUILTINS = "print wait random";
+const LUST_BUILTINS = "print wait random ask";
 const lustSet = (s) => new Set(s.split(" "));
 const LK = { control: lustSet(LUST_CONTROL), define: lustSet(LUST_DEFINE), module: lustSet(LUST_MODULE), types: lustSet(LUST_TYPES), builtins: lustSet(LUST_BUILTINS) };
+
+const LT = {
+  structure: Tag.define(),  // class object state has method do like new send fetch get end
+  flow: Tag.define(),       // is then or either loop stop skip give not in ?
+  name: Tag.define(),       // the name being declared: class Player, method hurt
+  type: Tag.define(),       // int float string truth array cArray
+  value: Tag.define(),      // "text", 42, true, nothing
+  comment: Tag.define(),
+  punct: Tag.define(),
+  plain: Tag.define(),
+};
+const lustStyle = HighlightStyle.define([
+  { tag: LT.structure, color: "var(--lust-red)", fontWeight: "600" },
+  { tag: LT.flow, color: "var(--lust-flow)" },
+  { tag: LT.name, color: "var(--ink)", fontWeight: "600" },
+  { tag: LT.type, color: "var(--lust-type)" },
+  { tag: LT.value, color: "var(--lust-value)" },
+  { tag: LT.comment, color: "var(--lust-comment)", fontStyle: "italic" },
+  { tag: LT.punct, color: "var(--lust-punct)" },
+  { tag: LT.plain, color: "var(--ink)" },
+]);
 
 const lustMode = {
   name: "lust",
@@ -97,43 +124,37 @@ const lustMode = {
   // punctuation that matters for the next word (":" or ".").
   startState: () => ({ depth: 0, def: null, after: null }),
   copyState: (s) => ({ ...s }),
+  tokenTable: { lustStructure: LT.structure, lustFlow: LT.flow, lustName: LT.name, lustType: LT.type, lustValue: LT.value, lustComment: LT.comment, lustPunct: LT.punct, lustPlain: LT.plain },
   token(stream, st) {
     if (stream.eatSpace()) return null;
-    if (stream.match("//")) { stream.skipToEnd(); return "lineComment"; }
+    if (stream.match("//")) { stream.skipToEnd(); return "lustComment"; }
     const after = st.after;
     st.after = null;
-    if (stream.match(/^"(?:[^"\\]|\\.)*"?/)) return "string";
-    if (stream.match(/^\d+(?:\.\d+)?/)) return "number";
+    if (stream.match(/^"(?:[^"\\]|\\.)*"?/)) return "lustValue";
+    if (stream.match(/^\d+(?:\.\d+)?/)) return "lustValue";
     const w = stream.match(/^[A-Za-z_]\w*/);
     if (w) {
       const word = w[0];
-      if (after === ":") return stream.match(/^\s*\(/, false) ? "propertyName.function" : "propertyName";
-      if (after === ".") return stream.match(/^\s*\(/, false) ? "propertyName.function" : "propertyName";
-      if (word === "true") return "bool";
-      if (word === "nothing") return "atom";
-      if (word === "not") return "operatorKeyword";
-      if (word === "in") return "controlKeyword";
-      if (LK.control.has(word)) return "controlKeyword";
-      if (LK.define.has(word)) { st.def = word === "class" || word === "object" ? "type" : word === "method" || word === "do" ? "fn" : null; return "definitionKeyword"; }
-      if (LK.module.has(word)) return "moduleKeyword";
-      if (LK.types.has(word)) return "typeName";
-      if (st.def === "type") { st.def = null; return "className.definition"; }
+      if (after === ":" || after === ".") return "lustPlain";
+      if (word === "true" || word === "nothing") return "lustValue";
+      if (word === "not" || word === "in") return "lustFlow";
+      if (LK.control.has(word)) return "lustFlow";
+      if (LK.define.has(word)) { st.def = word === "class" || word === "object" ? "type" : word === "method" || word === "do" ? "fn" : null; return "lustStructure"; }
+      if (LK.module.has(word)) return "lustStructure";
+      if (LK.types.has(word)) return "lustType";
+      if (st.def === "type") { st.def = null; return "lustName"; }
       const call = stream.match(/^\s*\(/, false);
-      if (st.def === "fn" && call) { st.def = null; return "variableName.function.definition"; }
-      if (/^[A-Z]/.test(word)) return "className";
-      if (LK.builtins.has(word)) return "variableName.standard";
-      return call ? "variableName.function" : "variableName";
+      if (st.def === "fn" && call) { st.def = null; return "lustName"; }
+      return "lustPlain";
     }
     const ch = stream.next();
-    if (ch === "{" || ch === "[") { st.depth++; st.def = null; return "bracket"; }
-    if (ch === "}" || ch === "]") { st.depth = Math.max(0, st.depth - 1); return "bracket"; }
-    if (ch === "(" || ch === ")") { st.def = null; return "bracket"; }
-    if (ch === "?") return "controlKeyword";
-    if (ch === ":" || ch === ".") { st.after = ch; return "operator"; }
-    if (ch === ";" || ch === ",") { st.def = null; return "separator"; }
-    if (ch === "#") return "operator";
-    if (/[=<>!+\-*\/%&|]/.test(ch)) { stream.eatWhile(/[=<>&|]/); return "operator"; }
-    return null;
+    if (ch === "{" || ch === "[") { st.depth++; st.def = null; return "lustPunct"; }
+    if (ch === "}" || ch === "]") { st.depth = Math.max(0, st.depth - 1); return "lustPunct"; }
+    if (ch === "(" || ch === ")") { st.def = null; return "lustPunct"; }
+    if (ch === "?") return "lustFlow";
+    if (ch === ":" || ch === ".") { st.after = ch; return "lustPunct"; }
+    if (ch === ";" || ch === ",") { st.def = null; return "lustPunct"; }
+    return "lustPunct";
   },
   indent(st, textAfter, cx) {
     return Math.max(0, st.depth - (/^\s*[}\]]/.test(textAfter) ? 1 : 0)) * cx.unit;
@@ -180,7 +201,7 @@ export const LANGS = {
   rust: { name: "Rust", dot: "rs", server: "rust", languageId: "rust", ext: () => [rust(), rustLanguage.data.of({ closeBrackets: { brackets: ["(", "[", "{", '"'] } })] },
   csharp: { name: "C#", dot: "cs", server: "csharp", languageId: "csharp", ext: () => legacy(csharp, { closeBrackets: { brackets: ["(", "[", "{", '"', "'"] }, commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }) },
   gdshader: { name: "Godot shader", dot: "shader", ext: () => new LanguageSupport(StreamLanguage.define(gdshaderMode)), complete: gdshaderCompletions },
-  lust: { name: "Lust", dot: "lust", ext: () => new LanguageSupport(StreamLanguage.define(lustMode)), complete: lustCompletions },
+  lust: { name: "Lust", dot: "lust", ext: () => [new LanguageSupport(StreamLanguage.define(lustMode)), Prec.high(syntaxHighlighting(lustStyle))], complete: lustCompletions },
   gdscript: { name: "GDScript", dot: "gd", ext: () => legacy(python, { commentTokens: { line: "#" } }) },
   godot: { name: "Godot resource", dot: "godot", ext: () => legacy(godotResource) },
   toml: { name: "TOML", dot: "toml", ext: () => legacy(toml) },
