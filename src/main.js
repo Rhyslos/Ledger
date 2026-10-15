@@ -1508,7 +1508,7 @@ function renderWelcome() {
   const hadFocus = w.contains(document.activeElement);
   w.innerHTML = `<div class="wi">
     <h1>${S.root ? esc(base(S.root)) : esc(APP_NAME)}</h1>
-    <p class="lede">${S.root ? `Pick a file from the explorer, or press ${k("file.goto")} to jump to one.` : "An editor for Rust, C# and Godot."}</p>
+    <p class="lede">${S.root ? `Pick a file from the explorer, or press ${k("file.goto")} to jump to one.` : "An editor for Rust, C#, Godot and Lust."}</p>
     <div class="bar">${S.root
       ? `<button class="btn primary" data-w="find">Go to file <kbd>${k("file.goto")}</kbd></button>${taskKind() ? `<button class="btn" data-w="run">${esc(taskLabel("run"))} <kbd>${k("task.run")}</kbd></button>` : ""}<button class="btn" data-w="open">Open another folder</button>`
       : `<button class="btn primary" data-w="open">Open folder <kbd>${k("folder.open")}</kbd></button><button class="btn" data-w="new">New project</button>`}

@@ -778,7 +778,26 @@ async fn new_project(parent: String, name: String, kind: String) -> Res<String> 
         }
         std::fs::create_dir_all(&dir).map_err(|e| format!("Couldn't make the folder ({e})."))?;
         let main = format!(
-            "// {name}\n// F5 runs this file. Ctrl+Shift+B builds a program you can start without Ledger.\n\nstring who = ask(\"What's your name?\");\nprint(\"Hello, \" + who + \"!\");\n\nend\n"
+            "// {name}\n\
+             //\n\
+             // Welcome to Lust! F5 runs this file, and mistakes are underlined when you save.\n\
+             // Ctrl+Shift+B builds a program you can start without Ledger.\n\
+             // Want a window? Make a new .lust file, type window and press Tab.\n\
+             \n\
+             string who = ask(\"What's your name?\");\n\
+             \n\
+             is who \"\"? then {{\n\
+             \x20   who = \"friend\";\n\
+             }}\n\
+             \n\
+             print(\"Hello, \" + who + \"!\");\n\
+             \n\
+             loop (int n in [3, 2, 1]) {{\n\
+             \x20   print(n.text() + \"...\");\n\
+             }}\n\
+             print(\"Lift off!\");\n\
+             \n\
+             end\n"
         );
         std::fs::write(dir.join("main.lust"), main).map_err(|e| format!("Couldn't write main.lust ({e})."))?;
         return Ok(plain_path(&dir));
