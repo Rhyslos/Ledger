@@ -742,6 +742,19 @@ fn project_at(path: String, root: String) -> Option<Project> {
 /// `cargo new` / `dotnet new` style project creation. Returns the new folder.
 #[tauri::command]
 async fn new_project(parent: String, name: String, kind: String) -> Res<String> {
+    if kind == "lust" {
+        // A Lust project is just a folder with a main.lust; no tool needed to make it.
+        let dir = Path::new(&parent).join(&name);
+        if dir.exists() {
+            return Err(format!("There's already something called {name} there."));
+        }
+        std::fs::create_dir_all(&dir).map_err(|e| format!("Couldn't make the folder ({e})."))?;
+        let main = format!(
+            "// {name}\n// F5 runs this file. Ctrl+Shift+B builds a program you can start without Ledger.\n\nstring who = ask(\"What's your name?\");\nprint(\"Hello, \" + who + \"!\");\n\nend\n"
+        );
+        std::fs::write(dir.join("main.lust"), main).map_err(|e| format!("Couldn't write main.lust ({e})."))?;
+        return Ok(plain_path(&dir));
+    }
     let (tool, args): (&str, Vec<String>) = match kind.as_str() {
         "rust" => ("cargo", vec!["new".into(), name.clone()]),
         "rust-lib" => ("cargo", vec!["new".into(), "--lib".into(), name.clone()]),

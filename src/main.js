@@ -2450,10 +2450,10 @@ async function closeFolder() {
   renderMain(); renderProblems();
 }
 async function newProject() {
-  const kinds = ["Rust program", "Rust library", "C# console app", "C# class library"];
+  const kinds = ["Lust program", "Rust program", "Rust library", "C# console app", "C# class library"];
   const i = await choose("What kind of project?", kinds, true);
   if (i == null) return;
-  const kind = ["rust", "rust-lib", "console", "classlib"][i];
+  const kind = ["lust", "rust", "rust-lib", "console", "classlib"][i];
   // With a folder open (a course folder, say), new projects go inside it by default.
   let dir = null;
   if (S.root) {
@@ -2470,15 +2470,18 @@ async function newProject() {
     const p = norm(await invoke("new_project", { parent: dir, name, kind }));
     if (S.root && isUnder(p, S.root)) {
       // Keep the folder open and add the project to it.
-      const main = kind === "rust" ? "src/main.rs" : kind === "rust-lib" ? "src/lib.rs" : kind === "console" ? "Program.cs" : "Class1.cs";
+      const main = kind === "lust" ? "main.lust" : kind === "rust" ? "src/main.rs" : kind === "rust-lib" ? "src/lib.rs" : kind === "console" ? "Program.cs" : "Class1.cs";
       await revealInTree(join(p, main));
       S.open.add(p);
       await refreshTree();
-      startServer(kind.startsWith("rust") ? "rust" : "csharp");
+      if (kind !== "lust") startServer(kind.startsWith("rust") ? "rust" : "csharp");
       await openFile(join(p, main), null, { quiet: true });
       revealInTree(join(p, main));
       toast(`Created ${name}. Run, Build and Test use the project of the file you have open.`, 4000);
-    } else await openFolder(p);
+    } else if ((await openFolder(p)) && kind === "lust") {
+      await openFile(join(p, "main.lust"), null, { quiet: true });
+      revealInTree(join(p, "main.lust"));
+    }
   } catch (e) { toast(String(e), 6000); }
 }
 
