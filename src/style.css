@@ -22,7 +22,7 @@
   --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
   --r: 5px;
-  --code-size: 14px; --code-font: var(--mono); --ui-size: 14px;
+  --code-size: 14px; --code-font: var(--mono); --ui-size: 14px; --syn-kw-weight: normal;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -54,6 +54,7 @@
   --syn-macro: var(--lust-flow); --syn-str: var(--lust-value); --syn-num: var(--lust-value); --syn-com: var(--lust-comment);
   --syn-attr: var(--lust-type); --syn-life: var(--lust-value); --syn-const: var(--lust-state); --syn-punct: var(--lust-punct);
   --syn-self: var(--lust-flow);
+  --syn-kw-weight: 500;
 }
 
 * { box-sizing: border-box; }

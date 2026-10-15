@@ -89,7 +89,8 @@ const godotResource = {
 // object, has, method…) in the logo's red, states in marine green (the word
 // state, a state's name and options, and the option after state is), questions
 // and loops in a lighter red, comments green, text and numbers sand,
-// punctuation grey, and everything else plain. Nothing is bold.
+// punctuation grey, and everything else plain. Structure, states and the names
+// being declared are a touch heavier (500), never fully bold.
 const LUST_CONTROL = "is then or either loop stop skip give";
 const LUST_DEFINE = "class object method do has new like";
 const LUST_MODULE = "send fetch get end save load saved";
@@ -110,10 +111,10 @@ const LT = {
   state: Tag.define(),      // state, a state's name and options, the option after state is
 };
 const lustStyle = HighlightStyle.define([
-  { tag: LT.structure, color: "var(--lust-red)" },
+  { tag: LT.structure, color: "var(--lust-red)", fontWeight: "500" },
   { tag: LT.flow, color: "var(--lust-flow)" },
-  { tag: LT.name, color: "var(--ink)" },
-  { tag: LT.state, color: "var(--lust-state)" },
+  { tag: LT.name, color: "var(--ink)", fontWeight: "500" },
+  { tag: LT.state, color: "var(--lust-state)", fontWeight: "500" },
   { tag: LT.type, color: "var(--lust-type)" },
   { tag: LT.value, color: "var(--lust-value)" },
   { tag: LT.comment, color: "var(--lust-comment)", fontStyle: "italic" },

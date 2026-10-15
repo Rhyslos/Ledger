@@ -9,6 +9,7 @@ export const DEFAULTS = {
   theme: "system",
   fontSize: 14,
   fontFamily: "",
+  uiFont: "",
   uiSize: 14,
   statusBar: "bottom",
   codeColours: "quiet",
@@ -119,7 +120,8 @@ export function settingsHtml() {
     <section aria-labelledby="sAppear"><h2 id="sAppear">Appearance</h2>
       ${row("Theme", select("sTheme", "theme", [["system", "Match Windows"], ["light", "Light"], ["dark", "Dark"]]), "", "sTheme")}
       ${row("Editor font size", text("sFont", "fontSize", "14", "number", 'min="9" max="32" step="0.5"'), "Ctrl + and Ctrl - change it too; Ctrl 0 resets.", "sFont")}
-      ${row("Editor font", text("sFamily", "fontFamily", "IBM Plex Mono"), "Any installed font, like Cascadia Code or Consolas. Leave empty for the default.", "sFamily")}
+      ${row("Editor font", text("sFamily", "fontFamily", "IBM Plex Mono", "text", 'list="codeFonts"') + `<datalist id="codeFonts">${["Noto Sans Mono", "Noto Sans", "Cascadia Code", "Consolas", "JetBrains Mono", "Fira Code"].map((f) => `<option value="${f}">`).join("")}</datalist>`, "Pick one or type any installed font. Fonts made for code (Mono) keep columns lined up. Leave empty for the default.", "sFamily")}
+      ${row("Interface font", text("sUiFont", "uiFont", "IBM Plex Sans", "text", 'list="uiFonts"') + `<datalist id="uiFonts">${["Noto Sans", "Segoe UI", "Inter", "Arial"].map((f) => `<option value="${f}">`).join("")}</datalist>`, "The menus, tabs, side bar and settings. Pick one or type any installed font. Leave empty for the default.", "sUiFont")}
       ${row("Interface text size", text("sUi", "uiSize", "14", "number", 'min="11" max="20" step="0.5"'), "", "sUi")}
       ${row("Code colours", select("sCode", "codeColours", [["quiet", "Quiet, like Lust"], ["colourful", "Colourful"]]), "Quiet keeps code calm: structure in red, states and constants in green, the rest plain. Lust files are always quiet.", "sCode")}
       ${row("Status bar", select("sStatus", "statusBar", [["bottom", "Along the bottom"], ["top", "Along the top"]]), "The bar with Run, Build, problems and the cursor position.", "sStatus")}
