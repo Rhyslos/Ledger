@@ -26,6 +26,7 @@ import { Keymap, keyString } from "./keys.js";
 import { settings, DEFAULTS, loadSettings, setSetting, initSettings, settingsHtml, wireSettings, isRecording, refreshSettingsTools } from "./settings.js";
 import { APP_NAME } from "./app.js";
 import { bracketColors, indentGuides, stickyScroll } from "./editorx.js";
+import { followBottom } from "./follow.js";
 import { initTerminal } from "./terminal.js";
 import { initNav } from "./nav.js";
 import { initDeps } from "./deps.js";
@@ -1708,6 +1709,7 @@ async function startSteps(steps, onDone, onFail) {
   if (!S.root) { toast("Open a folder first."); return; }
   await saveAll();
   showPanel("output");
+  outFollow().reset(); // a new run always starts at the bottom
   S.queue = steps.slice(1);
   S.onDone = onDone || null;
   S.onFail = onFail || null;
@@ -1756,8 +1758,7 @@ listen("task-line", (e) => {
     open.innerHTML = ansiToHtml(text);
     open.dataset.text = text;
     if (!partial) delete partialOut[stream];
-    const out = $("out");
-    if (out.scrollHeight - out.scrollTop - out.clientHeight < 80) out.scrollTop = out.scrollHeight;
+    outFollow().changed();
     return;
   }
   const d = appendOut(ansiToHtml(text));
@@ -1791,6 +1792,7 @@ $("stdinForm").addEventListener("submit", async (ev) => {
   if (asking) {
     // A question is waiting on this line: the answer goes right after it, like in a terminal.
     asking.insertAdjacentHTML("beforeend", `<span class="in">${esc(text)}</span>`);
+    outFollow().changed();
     answered.stdout = (answered.stdout ?? "") + asking.dataset.text;
     delete partialOut.stdout;
   } else appendOut(`<span class="in">› ${esc(text)}</span>`); // before sending, so it shows above the reply
@@ -1934,7 +1936,7 @@ function renderPanel() {
   }
   $("stdinForm").hidden = !(S.ptab === "output" && S.running && S.runInput);
   $("bClearOut").hidden = !["output", "dconsole"].includes(S.ptab);
-  if (S.ptab === "output") $("out").scrollTop = $("out").scrollHeight;
+  if (S.ptab === "output") outFollow().changed();
   if (S.panel) panelTabs[S.ptab].shown?.();
 }
 function focusPanel(tab) {
@@ -1980,18 +1982,24 @@ $("panel").addEventListener("keydown", (ev) => {
     ev.preventDefault();
   }
 });
-$("bClearOut").onclick = () => { $(S.ptab === "dconsole" ? "dconOut" : "out").innerHTML = ""; };
+$("bClearOut").onclick = () => {
+  if (S.ptab === "dconsole") { $("dconOut").innerHTML = ""; return; }
+  $("out").innerHTML = "";
+  outFollow().reset();
+};
 $("bClosePanel").onclick = () => { S.panel = false; renderPanel(); };
 
 const OUT_MAX = 5000;
+// The Output panel follows its last line until you scroll up (see follow.js).
+let outFollowing = null;
+function outFollow() { return (outFollowing ||= followBottom($("out"))); }
 function appendOut(html) {
   const out = $("out");
-  const atEnd = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
   const d = document.createElement("div");
   d.innerHTML = html;
   out.append(d);
   while (out.childElementCount > OUT_MAX) out.firstElementChild.remove();
-  if (atEnd) out.scrollTop = out.scrollHeight;
+  outFollow().changed();
   return d;
 }
 

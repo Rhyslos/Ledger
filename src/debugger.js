@@ -9,6 +9,7 @@ import { on } from "./win.js";
 import { Dap } from "./dap.js";
 import { norm } from "./lsp.js";
 import { dotOf } from "./langs.js";
+import { followBottom } from "./follow.js";
 
 const isWin = navigator.userAgent.includes("Windows");
 const native = (p) => (isWin && /^[A-Za-z]:\//.test(p) ? p.replace(/\//g, "\\") : p);
@@ -178,15 +179,16 @@ export function initDebugger(app) {
   // ---------- the session ----------
   let ses = null; // { dap, cfg, state, threadId, frames, frame, scopes, vars: Map, open: Set, exitCode }
   const watches = () => (app.prefs.watches ||= []);
+  let dconFollowing = null;
+  const dconFollow = () => (dconFollowing ||= followBottom($("dconOut")));
   const dconsole = (html, cls = "") => {
     const out = $("dconOut");
-    const atEnd = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
     const d = document.createElement("div");
     if (cls) d.className = cls;
     d.innerHTML = html;
     out.append(d);
     while (out.childElementCount > 5000) out.firstElementChild.remove();
-    if (atEnd) out.scrollTop = out.scrollHeight;
+    dconFollow().changed();
   };
 
   // Artifacts (built programs) reported by cargo for each run.
@@ -285,6 +287,7 @@ export function initDebugger(app) {
     const dap = new Dap({ event: (n, b) => onEvent(n, b), exit: (why) => ended(why) });
     ses = { dap, cfg, state: "starting", threadId: null, frames: [], frame: 0, scopes: [], vars: new Map(), open: new Set(), configured: false };
     $("dconOut").innerHTML = "";
+    dconFollow().reset();
     dconsole(`<span class="dim">${esc(cfg.label)} · ${esc(app.base(cfg.program))}${cfg.args.length ? " " + esc(cfg.args.join(" ")) : ""}</span>`);
     app.showPanel("dconsole");
     app.showSideView("debug");
