@@ -514,6 +514,9 @@ struct Line {
     run: u64,
     stream: &'static str,
     text: String,
+    /// The line isn't finished yet (no line ending so far), like a question waiting for an
+    /// answer. The next line from the same stream carries on from it and replaces it.
+    partial: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -538,46 +541,71 @@ fn cargo_json(sub: &str) -> bool {
 
 fn pump(app: AppHandle, label: String, run: u64, stream: impl Read + Send + 'static, name: &'static str, cargo: bool) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        let mut r = BufReader::new(stream);
-        let mut buf = Vec::new();
+        let mut r = stream;
+        let mut chunk = [0u8; 8192];
+        // Bytes of the line being read, until its line ending arrives.
+        let mut pending: Vec<u8> = Vec::new();
         loop {
-            buf.clear();
-            match r.read_until(b'\n', &mut buf) {
+            let n = match r.read(&mut chunk) {
                 Ok(0) | Err(_) => break,
-                Ok(_) => {}
+                Ok(n) => n,
+            };
+            pending.extend_from_slice(&chunk[..n]);
+            while let Some(i) = pending.iter().position(|&b| b == b'\n') {
+                let line: Vec<u8> = pending.drain(..=i).collect();
+                emit_line(&app, &label, run, name, cargo, &line, false);
             }
-            let s = String::from_utf8_lossy(&buf);
-            let mut text = s.trim_end_matches(['\n', '\r']).to_string();
-            if cargo && name == "stdout" && text.starts_with('{') {
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
-                    match v.get("reason").and_then(|r| r.as_str()) {
-                        Some("compiler-message") => {
-                            text = v["message"]["rendered"].as_str().unwrap_or("").trim_end().to_string();
-                            if text.is_empty() {
-                                continue;
-                            }
-                        }
-                        Some("compiler-artifact") => {
-                            if let Some(path) = v["executable"].as_str() {
-                                let kind = v["target"]["kind"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect()).unwrap_or_default();
-                                let _ = app.emit_to(&label, "task-artifact", Artifact {
-                                    run,
-                                    path: path.to_string(),
-                                    name: v["target"]["name"].as_str().unwrap_or("").to_string(),
-                                    kind,
-                                    test: v["profile"]["test"].as_bool().unwrap_or(false),
-                                });
-                            }
-                            continue;
-                        }
-                        Some(_) => continue, // build plumbing
-                        None => {}
-                    }
+            // What's left has no line ending yet. Show it anyway (a program asking a question
+            // waits right here), except for cargo's JSON, which only makes sense whole.
+            if !pending.is_empty() && !cargo {
+                let valid = match std::str::from_utf8(&pending) {
+                    Ok(_) => pending.len(),
+                    Err(e) => e.valid_up_to(),
+                };
+                if valid > 0 {
+                    emit_line(&app, &label, run, name, cargo, &pending[..valid], true);
                 }
             }
-            let _ = app.emit_to(&label, "task-line", Line { run, stream: name, text });
+        }
+        if !pending.is_empty() {
+            let rest = std::mem::take(&mut pending);
+            emit_line(&app, &label, run, name, cargo, &rest, false);
         }
     })
+}
+
+/// Sends one line of output to the window (cargo's JSON is turned into its readable message first).
+fn emit_line(app: &AppHandle, label: &str, run: u64, name: &'static str, cargo: bool, bytes: &[u8], partial: bool) {
+    let s = String::from_utf8_lossy(bytes);
+    let mut text = s.trim_end_matches(['\n', '\r']).to_string();
+    if cargo && name == "stdout" && text.starts_with('{') {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+            match v.get("reason").and_then(|r| r.as_str()) {
+                Some("compiler-message") => {
+                    text = v["message"]["rendered"].as_str().unwrap_or("").trim_end().to_string();
+                    if text.is_empty() {
+                        return;
+                    }
+                }
+                Some("compiler-artifact") => {
+                    if let Some(path) = v["executable"].as_str() {
+                        let kind = v["target"]["kind"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect()).unwrap_or_default();
+                        let _ = app.emit_to(label, "task-artifact", Artifact {
+                            run,
+                            path: path.to_string(),
+                            name: v["target"]["name"].as_str().unwrap_or("").to_string(),
+                            kind,
+                            test: v["profile"]["test"].as_bool().unwrap_or(false),
+                        });
+                    }
+                    return;
+                }
+                Some(_) => return, // build plumbing
+                None => {}
+            }
+        }
+    }
+    let _ = app.emit_to(label, "task-line", Line { run, stream: name, text, partial });
 }
 
 /// Runs `program args` in `root`, streaming output as `task-line` events and

@@ -1727,7 +1727,35 @@ async function startStep(step) {
     renderStatus(); const f = S.onFail; S.onFail = S.onDone = null; f?.();
   }
 }
-listen("task-line", (e) => { if (e.payload.run === S.run) appendOut(ansiToHtml(e.payload.text)); });
+// A line can arrive in pieces: a program asking a question prints it without a line ending,
+// so it's shown at once (partial) and the rest of the line replaces it when it comes.
+const partialOut = {};
+// When you answer a question, the question stays as it was (with your answer next to it), and the
+// start of the line it began is left off what comes next: answered[stream] is that start.
+const answered = {};
+let pieceRun = null;
+listen("task-line", (e) => {
+  const { run, stream, partial } = e.payload;
+  let text = e.payload.text;
+  if (run !== S.run) return;
+  if (run !== pieceRun) { pieceRun = run; for (const k in partialOut) delete partialOut[k]; for (const k in answered) delete answered[k]; }
+  if (answered[stream] != null) {
+    if (text.startsWith(answered[stream])) text = text.slice(answered[stream].length);
+    if (!partial) delete answered[stream];
+    if (!text) return;
+  }
+  const open = partialOut[stream];
+  if (open?.isConnected) {
+    open.innerHTML = ansiToHtml(text);
+    open.dataset.text = text;
+    if (!partial) delete partialOut[stream];
+    const out = $("out");
+    if (out.scrollHeight - out.scrollTop - out.clientHeight < 80) out.scrollTop = out.scrollHeight;
+    return;
+  }
+  const d = appendOut(ansiToHtml(text));
+  if (partial) { partialOut[stream] = d; d.dataset.text = text; } else delete partialOut[stream];
+});
 listen("task-done", (e) => {
   if (e.payload.run !== S.run) return;
   const code = e.payload.run === S.stopped ? null : e.payload.code, secs = ((performance.now() - S.runStart) / 1000).toFixed(1);
@@ -1752,7 +1780,13 @@ function stopTask() { S.queue = []; if (S.running) S.stopped = S.run; invoke("ta
 $("stdinForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const inp = $("stdinIn"), text = inp.value;
-  appendOut(`<span class="in">› ${esc(text)}</span>`); // before sending, so it shows above the reply
+  const asking = partialOut.stdout?.isConnected ? partialOut.stdout : null;
+  if (asking) {
+    // A question is waiting on this line: the answer goes right after it, like in a terminal.
+    asking.insertAdjacentHTML("beforeend", `<span class="in">${esc(text)}</span>`);
+    answered.stdout = (answered.stdout ?? "") + asking.dataset.text;
+    delete partialOut.stdout;
+  } else appendOut(`<span class="in">› ${esc(text)}</span>`); // before sending, so it shows above the reply
   inp.value = "";
   try { await invoke("task_input", { text }); }
   catch (e) { toast(String(e)); }
@@ -1948,6 +1982,7 @@ function appendOut(html) {
   out.append(d);
   while (out.childElementCount > OUT_MAX) out.firstElementChild.remove();
   if (atEnd) out.scrollTop = out.scrollHeight;
+  return d;
 }
 
 function renderProblems() {
