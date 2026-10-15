@@ -67,6 +67,7 @@ export function initTerminal(app) {
       if (ev.ctrlKey && (ev.code === "KeyV" || (ev.shiftKey && ev.code === "KeyV"))) return false; // the browser's paste event does it
       return true;
     });
+    try { await document.fonts?.load?.(`${term.options.fontSize}px ${term.options.fontFamily}`); } catch {}
     try { fit.fit(); } catch {}
     let id;
     try {
@@ -139,8 +140,12 @@ export function initTerminal(app) {
     focus();
   }
 
-  // Keep the terminal sized to the panel.
-  new ResizeObserver(() => { const t = terms.get(cur); if (t && !$("terms").hidden) { try { t.fit.fit(); } catch {} } }).observe($("terms"));
+  // Keep the terminal sized to the panel, and to its font: rows are counted from the font's
+  // line height, so a font that finishes loading late would otherwise leave the last row
+  // (the prompt) hanging just below the bottom of the panel.
+  const refit = () => { const t = terms.get(cur); if (t && !$("terms").hidden) { try { t.fit.fit(); } catch {} } };
+  new ResizeObserver(refit).observe($("terms"));
+  document.fonts?.addEventListener?.("loadingdone", () => requestAnimationFrame(refit));
   app.panelTabs.terminal.focus = () => (terms.size ? focus() : show(true));
   app.panelTabs.terminal.shown = () => { if (!terms.size) create().then(() => requestAnimationFrame(focus)); else { const t = terms.get(cur); try { t?.fit.fit(); } catch {} } };
 
