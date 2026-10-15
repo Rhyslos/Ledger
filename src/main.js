@@ -27,6 +27,7 @@ import { settings, DEFAULTS, loadSettings, setSetting, initSettings, settingsHtm
 import { APP_NAME } from "./app.js";
 import { bracketColors, indentGuides, stickyScroll } from "./editorx.js";
 import { followBottom } from "./follow.js";
+import { smoothScrolling } from "./smooth.js";
 import { initTerminal } from "./terminal.js";
 import { initNav } from "./nav.js";
 import { initDeps } from "./deps.js";
@@ -583,7 +584,7 @@ let sticky = null;
 const xExt = (path, b) => [
   settings.bracketColors ? bracketColors : [],
   settings.indentGuides ? indentGuides : [],
-  settings.stickyScroll ? (sticky ||= stickyScroll(hl)) : [],
+  settings.stickyScroll ? (sticky ||= stickyScroll()) : [],
   ...extraExt.map((f) => f(path, b)),
 ];
 function reconfigureExtras() {
@@ -1870,7 +1871,9 @@ function applyTheme() {
   if (settings.theme === "light" || settings.theme === "dark") document.documentElement.dataset.theme = settings.theme;
   else delete document.documentElement.dataset.theme;
   document.documentElement.dataset.code = settings.codeColours === "colourful" ? "colourful" : "quiet";
+  document.documentElement.toggleAttribute("data-smooth-caret", !!settings.smoothCaret);
 }
+smoothScrolling(() => settings.smoothScroll && !matchMedia("(prefers-reduced-motion: reduce)").matches);
 function applyFonts() {
   const r = document.documentElement.style;
   r.setProperty("--code-size", settings.fontSize + "px");
@@ -1884,7 +1887,7 @@ function reconfigureAll() {
   for (const p of S.bufs.keys()) dispatchBuf(p, { effects: cfg.reconfigure(cfgExt()) });
 }
 function applySetting(key) {
-  if (key === "theme" || key === "codeColours") applyTheme();
+  if (key === "theme" || key === "codeColours" || key === "smoothCaret") applyTheme();
   if (["fontSize", "fontFamily", "uiFont", "uiSize"].includes(key)) applyFonts();
   if (key === "tabSize" || key === "wordWrap") reconfigureAll();
   if (key === "inlayHints") for (const p of S.bufs.keys()) refreshHints(p);

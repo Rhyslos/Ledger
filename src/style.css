@@ -417,3 +417,12 @@ kbd { font-family: var(--mono); font-size: .86em; color: var(--muted); }
 [style*="--t-lust)"] > .dot, .dot[style*="--t-lust)"] { width: 13px; height: 13px; border-radius: 3px; background: url("./assets/lust.svg") center / contain no-repeat; }
 .node[style*="--t-lust)"] > .dot { margin: 0 1.5px; }
 .li[style*="--t-lust)"] > .dot { margin: 4px 0 0 2px; }
+
+/* Smooth cursor (Settings › Editing): the cursor fades in and out instead of switching on and off,
+   and glides to where it goes. CodeMirror moves the same cursor element, so a transition is enough. */
+:root[data-smooth-caret] .cm-editor.cm-focused > .cm-scroller > .cm-cursorLayer { animation-timing-function: ease-in-out !important; }
+:root[data-smooth-caret] .cm-cursor-primary { transition: left 80ms ease-out, top 80ms ease-out, height 80ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-smooth-caret] .cm-editor.cm-focused > .cm-scroller > .cm-cursorLayer { animation-timing-function: steps(1) !important; }
+  :root[data-smooth-caret] .cm-cursor-primary { transition: none; }
+}
