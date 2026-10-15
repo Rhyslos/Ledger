@@ -1826,6 +1826,7 @@ function toggleExplorer(force) {
 function applyTheme() {
   if (settings.theme === "light" || settings.theme === "dark") document.documentElement.dataset.theme = settings.theme;
   else delete document.documentElement.dataset.theme;
+  document.documentElement.dataset.code = settings.codeColours === "colourful" ? "colourful" : "quiet";
 }
 function applyFonts() {
   const r = document.documentElement.style;
@@ -1838,7 +1839,7 @@ function reconfigureAll() {
   for (const p of S.bufs.keys()) dispatchBuf(p, { effects: cfg.reconfigure(cfgExt()) });
 }
 function applySetting(key) {
-  if (key === "theme") applyTheme();
+  if (key === "theme" || key === "codeColours") applyTheme();
   if (["fontSize", "fontFamily", "uiSize"].includes(key)) applyFonts();
   if (key === "tabSize" || key === "wordWrap") reconfigureAll();
   if (key === "inlayHints") for (const p of S.bufs.keys()) refreshHints(p);

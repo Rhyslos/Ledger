@@ -11,6 +11,7 @@ export const DEFAULTS = {
   fontFamily: "",
   uiSize: 14,
   statusBar: "bottom",
+  codeColours: "quiet",
   wordWrap: false,
   bracketColors: true,
   indentGuides: true,
@@ -120,6 +121,7 @@ export function settingsHtml() {
       ${row("Editor font size", text("sFont", "fontSize", "14", "number", 'min="9" max="32" step="0.5"'), "Ctrl + and Ctrl - change it too; Ctrl 0 resets.", "sFont")}
       ${row("Editor font", text("sFamily", "fontFamily", "IBM Plex Mono"), "Any installed font, like Cascadia Code or Consolas. Leave empty for the default.", "sFamily")}
       ${row("Interface text size", text("sUi", "uiSize", "14", "number", 'min="11" max="20" step="0.5"'), "", "sUi")}
+      ${row("Code colours", select("sCode", "codeColours", [["quiet", "Quiet, like Lust"], ["colourful", "Colourful"]]), "Quiet keeps code calm: structure in red, states and constants in green, the rest plain. Lust files are always quiet.", "sCode")}
       ${row("Status bar", select("sStatus", "statusBar", [["bottom", "Along the bottom"], ["top", "Along the top"]]), "The bar with Run, Build, problems and the cursor position.", "sStatus")}
     </section>
 
