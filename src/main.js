@@ -109,9 +109,11 @@ function saveSession() {
 
 // ---------- editor look ----------
 const hl = HighlightStyle.define([
-  { tag: [t.keyword, t.modifier, t.definitionKeyword, t.moduleKeyword, t.operatorKeyword], color: "var(--syn-kw)", fontWeight: "var(--syn-kw-weight)" },
+  { tag: [t.keyword, t.definitionKeyword, t.moduleKeyword, t.operatorKeyword], color: "var(--syn-kw)", fontWeight: "var(--syn-kw-weight)" },
+  { tag: t.modifier, color: "var(--syn-mod)" },
   { tag: t.controlKeyword, color: "var(--syn-ctl)" },
-  { tag: [t.typeName, t.className, t.namespace, t.standard(t.typeName)], color: "var(--syn-type)" },
+  { tag: [t.typeName, t.className, t.namespace], color: "var(--syn-class)" },
+  { tag: t.standard(t.typeName), color: "var(--syn-type)" },
   { tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName)), t.standard(t.variableName)], color: "var(--syn-fn)" },
   { tag: t.macroName, color: "var(--syn-macro)" },
   { tag: [t.string, t.special(t.string), t.character, t.regexp], color: "var(--syn-str)" },

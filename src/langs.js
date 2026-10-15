@@ -1,13 +1,13 @@
 // Every file type Ledger knows: how to highlight it, which language server
 // (if any) understands it, and what colour its dot is in the explorer.
 import { StreamLanguage, LanguageSupport, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { Tag } from "@lezer/highlight";
+import { Tag, tags as t } from "@lezer/highlight";
 import { Prec } from "@codemirror/state";
 import { rust, rustLanguage } from "@codemirror/lang-rust";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
-import { csharp, clike } from "@codemirror/legacy-modes/mode/clike";
+import { clike } from "@codemirror/legacy-modes/mode/clike";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
 import { xml } from "@codemirror/legacy-modes/mode/xml";
 import { python } from "@codemirror/legacy-modes/mode/python";
@@ -87,9 +87,9 @@ const godotResource = {
 // Lust always uses the quiet colours (which every language can use too, with
 // Settings › Code colours): the words that give a program its shape (class,
 // object, has, method…) in the logo's red, states in marine green (the word
-// state, a state's name and options, and the option after state is), questions
-// and loops in a lighter red, comments green, text and numbers sand,
-// punctuation grey, and everything else plain. Structure, states and the names
+// state and a state's name; its options stay plain), classes and objects (names
+// with a capital) in a soft blue, types muted, questions and loops in a lighter
+// red, comments green, text and numbers sand, punctuation grey, the rest plain. Structure, states and the names
 // being declared are a touch heavier (500), never fully bold.
 const LUST_CONTROL = "is then or either loop stop skip give";
 const LUST_DEFINE = "class object method do has new like";
@@ -108,13 +108,15 @@ const LT = {
   comment: Tag.define(),
   punct: Tag.define(),
   plain: Tag.define(),
-  state: Tag.define(),      // state, a state's name and options, the option after state is
+  state: Tag.define(),      // state, and a state's name where it's declared
+  cls: Tag.define(),        // classes and objects: names that start with a capital (Player, Game)
 };
 const lustStyle = HighlightStyle.define([
   { tag: LT.structure, color: "var(--lust-red)", fontWeight: "500" },
   { tag: LT.flow, color: "var(--lust-flow)" },
   { tag: LT.name, color: "var(--ink)", fontWeight: "500" },
   { tag: LT.state, color: "var(--lust-state)", fontWeight: "500" },
+  { tag: LT.cls, color: "var(--lust-class)" },
   { tag: LT.type, color: "var(--lust-type)" },
   { tag: LT.value, color: "var(--lust-value)" },
   { tag: LT.comment, color: "var(--lust-comment)", fontStyle: "italic" },
@@ -130,7 +132,7 @@ const lustMode = {
   // a state's [ options ] while inside them.
   startState: () => ({ depth: 0, def: null, after: null, opts: null }),
   copyState: (s) => ({ ...s }),
-  tokenTable: { lustStructure: LT.structure, lustFlow: LT.flow, lustName: LT.name, lustType: LT.type, lustValue: LT.value, lustComment: LT.comment, lustPunct: LT.punct, lustPlain: LT.plain, lustState: LT.state },
+  tokenTable: { lustStructure: LT.structure, lustFlow: LT.flow, lustName: LT.name, lustType: LT.type, lustValue: LT.value, lustComment: LT.comment, lustPunct: LT.punct, lustPlain: LT.plain, lustState: LT.state, lustClass: LT.cls },
   token(stream, st) {
     if (stream.eatSpace()) return null;
     if (stream.match("//")) { stream.skipToEnd(); return "lustComment"; }
@@ -143,11 +145,11 @@ const lustMode = {
       const word = w[0];
       // States: state = [idle, fighting [blocking]];  state season = […];  state is idle;
       if (word === "state") { st.def = "state"; return "lustState"; }
-      if (st.opts != null && st.depth >= st.opts) return "lustState";
+      if (st.opts != null && st.depth >= st.opts) return "lustPlain";   // the options themselves stay plain
       if (st.def === "state" && word === "is") { st.def = "stateIs"; return "lustFlow"; }
       if (st.def === "state" && (word === "in" || word === "not" || LK.control.has(word))) st.def = null;
       else if (st.def === "state") return "lustState";
-      if (st.def === "stateIs") return "lustState";   // stays on for fighting.blocking
+      if (st.def === "stateIs") return "lustPlain";   // state is fighting.blocking: plain, like the options
       if (after === ":" || after === ".") return "lustPlain";
       if (word === "true" || word === "nothing") return "lustValue";
       if (word === "not" || word === "in") return "lustFlow";
@@ -155,7 +157,8 @@ const lustMode = {
       if (LK.define.has(word)) { st.def = word === "class" || word === "object" ? "type" : word === "method" || word === "do" ? "fn" : null; return "lustStructure"; }
       if (LK.module.has(word)) return "lustStructure";
       if (LK.types.has(word)) return "lustType";
-      if (st.def === "type") { st.def = null; return "lustName"; }
+      if (st.def === "type") { st.def = null; return "lustClass"; }      // class Player, object Game
+      if (/^[A-Z]/.test(word) && after !== "." && after !== ":") return "lustClass";   // Player ada = new Player; Game:start()
       const call = stream.match(/^\s*\(/, false);
       if (st.def === "fn" && call) { st.def = null; return "lustName"; }
       return "lustPlain";
@@ -213,6 +216,95 @@ const lustCompletions = completeFromList([
   snip("get ${file}:${thing};", { label: "get", detail: "bring in one", type: "keyword" }),
 ]);
 
+// ----- C# -----
+// C#'s own colouring, made to read calmly: declarations and control flow in the
+// keyword colours, the many modifiers (public, static, readonly…) faded back,
+// your classes and types in the class colour, built-in types (int, string) muted,
+// and properties, which are PascalCase too, left plain so the class colour means
+// something. Tokens use the shared tags, so Settings › Code colours applies.
+const CS_DECL = words("class struct interface enum record namespace using delegate event operator implicit explicit new");
+const CS_MOD = words("public private protected internal static readonly const override virtual abstract sealed partial async extern unsafe volatile required init get set add remove params ref out in file scoped");
+const CS_FLOW = words("if else for foreach while do switch case default break continue return throw try catch finally await yield goto when lock checked unchecked fixed is as typeof sizeof nameof stackalloc with and or not");
+const CS_BUILTIN = words("bool byte sbyte char decimal double float int uint long ulong short ushort object string void var dynamic nint nuint");
+const CS_CONST = words("true false null");
+const csTable = {
+  csDecl: t.definitionKeyword, csMod: t.modifier, csFlow: t.controlKeyword, csBuiltin: t.standard(t.typeName),
+  csClass: t.className, csFn: t.function(t.variableName), csString: t.string, csNumber: t.number, csConst: t.bool,
+  csComment: t.lineComment, csMeta: t.meta, csThis: t.self, csPunct: t.punctuation, csPlain: t.variableName,
+};
+const csMode = {
+  name: "csharp",
+  // in: an unfinished comment or string carried to the next line ("comment", "verbatim", "raw").
+  // after: the last word or dot that matters for the next word. attr: inside [Attributes].
+  startState: () => ({ in: null, after: null, attr: 0, decl: false, depth: 0 }),
+  copyState: (s) => ({ ...s }),
+  tokenTable: csTable,
+  token(stream, st) {
+    if (st.in === "comment") { if (stream.skipTo("*/")) { stream.next(); stream.next(); st.in = null; } else stream.skipToEnd(); return "csComment"; }
+    if (st.in === "verbatim") { while (!stream.eol()) { if (stream.next() === '"') { if (stream.eat('"')) continue; st.in = null; break; } } return "csString"; }
+    if (st.in === "raw") { if (stream.skipTo('"""')) { stream.match('"""'); stream.match(/^"*/); st.in = null; } else stream.skipToEnd(); return "csString"; }
+    if (stream.sol() && stream.match(/^\s*#\w+/)) { stream.skipToEnd(); return "csMeta"; }
+    if (stream.eatSpace()) return null;
+    if (stream.match("//")) { stream.skipToEnd(); return "csComment"; }
+    if (stream.match("/*")) { st.in = "comment"; if (stream.skipTo("*/")) { stream.next(); stream.next(); st.in = null; } else stream.skipToEnd(); return "csComment"; }
+    if (stream.match(/^\$*"""/)) { st.in = "raw"; if (stream.skipTo('"""')) { stream.match('"""'); st.in = null; } else stream.skipToEnd(); return "csString"; }
+    if (stream.match(/^(\$@|@\$|@)"/)) { st.in = "verbatim"; while (!stream.eol()) { if (stream.next() === '"') { if (stream.eat('"')) continue; st.in = null; break; } } return "csString"; }
+    if (stream.match(/^\$?"(?:[^"\\]|\\.)*"?/)) return "csString";
+    if (stream.match(/^'(?:[^'\\]|\\.)*'?/)) return "csString";
+    if (stream.match(/^(?:0[xX][\da-fA-F_]+|0[bB][01_]+|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?)[fFdDmMuUlL]*/)) return "csNumber";
+    const w = stream.match(/^@?[A-Za-z_]\w*/);
+    if (w) {
+      const word = w[0];
+      const after = st.after;
+      st.after = word;
+      if (st.attr) return "csMeta";
+      if (after === "using" || (after === "." && st.usingLine)) { st.usingLine = true; return "csPlain"; }   // using System.Text;
+      if (after === "." || after === "?.") {
+        if (stream.match(/^\s*\(/, false)) return "csFn";
+        return stream.match(/^\s*</, false) ? "csClass" : "csPlain";
+      }
+      if (CS_CONST[word]) return "csConst";
+      if (word === "this" || word === "base") return "csThis";
+      if (CS_BUILTIN[word]) return "csBuiltin";
+      if (CS_DECL[word]) { st.decl = word !== "using" && word !== "new"; return "csDecl"; }
+      if (CS_MOD[word]) return "csMod";
+      if (CS_FLOW[word]) return "csFlow";
+      const call = stream.match(/^\s*\(/, false);
+      const upper = /^@?[A-Z]/.test(word) && !/^[A-Z0-9_]+$/.test(word.replace(/^@/, "")) || /^[A-Z]$/.test(word);
+      if (st.decl) { st.decl = false; return "csClass"; }        // class Player, enum Status
+      if (after === "new" && upper) return "csClass";            // new Player()
+      if (call) return "csFn";                                    // Attack(), take()
+      if (!upper) return "csPlain";
+      // A capitalised name is a type when a name, <, . or [ follows (Player p, List<Item>,
+      // Status.Dead, Item[]), or after : or < (class Player : Character, List<Item>).
+      // Otherwise it's a property or field (Hp -= 1, Name { get; }), and stays plain.
+      if (after === ":" || after === "<" || after === ",<" || stream.match(/^\s*(?:[A-Za-z_@.[]|<(?![=<])|\?\s*[A-Za-z_])/, false)) return "csClass";
+      return "csPlain";
+    }
+    const ch = stream.next();
+    st.after = ch === "." ? "." : ch === ":" ? ":" : ch === "<" ? "<" : ch === "," && st.after === "<" ? ",<" : null;
+    if (ch === "?" && stream.eat(".")) { st.after = "?."; return "csPunct"; }
+    if (ch === "{") st.depth++;
+    if (ch === "}") st.depth = Math.max(0, st.depth - 1);
+    if (ch === "[") {
+      // [Serializable], [Header("x")]: an attribute when it starts the line
+      if (st.attr) st.attr++;
+      else if (/^\s*$/.test(stream.string.slice(0, stream.pos - 1)) && stream.match(/^\s*[A-Za-z]/, false)) { st.attr = 1; return "csMeta"; }
+      return "csPunct";
+    }
+    if (ch === "]" && st.attr) { st.attr--; return "csMeta"; }
+    if (st.attr) return "csMeta";
+    if (ch === "{" || ch === ";" || ch === "(") { st.decl = false; st.usingLine = false; }
+    return "csPunct";
+  },
+  indent: (st, textAfter, cx) => Math.max(0, st.depth - (/^\s*}/.test(textAfter) ? 1 : 0)) * cx.unit,
+  languageData: {
+    commentTokens: { line: "//", block: { open: "/*", close: "*/" } },
+    closeBrackets: { brackets: ["(", "[", "{", '"', "'"] },
+    indentOnInput: /^\s*}$/,
+  },
+};
+
 // ----- the table -----
 const legacy = (mode, data) => {
   const lang = StreamLanguage.define(mode);
@@ -221,7 +313,7 @@ const legacy = (mode, data) => {
 
 export const LANGS = {
   rust: { name: "Rust", dot: "rs", server: "rust", languageId: "rust", ext: () => [rust(), rustLanguage.data.of({ closeBrackets: { brackets: ["(", "[", "{", '"'] } })] },
-  csharp: { name: "C#", dot: "cs", server: "csharp", languageId: "csharp", ext: () => legacy(csharp, { closeBrackets: { brackets: ["(", "[", "{", '"', "'"] }, commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }) },
+  csharp: { name: "C#", dot: "cs", server: "csharp", languageId: "csharp", ext: () => new LanguageSupport(StreamLanguage.define(csMode)) },
   gdshader: { name: "Godot shader", dot: "shader", ext: () => new LanguageSupport(StreamLanguage.define(gdshaderMode)), complete: gdshaderCompletions },
   lust: { name: "Lust", dot: "lust", ext: () => [new LanguageSupport(StreamLanguage.define(lustMode)), Prec.high(syntaxHighlighting(lustStyle))], complete: lustCompletions },
   gdscript: { name: "GDScript", dot: "gd", ext: () => legacy(python, { commentTokens: { line: "#" } }) },
