@@ -1,11 +1,11 @@
 // Task output → HTML: ANSI colours become classes, and file locations from
-// rustc, MSBuild (dotnet) and .NET stack traces become clickable links.
+// rustc, Lust, MSBuild (dotnet) and .NET stack traces become clickable links.
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 const link = (file, line, col, text) => `<a data-file="${esc(file)}" data-line="${line}" data-col="${col || 1}" tabindex="0">${esc(text)}</a>`;
 
-// rustc / panics: src/main.rs:14:20
-const RS = /((?:[A-Za-z]:)?[\w.\-\/\\]*[\w\-]\.rs):(\d+)(?::(\d+))?/g;
+// rustc / panics: src/main.rs:14:20, and Lust: main.lust:3:5 or main.lust:3
+const RS = /((?:[A-Za-z]:)?[\w.\-\/\\]*[\w\-]\.(?:rs|lust)):(\d+)(?::(\d+))?/g;
 // MSBuild: C:\proj\Player.cs(12,5): error CS0103: ...   (may contain spaces, so anchored at line start)
 const MSB = /^(\s*)(.+?\.(?:cs|csproj|props|targets|sln|slnx|xaml))\((\d+)(?:,(\d+))?(?:,\d+,\d+)?\)(.*)$/;
 // .NET stack trace: at Player._Ready() in C:\proj\Player.cs:line 14

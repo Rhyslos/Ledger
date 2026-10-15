@@ -686,6 +686,7 @@ function makeBuffer(path, text, opts = {}) {
   const srv = serverOf(b);
   if (srv && !b.ro) { b.sent = b.saved; ensureServer(b.lang); srv.open(path, b.saved.toString(), LANGS[b.lang].languageId); scheduleHints(path, 300); }
   if (S.diags.has(path)) applyDiags(path);
+  if (b.lang === "lust" && !b.virtual) setTimeout(() => lustCheck(path), 0);
   return b;
 }
 
@@ -921,6 +922,40 @@ async function save(path = S.active) {
   return true;
 }
 const saveHooks = [];
+
+// ---------- Lust: mistakes in the Problems list ----------
+// After a .lust file is saved (or opened), `lust check` runs quietly and its
+// messages (main.lust:3:5  missing ; …) become problems and squiggles.
+const LUST_LINE = /^(.+?\.lust):(\d+):(\d+)  (.*)$/;
+const lustShown = new Set();
+let lustSeq = 0;
+async function lustCheck(path) {
+  const seq = ++lustSeq, dir = parent(path);
+  let r;
+  try { r = await invoke("run_capture", { cwd: dir, program: settings.lust || "lust", args: ["check", base(path)] }); }
+  catch { return; } // lust isn't set up; Run says how to fix that
+  if (seq !== lustSeq) return;
+  const found = new Map();
+  for (const line of (r.out + "\n" + r.err).split(/\r?\n/)) {
+    const m = LUST_LINE.exec(line);
+    if (!m) continue;
+    const file = norm(isAbs(m[1]) ? m[1] : join(dir, m[1]));
+    const l = Math.max(0, +m[2] - 1), c = Math.max(0, +m[3] - 1);
+    // Underline the word the message points at.
+    let end = c + 1;
+    const doc = S.bufs.get(file)?.state.doc;
+    if (doc && l < doc.lines) {
+      const text = doc.line(l + 1).text;
+      while (end < text.length && /\w/.test(text[end]) && /\w/.test(text[c] || "")) end++;
+    }
+    if (!found.has(file)) found.set(file, []);
+    found.get(file).push({ range: { start: { line: l, character: c }, end: { line: l, character: end } }, severity: 1, message: m[4], source: "lust" });
+  }
+  for (const f of lustShown) if (!found.has(f)) lspHandlers.diagnostics(f, []);
+  lustShown.clear();
+  for (const [f, list] of found) { lustShown.add(f); lspHandlers.diagnostics(f, list); }
+}
+saveHooks.push((path, b) => { if (b.lang === "lust") lustCheck(path); });
 async function saveAll() {
   let ok = true;
   for (const [p, b] of S.bufs) if (b.dirty) ok = (await save(p)) && ok;
@@ -1600,6 +1635,8 @@ async function updateCtx() {
   return p;
 }
 function taskKind(P = S.ctx) {
+  // A .lust file runs with lust, whatever project it sits in (or none).
+  if (S.bufs.get(S.active)?.lang === "lust" && !S.bufs.get(S.active).virtual) return "lust";
   if (!P) return null;
   if (P.godot) return "godot";
   if (P.rust && P.dotnet) return S.bufs.get(S.active)?.lang === "csharp" ? "dotnet" : "rust";
@@ -1612,6 +1649,12 @@ function taskKind(P = S.ctx) {
 function taskSteps(action, P = S.ctx) {
   const kind = taskKind(P);
   if (!kind) return null;
+  if (kind === "lust") {
+    // Run from the file's own folder, so Lust's messages (main.lust:3:5) link back to it.
+    const file = S.active, prog = settings.lust || "lust";
+    const step = (sub, input) => ({ label: "lust " + sub, program: prog, args: [sub, base(file)], cwd: parent(file), input, lust: true });
+    return { run: [step("run", true)], check: [step("check")], build: [step("build")] }[action] || null;
+  }
   const cwd = P.dir;
   const dotTarget = P.sln || P.csproj;
   const dotBuild = { label: "dotnet build", program: "dotnet", args: ["build", ...(dotTarget ? [dotTarget] : []), "-nologo", "-clp:NoSummary"], cwd };
@@ -1677,7 +1720,12 @@ async function startStep(step) {
   const run = ++S.runSeq;
   S.run = run; // set before starting, so events from an older run are ignored
   try { await invoke("run_task", { run, root: cwd, program: step.program, args: step.args }); }
-  catch (e) { S.running = false; S.runInput = false; S.queue = []; appendOut(`<span class="done bad">${esc(String(e))}</span>`); renderStatus(); const f = S.onFail; S.onFail = S.onDone = null; f?.(); }
+  catch (e) {
+    S.running = false; S.runInput = false; S.queue = [];
+    appendOut(`<span class="done bad">${esc(String(e))}</span>`);
+    if (step.lust) appendOut(`<span class="done bad">Ledger couldn't start lust. Set where lust.exe is in Settings › Lust.</span>`);
+    renderStatus(); const f = S.onFail; S.onFail = S.onDone = null; f?.();
+  }
 }
 listen("task-line", (e) => { if (e.payload.run === S.run) appendOut(ansiToHtml(e.payload.text)); });
 listen("task-done", (e) => {
@@ -1727,7 +1775,7 @@ function focusInput() {
 function renderStatus() {
   const kind = taskKind();
   const k = (id) => (keymap.label(id) ? ` (${keymap.label(id)})` : "");
-  const acts = !kind ? [] : kind === "rust" ? ["run", "debug", "check", "test", "lint"] : kind === "dotnet" ? ["run", "debug", "build", "test"] : ["run", "debug", "scene", "build"].filter((a) => a === "debug" ? S.ctx?.dotnet : taskSteps(a));
+  const acts = !kind ? [] : kind === "lust" ? ["run", "check", "build"] : kind === "rust" ? ["run", "debug", "check", "test", "lint"] : kind === "dotnet" ? ["run", "debug", "build", "test"] : ["run", "debug", "scene", "build"].filter((a) => a === "debug" ? S.ctx?.dotnet : taskSteps(a));
   const id = { run: "task.run", build: "task.build", check: "task.check", test: "task.test", lint: "task.lint", scene: "task.scene", debug: "debug.start" };
   const hadFocus = $("stTasks").contains(document.activeElement) ? document.activeElement.dataset.task : null;
   $("stTasks").innerHTML = acts.map((a, i) => `<button data-task="${a}" class="${i === 0 ? "go" : ""}" title="${esc(taskLabel(a) + k(id[a]))}">${i === 0 ? '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2l7 3.8-7 3.8z" fill="currentColor"/></svg>' : ""}${esc(taskLabel(a))}</button>`).join("");
