@@ -84,12 +84,15 @@ const godotResource = {
 // Lust is our own language: C#'s skeleton, a Lua accent, and checks written as
 // questions (`is hp 0? then { } or { }`).
 //
-// Lust has its own quiet colours rather than the shared theme: the words that
-// give a program its shape (class, object, state, has, method…) in the logo's
-// red, questions and loops in a lighter red, comments green, text and numbers
-// sand, punctuation grey, and everything else plain.
+// Lust always uses the quiet colours (which every language can use too, with
+// Settings › Code colours): the words that give a program its shape (class,
+// object, has, method…) in the logo's red, states in marine green (the word
+// state, a state's name and options, and the option after state is), questions
+// and loops in a lighter red, comments green, text and numbers sand,
+// punctuation grey, and everything else plain. Structure, states and the names
+// being declared are a touch heavier (500), never fully bold.
 const LUST_CONTROL = "is then or either loop stop skip give";
-const LUST_DEFINE = "class object method do has state new like";
+const LUST_DEFINE = "class object method do has new like";
 const LUST_MODULE = "send fetch get end save load saved";
 const LUST_TYPES = "int float string truth array cArray map";
 const LUST_BUILTINS = "print wait random ask readText writeText";
@@ -105,11 +108,13 @@ const LT = {
   comment: Tag.define(),
   punct: Tag.define(),
   plain: Tag.define(),
+  state: Tag.define(),      // state, a state's name and options, the option after state is
 };
 const lustStyle = HighlightStyle.define([
-  { tag: LT.structure, color: "var(--lust-red)", fontWeight: "600" },
+  { tag: LT.structure, color: "var(--lust-red)", fontWeight: "500" },
   { tag: LT.flow, color: "var(--lust-flow)" },
-  { tag: LT.name, color: "var(--ink)", fontWeight: "600" },
+  { tag: LT.name, color: "var(--ink)", fontWeight: "500" },
+  { tag: LT.state, color: "var(--lust-state)", fontWeight: "500" },
   { tag: LT.type, color: "var(--lust-type)" },
   { tag: LT.value, color: "var(--lust-value)" },
   { tag: LT.comment, color: "var(--lust-comment)", fontStyle: "italic" },
@@ -121,10 +126,11 @@ const lustMode = {
   name: "lust",
   // depth: open { and [ for indenting. def: the next name is being defined
   // ("type" after class/object, "fn" after method/do). after: the last
-  // punctuation that matters for the next word (":" or ".").
-  startState: () => ({ depth: 0, def: null, after: null }),
+  // punctuation that matters for the next word (":" or "."). opts: the depth of
+  // a state's [ options ] while inside them.
+  startState: () => ({ depth: 0, def: null, after: null, opts: null }),
   copyState: (s) => ({ ...s }),
-  tokenTable: { lustStructure: LT.structure, lustFlow: LT.flow, lustName: LT.name, lustType: LT.type, lustValue: LT.value, lustComment: LT.comment, lustPunct: LT.punct, lustPlain: LT.plain },
+  tokenTable: { lustStructure: LT.structure, lustFlow: LT.flow, lustName: LT.name, lustType: LT.type, lustValue: LT.value, lustComment: LT.comment, lustPunct: LT.punct, lustPlain: LT.plain, lustState: LT.state },
   token(stream, st) {
     if (stream.eatSpace()) return null;
     if (stream.match("//")) { stream.skipToEnd(); return "lustComment"; }
@@ -135,6 +141,13 @@ const lustMode = {
     const w = stream.match(/^[A-Za-z_]\w*/);
     if (w) {
       const word = w[0];
+      // States: state = [idle, fighting [blocking]];  state season = […];  state is idle;
+      if (word === "state") { st.def = "state"; return "lustState"; }
+      if (st.opts != null && st.depth >= st.opts) return "lustState";
+      if (st.def === "state" && word === "is") { st.def = "stateIs"; return "lustFlow"; }
+      if (st.def === "state" && (word === "in" || word === "not" || LK.control.has(word))) st.def = null;
+      else if (st.def === "state") return "lustState";
+      if (st.def === "stateIs") return "lustState";   // stays on for fighting.blocking
       if (after === ":" || after === ".") return "lustPlain";
       if (word === "true" || word === "nothing") return "lustValue";
       if (word === "not" || word === "in") return "lustFlow";
@@ -148,8 +161,17 @@ const lustMode = {
       return "lustPlain";
     }
     const ch = stream.next();
-    if (ch === "{" || ch === "[") { st.depth++; st.def = null; return "lustPunct"; }
-    if (ch === "}" || ch === "]") { st.depth = Math.max(0, st.depth - 1); return "lustPunct"; }
+    if (ch === "{" || ch === "[") {
+      st.depth++;
+      if (ch === "[" && st.def === "state" && st.opts == null) st.opts = st.depth;
+      st.def = null;
+      return "lustPunct";
+    }
+    if (ch === "}" || ch === "]") {
+      st.depth = Math.max(0, st.depth - 1);
+      if (st.opts != null && st.depth < st.opts) st.opts = null;
+      return "lustPunct";
+    }
     if (ch === "(" || ch === ")") { st.def = null; return "lustPunct"; }
     if (ch === "?") return "lustFlow";
     if (ch === ":" || ch === ".") { st.after = ch; return "lustPunct"; }

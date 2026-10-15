@@ -109,7 +109,7 @@ function saveSession() {
 
 // ---------- editor look ----------
 const hl = HighlightStyle.define([
-  { tag: [t.keyword, t.modifier, t.definitionKeyword, t.moduleKeyword, t.operatorKeyword], color: "var(--syn-kw)" },
+  { tag: [t.keyword, t.modifier, t.definitionKeyword, t.moduleKeyword, t.operatorKeyword], color: "var(--syn-kw)", fontWeight: "var(--syn-kw-weight)" },
   { tag: t.controlKeyword, color: "var(--syn-ctl)" },
   { tag: [t.typeName, t.className, t.namespace, t.standard(t.typeName)], color: "var(--syn-type)" },
   { tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName)), t.standard(t.variableName)], color: "var(--syn-fn)" },
@@ -1860,11 +1860,14 @@ function toggleExplorer(force) {
 function applyTheme() {
   if (settings.theme === "light" || settings.theme === "dark") document.documentElement.dataset.theme = settings.theme;
   else delete document.documentElement.dataset.theme;
+  document.documentElement.dataset.code = settings.codeColours === "colourful" ? "colourful" : "quiet";
 }
 function applyFonts() {
   const r = document.documentElement.style;
   r.setProperty("--code-size", settings.fontSize + "px");
   r.setProperty("--code-font", settings.fontFamily ? `"${String(settings.fontFamily).replace(/"/g, "")}", var(--mono)` : "var(--mono)");
+  if (settings.uiFont) r.setProperty("--sans", `"${String(settings.uiFont).replace(/"/g, "")}", "IBM Plex Sans", system-ui, "Segoe UI", sans-serif`);
+  else r.removeProperty("--sans");
   r.setProperty("--ui-size", settings.uiSize + "px");
   view?.requestMeasure();
 }
@@ -1872,8 +1875,8 @@ function reconfigureAll() {
   for (const p of S.bufs.keys()) dispatchBuf(p, { effects: cfg.reconfigure(cfgExt()) });
 }
 function applySetting(key) {
-  if (key === "theme") applyTheme();
-  if (["fontSize", "fontFamily", "uiSize"].includes(key)) applyFonts();
+  if (key === "theme" || key === "codeColours") applyTheme();
+  if (["fontSize", "fontFamily", "uiFont", "uiSize"].includes(key)) applyFonts();
   if (key === "tabSize" || key === "wordWrap") reconfigureAll();
   if (key === "inlayHints") for (const p of S.bufs.keys()) refreshHints(p);
   if (key === "keys") { keymap.setOverrides(settings.keys); renderStatus(); }
