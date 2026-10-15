@@ -90,9 +90,9 @@ const godotResource = {
 // sand, punctuation grey, and everything else plain.
 const LUST_CONTROL = "is then or either loop stop skip give";
 const LUST_DEFINE = "class object method do has state new like";
-const LUST_MODULE = "send fetch get end";
-const LUST_TYPES = "int float string truth array cArray";
-const LUST_BUILTINS = "print wait random ask";
+const LUST_MODULE = "send fetch get end save load saved";
+const LUST_TYPES = "int float string truth array cArray map";
+const LUST_BUILTINS = "print wait random ask readText writeText";
 const lustSet = (s) => new Set(s.split(" "));
 const LK = { control: lustSet(LUST_CONTROL), define: lustSet(LUST_DEFINE), module: lustSet(LUST_MODULE), types: lustSet(LUST_TYPES), builtins: lustSet(LUST_BUILTINS) };
 
