@@ -417,3 +417,27 @@ kbd { font-family: var(--mono); font-size: .86em; color: var(--muted); }
 [style*="--t-lust)"] > .dot, .dot[style*="--t-lust)"] { width: 13px; height: 13px; border-radius: 3px; background: url("./assets/lust.svg") center / contain no-repeat; }
 .node[style*="--t-lust)"] > .dot { margin: 0 1.5px; }
 .li[style*="--t-lust)"] > .dot { margin: 4px 0 0 2px; }
+
+/* Smooth cursor (Settings › Editing): the cursor fades in and out instead of switching on and off,
+   and glides to where it goes. CodeMirror moves the same cursor element, so a transition is enough. */
+:root[data-smooth-caret] .cm-editor.cm-focused > .cm-scroller > .cm-cursorLayer { animation-timing-function: ease-in-out !important; }
+:root[data-smooth-caret] .cm-cursor-primary { transition: left 80ms ease-out, top 80ms ease-out, height 80ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-smooth-caret] .cm-editor.cm-focused > .cm-scroller > .cm-cursorLayer { animation-timing-function: steps(1) !important; }
+  :root[data-smooth-caret] .cm-cursor-primary { transition: none; }
+}
+
+/* Cursor styles (Settings › Editing › Cursor). CodeMirror draws the cursor as a thin box the
+   height of the line at the insertion point; these restyle that box. */
+:root[data-cursor="block"] .cm-editor .cm-cursor {
+  border-left: none; width: 1ch; background: color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 1px;
+}
+:root[data-cursor="underline"] .cm-editor .cm-cursor {
+  border-left: none; width: 1ch; background: linear-gradient(var(--accent), var(--accent)) bottom / 100% 2px no-repeat;
+}
+/* The red › from Ledger's icon, with its point resting on the insertion point. */
+:root[data-cursor="chevron"] .cm-editor .cm-cursor {
+  border-left: none; width: 0.3em; margin-left: -0.2em; background: var(--lust-red);
+  -webkit-mask: var(--chevron) center / 100% 50% no-repeat; mask: var(--chevron) center / 100% 50% no-repeat;
+}
+:root { --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='539 330 309 380' preserveAspectRatio='none'%3E%3Cpath d='M597 330 847 520 597 710 539 633 688 520 539 406Z'/%3E%3C/svg%3E"); }

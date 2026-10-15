@@ -2,7 +2,7 @@
 // Each is a plain CodeMirror extension, switched on and off from Settings.
 import { ViewPlugin, Decoration, EditorView } from "@codemirror/view";
 import { RangeSetBuilder } from "@codemirror/state";
-import { syntaxTree } from "@codemirror/language";
+import { syntaxTree, highlightingFor } from "@codemirror/language";
 import { highlightTree } from "@lezer/highlight";
 
 // Strings, characters and comments, by node name in both Lezer trees (String,
@@ -127,7 +127,7 @@ function headersFor(state, lineNo) {
   return out;
 }
 const MAX_STICKY = 5;
-export function stickyScroll(hl) {
+export function stickyScroll() {
   return ViewPlugin.fromClass(class {
     constructor(view) {
       this.view = view;
@@ -155,11 +155,20 @@ export function stickyScroll(hl) {
         read: (v) => {
           const top = v.scrollDOM.scrollTop;
           const lh = v.defaultLineHeight;
-          let block = v.lineBlockAtHeight(top + 1);
-          let lines = headersFor(v.state, v.state.doc.lineAt(block.from).number);
-          // The pinned lines cover the first few lines, so look below them.
-          block = v.lineBlockAtHeight(top + 1 + Math.min(lines.length, MAX_STICKY) * lh);
-          lines = headersFor(v.state, v.state.doc.lineAt(block.from).number).slice(-MAX_STICKY);
+          // Where the top of the visible area is, in the document's own heights.
+          const docTop = v.scrollDOM.getBoundingClientRect().top - v.documentTop;
+          // The pinned lines cover the top of the editor, so what matters is the first line
+          // that's fully visible below them. Pinning more lines can hide another opener, so
+          // look again until the answer settles.
+          let lines = [];
+          for (let round = 0; round <= MAX_STICKY; round++) {
+            const cover = docTop + lines.length * lh;
+            let block = v.lineBlockAtHeight(cover + 1);
+            if (lines.length && block.top < cover - 1 && block.to < v.state.doc.length) block = v.lineBlockAt(block.to + 1);
+            const next = headersFor(v.state, v.state.doc.lineAt(block.from).number).slice(-MAX_STICKY);
+            if (next.join() === lines.join()) break;
+            lines = next;
+          }
           const left = v.contentDOM.getBoundingClientRect().left - v.dom.getBoundingClientRect().left;
           return { lines, left, lh, scrolled: top > 2 };
         },
@@ -172,6 +181,9 @@ export function stickyScroll(hl) {
           this.dom.style.paddingLeft = left + "px";
           this.dom.innerHTML = "";
           const tree = syntaxTree(this.view.state);
+          // Colour them with whatever highlighting this file really uses (Lust has its own).
+          const state = this.view.state;
+          const highlighter = { style: (tags) => highlightingFor(state, tags) };
           lines.forEach((n, i) => {
             const line = this.view.state.doc.line(n);
             const row = document.createElement("div");
@@ -188,7 +200,7 @@ export function stickyScroll(hl) {
               row.append(sp);
               pos = to;
             };
-            highlightTree(tree, hl, (from, to, cls) => { put(Math.max(from, line.from), ""); put(Math.min(to, line.to), cls); }, line.from, line.to);
+            highlightTree(tree, highlighter, (from, to, cls) => { put(Math.max(from, line.from), ""); put(Math.min(to, line.to), cls); }, line.from, line.to);
             put(line.to, "");
             this.dom.append(row);
           });
