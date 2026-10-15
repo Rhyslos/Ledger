@@ -1872,6 +1872,7 @@ function applyTheme() {
   else delete document.documentElement.dataset.theme;
   document.documentElement.dataset.code = settings.codeColours === "colourful" ? "colourful" : "quiet";
   document.documentElement.toggleAttribute("data-smooth-caret", !!settings.smoothCaret);
+  document.documentElement.dataset.cursor = ["chevron", "block", "underline"].includes(settings.cursorStyle) ? settings.cursorStyle : "line";
 }
 smoothScrolling(() => settings.smoothScroll && !matchMedia("(prefers-reduced-motion: reduce)").matches);
 function applyFonts() {
@@ -1887,7 +1888,7 @@ function reconfigureAll() {
   for (const p of S.bufs.keys()) dispatchBuf(p, { effects: cfg.reconfigure(cfgExt()) });
 }
 function applySetting(key) {
-  if (key === "theme" || key === "codeColours" || key === "smoothCaret") applyTheme();
+  if (key === "theme" || key === "codeColours" || key === "smoothCaret" || key === "cursorStyle") applyTheme();
   if (["fontSize", "fontFamily", "uiFont", "uiSize"].includes(key)) applyFonts();
   if (key === "tabSize" || key === "wordWrap") reconfigureAll();
   if (key === "inlayHints") for (const p of S.bufs.keys()) refreshHints(p);
