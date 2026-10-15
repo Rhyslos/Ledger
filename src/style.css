@@ -399,3 +399,7 @@ kbd { font-family: var(--mono); font-size: .86em; color: var(--muted); }
 [style*="--t-lust)"] > .dot, .dot[style*="--t-lust)"] { width: 13px; height: 13px; border-radius: 3px; background: url("./assets/lust.svg") center / contain no-repeat; }
 .node[style*="--t-lust)"] > .dot { margin: 0 1.5px; }
 .li[style*="--t-lust)"] > .dot { margin: 4px 0 0 2px; }
+
+/* Status bar › Update (a newer Ledger is on GitHub) */
+.status .update { color: var(--accent); font-weight: 500; }
+.status .update::before { content: "↑"; }

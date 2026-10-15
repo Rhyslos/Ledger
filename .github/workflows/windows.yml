@@ -1,11 +1,15 @@
-# Builds the Windows installer and a portable .exe on every push.
-# Download them from the run's page: Actions tab → the latest run → Artifacts.
+# Builds the Windows installer and a portable .exe on every push to main, numbers
+# it 0.1.<run number>, and publishes it as a release (Releases on the repo page).
+# Ledger checks those releases on start and shows "Update" when one is newer.
 name: Windows build
 
 on:
   push:
     branches: [main, master]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -26,6 +30,15 @@ jobs:
 
       - run: npm ci
 
+      - name: Number this build
+        shell: pwsh
+        run: |
+          $v = "0.1.$env:GITHUB_RUN_NUMBER"
+          $f = "src-tauri/tauri.conf.json"
+          (Get-Content $f -Raw) -replace '"version":\s*"[^"]*"', "`"version`": `"$v`"" | Set-Content $f -NoNewline
+          "LEDGER_VERSION=$v" >> $env:GITHUB_ENV
+          Write-Host "Building Ledger $v"
+
       - run: npm run tauri build
 
       - name: Collect the installer and the portable exe
@@ -37,3 +50,11 @@ jobs:
           name: windows-build
           path: release/
           if-no-files-found: error
+
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = Get-ChildItem release -File | ForEach-Object { $_.FullName }
+          gh release create "v$env:LEDGER_VERSION" @files --title "Ledger $env:LEDGER_VERSION" --generate-notes --target "$env:GITHUB_SHA"

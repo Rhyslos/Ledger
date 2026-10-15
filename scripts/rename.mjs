@@ -54,7 +54,7 @@ const swap = (p) => {
   const out = s.split(`${oldExe}.exe`).join(`${exeName}.exe`).replace(new RegExp(`(?<!Meisner's )${esc(old)}`, "g"), name);
   if (out !== s) fs.writeFileSync(f, out);
 };
-fs.writeFileSync(file("src/app.js"), `// The app's display name. \`npm run rename -- NewName\` changes it everywhere.\nexport const APP_NAME = ${JSON.stringify(name)};\n`);
+fs.writeFileSync(file("src/app.js"), fs.readFileSync(file("src/app.js"), "utf8").replace(/^export const APP_NAME = .*$/m, `export const APP_NAME = ${JSON.stringify(name)};`));
 ["index.html", "README.md", "src/lsp.js", "src-tauri/src/lib.rs", "src-tauri/src/main.rs"].forEach(swap);
 
 console.log(`Renamed "${old}" to "${name}". The program will be ${exeName}.exe.${identifier ? ` Identifier is now ${identifier}.` : ""}`);

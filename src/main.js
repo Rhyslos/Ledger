@@ -32,6 +32,7 @@ import { initDeps } from "./deps.js";
 import { initSnippets } from "./snippets.js";
 import { initGit } from "./git.js";
 import { initDebugger } from "./debugger.js";
+import { initUpdate } from "./update.js";
 
 // ---------- prefs (window layout & sessions; settings live in settings.json) ----------
 // Same key the Ledger build from the Rust course chat used, so recent folders carry over.
@@ -2537,6 +2538,7 @@ async function boot() {
   snippets = initSnippets(app, () => settingsFile);
   initGit(app);
   debug = app.debug = initDebugger(app);
+  initUpdate(app);
   view = panes[0].view = new EditorView({ parent: $("editor") });
   panes[0].el.classList.add("focused");
   renderMain();

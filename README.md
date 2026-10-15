@@ -135,6 +135,12 @@ In a terminal, Ctrl+letter keys go to the shell (Ctrl C, Ctrl R…), except Ctrl
 
 Ledger's icon is the red L> in `src-tauri/app-icons/ledger-plain.svg`. To change it, replace that file (and `app-icon.png`), run `npx tauri icon src-tauri/app-icons/ledger-plain.svg -o src-tauri/icons`, and rebuild.
 
+## Updates
+
+Every push to `main` builds Ledger on GitHub, numbers it (0.1.1, 0.1.2…) and publishes it under **Releases** on the repo page. When Ledger starts it checks those releases, and if a newer one is out, an **Update** button appears in the status bar. Click it, download the setup, and run it over the installed Ledger: no uninstall, and your settings stay. *Check for updates* in the command list does the same check on demand.
+
+The check uses Git's GitHub sign-in on your PC, because the repo is private. If Git isn't signed in, the check stays quiet. Copies built with `build.cmd` are version 0.1.0, so they always see the newest release as an update.
+
 ## Renaming
 
 ```
