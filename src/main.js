@@ -1872,7 +1872,7 @@ function applyTheme() {
   else delete document.documentElement.dataset.theme;
   document.documentElement.dataset.code = settings.codeColours === "colourful" ? "colourful" : "quiet";
   document.documentElement.toggleAttribute("data-smooth-caret", !!settings.smoothCaret);
-  document.documentElement.dataset.cursor = ["chevron", "block", "underline"].includes(settings.cursorStyle) ? settings.cursorStyle : "line";
+  document.documentElement.dataset.cursor = ["block", "underline"].includes(settings.cursorStyle) ? settings.cursorStyle : "line";
 }
 smoothScrolling(() => settings.smoothScroll && !matchMedia("(prefers-reduced-motion: reduce)").matches);
 function applyFonts() {

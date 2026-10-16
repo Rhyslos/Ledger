@@ -139,7 +139,7 @@ export function settingsHtml() {
       ${row("Brackets", check("sBr", "bracketColors", "Colour matching bracket pairs by depth"))}
       ${row("Indentation", check("sIg", "indentGuides", "Show indent guides"))}
       ${row("Sticky scroll", check("sSticky", "stickyScroll", "Keep the lines that open the current block (fn, impl, class…) pinned at the top while scrolling"))}
-      ${row("Cursor", select("sCursor", "cursorStyle", [["line", "Line"], ["chevron", "Ledger Cursor ›"], ["block", "Block"], ["underline", "Underline"]]), "The Ledger Cursor is the red › from Ledger's icon.", "sCursor")}
+      ${row("Cursor", select("sCursor", "cursorStyle", [["line", "Line"], ["block", "Block"], ["underline", "Underline"]]), "", "sCursor")}
       ${row("Smooth cursor", check("sSmoothCaret", "smoothCaret", "The cursor fades in and out, and glides when it moves"))}
       ${row("Smooth scrolling", check("sSmoothScroll", "smoothScroll", "Ease each mouse wheel step instead of jumping"), "Touchpads already scroll smoothly, so they're left as they are.")}
       ${row("Run and Debug links", check("sLens", "codeLens", "Show ▶ Run test and Debug above tests and main functions"))}
