@@ -435,17 +435,3 @@ kbd { font-family: var(--mono); font-size: .86em; color: var(--muted); }
 :root[data-cursor="underline"] .cm-editor .cm-cursor {
   border-left: none; width: 1ch; background: linear-gradient(var(--accent), var(--accent)) bottom / 100% 2px no-repeat;
 }
-/* Ledger Cursor: the red › from Ledger's icon, as the cursor itself, with its point on the spot
-   where you type. A › is wider than the gap between two letters, so the cursor blends with the
-   text instead of covering it: a dark letter shows straight through it in light themes, and a
-   light letter in dark themes. */
-:root[data-cursor="chevron"] .cm-editor .cm-cursor {
-  border-left: none; width: 0.5em; margin-left: -0.32em; background: var(--lust-red);
-  -webkit-mask: var(--chevron) center / contain no-repeat; mask: var(--chevron) center / contain no-repeat;
-}
-:root[data-cursor="chevron"] .cm-editor .cm-cursorLayer { mix-blend-mode: multiply; }
-:root[data-cursor="chevron"][data-theme="dark"] .cm-editor .cm-cursorLayer { mix-blend-mode: screen; }
-@media (prefers-color-scheme: dark) {
-  :root[data-cursor="chevron"]:not([data-theme="light"]) .cm-editor .cm-cursorLayer { mix-blend-mode: screen; }
-}
-:root { --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='539 330 309 380'%3E%3Cpath d='M597 330 847 520 597 710 539 633 688 520 539 406Z'/%3E%3C/svg%3E"); }
