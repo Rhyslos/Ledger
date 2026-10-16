@@ -126,7 +126,7 @@ export function settingsHtml() {
       ${row("Editor font", text("sFamily", "fontFamily", "IBM Plex Mono", "text", 'list="codeFonts"') + `<datalist id="codeFonts">${["Noto Sans Mono", "Noto Sans", "Cascadia Code", "Consolas", "JetBrains Mono", "Fira Code"].map((f) => `<option value="${f}">`).join("")}</datalist>`, "Pick one or type any installed font. Fonts made for code (Mono) keep columns lined up. Leave empty for the default.", "sFamily")}
       ${row("Interface font", text("sUiFont", "uiFont", "IBM Plex Sans", "text", 'list="uiFonts"') + `<datalist id="uiFonts">${["Noto Sans", "Segoe UI", "Inter", "Arial"].map((f) => `<option value="${f}">`).join("")}</datalist>`, "The menus, tabs, side bar and settings. Pick one or type any installed font. Leave empty for the default.", "sUiFont")}
       ${row("Interface text size", text("sUi", "uiSize", "14", "number", 'min="11" max="20" step="0.5"'), "", "sUi")}
-      ${row("Code colours", select("sCode", "codeColours", [["quiet", "Quiet, like Lust"], ["colourful", "Colourful"]]), "Quiet keeps code calm: structure in red, states and constants in green, the rest plain. Lust files are always quiet.", "sCode")}
+      ${row("Code colours", select("sCode", "codeColours", [["quiet", "Quiet, like Lust"], ["colourful", "Colourful"]]), "Quiet keeps code calm: keywords in red, classes in blue, types in a soft green, values in gold and constants in teal, with the rest plain. Lust files are always quiet.", "sCode")}
       ${row("Status bar", select("sStatus", "statusBar", [["bottom", "Along the bottom"], ["top", "Along the top"]]), "The bar with Run, Build, problems and the cursor position.", "sStatus")}
     </section>
 
