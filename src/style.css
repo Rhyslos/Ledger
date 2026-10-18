@@ -16,6 +16,7 @@
   /* The quiet colours, Lust's own: the logo's red for structure, marine green for states,
      green comments, the rest calm. Every language uses them with Settings › Code colours › Quiet. */
   --lust-red: #d9433b; --lust-flow: #b8635c; --lust-value: #8a6a2b; --lust-comment: #3f7f3f; --lust-type: #6f8a69; --lust-punct: #9d9d99; --lust-state: #1f8a78; --lust-class: #3566a8; --lust-object: #b35a1f;
+  --w-blue-soft: #5b86bf; --w-green: #3f8a2e; --w-magenta: #a8407f; --w-magenta-soft: #b86b9a;
   /* syntax */
   --syn-kw: #7a3fa8; --syn-ctl: #a3262e; --syn-type: #1f7a80; --syn-fn: #2f5fa0; --syn-macro: #b7410e; --syn-str: #2f7a3e;
   --syn-num: #a8670f; --syn-com: #9d9d99; --syn-attr: #8a6a3b; --syn-life: #b0670f; --syn-const: #a8670f; --syn-punct: #6b6b68; --syn-self: #a3262e;
@@ -32,6 +33,7 @@
     --accent: #6ea8e6; --accent-ink: #10202e; --seal: #e05a60; --good: #6fcf83; --warn: #e3a24e; --info: #6ea8e6; --mark: #5c4a12; --guide: #333333; --scrim: rgba(0,0,0,.55); --shadow: 0 16px 48px rgba(0,0,0,.5);
     --t-rs: #e9784a; --t-toml: #c18ef0; --t-md: #6ea8e6; --t-json: #e3a24e; --t-lock: #a3a8ac; --t-cfg: #56b9bf; --t-other: #a3a8ac; --t-cs: #a493f0; --t-shader: #e07ab8; --t-gd: #7fb3ec; --t-godot: #6eb0e0; --t-proj: #d1aa82; --t-xml: #9fb0bd; --t-lust: #ff6f66; --t-js: #e6cc4a; --t-ts: #6aa6ea; --t-html: #f0845a; --t-css: #b08ff0; --t-lua: #8797f0;
     --lust-red: #ff5f56; --lust-flow: #f0a39e; --lust-value: #d7ba7d; --lust-comment: #6a9955; --lust-type: #a1b59c; --lust-punct: #7c7f83; --lust-state: #4fc4ab; --lust-class: #7fa9dc; --lust-object: #e8935a;
+    --w-blue-soft: #a9c6ec; --w-green: #9ccf72; --w-magenta: #d987b8; --w-magenta-soft: #e3a9cb;
     --syn-kw: #c18ef0; --syn-ctl: #f08a8f; --syn-type: #56b9bf; --syn-fn: #7fb3ec; --syn-macro: #e9784a; --syn-str: #8fd19e;
     --syn-num: #e3a24e; --syn-com: #6e6e6a; --syn-attr: #d1aa82; --syn-life: #e3a24e; --syn-const: #e3a24e; --syn-punct: #9b9b97; --syn-self: #f08a8f;
     color-scheme: dark;
@@ -42,6 +44,7 @@
   --accent: #6ea8e6; --accent-ink: #10202e; --seal: #e05a60; --good: #6fcf83; --warn: #e3a24e; --info: #6ea8e6; --mark: #5c4a12; --guide: #333333; --scrim: rgba(0,0,0,.55); --shadow: 0 16px 48px rgba(0,0,0,.5);
   --t-rs: #e9784a; --t-toml: #c18ef0; --t-md: #6ea8e6; --t-json: #e3a24e; --t-lock: #a3a8ac; --t-cfg: #56b9bf; --t-other: #a3a8ac; --t-cs: #a493f0; --t-shader: #e07ab8; --t-gd: #7fb3ec; --t-godot: #6eb0e0; --t-proj: #d1aa82; --t-xml: #9fb0bd; --t-lust: #ff6f66; --t-js: #e6cc4a; --t-ts: #6aa6ea; --t-html: #f0845a; --t-css: #b08ff0; --t-lua: #8797f0;
     --lust-red: #ff5f56; --lust-flow: #f0a39e; --lust-value: #d7ba7d; --lust-comment: #6a9955; --lust-type: #a1b59c; --lust-punct: #7c7f83; --lust-state: #4fc4ab; --lust-class: #7fa9dc; --lust-object: #e8935a;
+    --w-blue-soft: #a9c6ec; --w-green: #9ccf72; --w-magenta: #d987b8; --w-magenta-soft: #e3a9cb;
   --syn-kw: #c18ef0; --syn-ctl: #f08a8f; --syn-type: #56b9bf; --syn-fn: #7fb3ec; --syn-macro: #e9784a; --syn-str: #8fd19e;
   --syn-num: #e3a24e; --syn-com: #6e6e6a; --syn-attr: #d1aa82; --syn-life: #e3a24e; --syn-const: #e3a24e; --syn-punct: #9b9b97; --syn-self: #f08a8f;
   color-scheme: dark;
@@ -58,6 +61,29 @@
   --syn-class: var(--lust-class); --syn-mod: var(--muted);
   --syn-kw-weight: 500;
 }
+
+/* Web languages (src/webcolours.js). HTML elements by kind: layout reds, text blues,
+   form and media greens, your own components orange. CSS in muted magenta. */
+:root { --w-prop: var(--lust-type); --w-cssvar: var(--lust-object); --w-value: var(--lust-state); }
+.cm-editor .cm-w-layout, .cm-editor .cm-w-layout * { color: var(--lust-red) !important; }
+.cm-editor .cm-w-meta, .cm-editor .cm-w-meta * { color: var(--lust-flow) !important; }
+.cm-editor .cm-w-text, .cm-editor .cm-w-text * { color: var(--lust-class) !important; }
+.cm-editor .cm-w-table, .cm-editor .cm-w-table * { color: var(--w-blue-soft) !important; }
+.cm-editor .cm-w-form, .cm-editor .cm-w-form * { color: var(--w-green) !important; }
+.cm-editor .cm-w-media, .cm-editor .cm-w-media * { color: var(--lust-state) !important; }
+.cm-editor .cm-w-comp, .cm-editor .cm-w-comp * { color: var(--lust-object) !important; }
+.cm-editor .cm-w-attr, .cm-editor .cm-w-attr * { color: var(--lust-type) !important; }
+.cm-editor .cm-w-punct, .cm-editor .cm-w-punct * { color: var(--lust-punct) !important; }
+.cm-editor .cm-w-sel, .cm-editor .cm-w-sel * { color: var(--w-magenta) !important; }
+.cm-editor .cm-w-pseudo, .cm-editor .cm-w-pseudo * { color: var(--w-magenta-soft) !important; }
+.cm-editor .cm-w-at, .cm-editor .cm-w-at * { color: var(--w-magenta) !important; font-weight: 500; }
+.cm-editor .cm-w-prop, .cm-editor .cm-w-prop * { color: var(--w-prop) !important; }
+.cm-editor .cm-w-cssvar, .cm-editor .cm-w-cssvar * { color: var(--w-cssvar) !important; }
+.cm-editor .cm-w-call, .cm-editor .cm-w-call * { color: var(--lust-class) !important; }
+.cm-editor .cm-w-value, .cm-editor .cm-w-value * { color: var(--w-value) !important; }
+.cm-editor .cm-w-class, .cm-editor .cm-w-class * { color: var(--lust-class) !important; }
+.cm-editor .cm-w-const, .cm-editor .cm-w-const * { color: var(--lust-state) !important; }
+.cm-editor .cm-w-self, .cm-editor .cm-w-self * { color: var(--lust-flow) !important; }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
