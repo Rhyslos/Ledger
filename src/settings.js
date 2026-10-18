@@ -93,6 +93,29 @@ export function setSetting(key, value) {
 
 export function initSettings(c) { ctx = c; }
 
+// Languages Ledger can install with winget (built into Windows 10 and 11).
+// `cmd` is what's checked to see whether it's there already.
+export const INSTALLS = {
+  node: { name: "Node.js", cmd: "node", id: "OpenJS.NodeJS.LTS", note: "Runs JavaScript, npm, React, Vite and Tailwind." },
+  lua: { name: "Lua", cmd: "lua", id: "DEVCOM.Lua", note: "Runs .lua files." },
+  rust: { name: "Rust", cmd: "cargo", id: "Rustlang.Rustup", note: "Also needs the Visual Studio C++ build tools; rustup tells you if they're missing." },
+  dotnet: { name: ".NET SDK", cmd: "dotnet", id: "Microsoft.DotNet.SDK.10", note: "C# and Godot .NET projects." },
+  git: { name: "Git", cmd: "git", id: "Git.Git", note: "Source control, cloning and pushing." },
+};
+// Which install a program belongs to, for "X isn't installed" on Run.
+export const INSTALL_FOR = { node: "node", npm: "node", npx: "node", lua: "lua", cargo: "rust", dotnet: "dotnet", git: "git" };
+
+/** Installs a language with winget, then makes Ledger see it. done(ok) after. */
+export function installTool(key, done) {
+  const t = INSTALLS[key];
+  ctx.toast(`${tools[key] ? "Updating" : "Installing"} ${t.name}. Windows may ask for permission.`, 5000);
+  ctx.runTask("winget", [tools[key] ? "upgrade" : "install", "--id", t.id, "-e", "--accept-source-agreements", "--accept-package-agreements"], "Installing " + t.name, async () => {
+    await invoke("refresh_path").catch(() => {});
+    await refreshTools();
+    done?.(!!tools[key]);
+  });
+}
+
 // The browser Ledger opens web pages in (HTML files now, Live Server later).
 const BROWSERS = { chrome: "chrome.exe", edge: "msedge.exe", firefox: "firefox.exe", brave: "brave.exe" };
 export function openInBrowser(url) {
@@ -103,7 +126,7 @@ export function openInBrowser(url) {
 export const refreshSettingsTools = () => refreshTools();
 
 async function refreshTools() {
-  const names = { cargo: "cargo", ra: settings.rustAnalyzer || "rust-analyzer", dotnet: "dotnet", cs: settings.csharpServer || "csharp-ls", godot: settings.godot, git: "git", lust: settings.lust || "lust", lua: settings.lua || "lua" };
+  const names = { cargo: "cargo", ra: settings.rustAnalyzer || "rust-analyzer", dotnet: "dotnet", cs: settings.csharpServer || "csharp-ls", godot: settings.godot, git: "git", lust: settings.lust || "lust", lua: settings.lua || "lua", node: "node", rust: "cargo" };
   const out = {};
   await Promise.all(Object.entries(names).map(async ([k, n]) => { out[k] = n ? await invoke("tool_info", { name: n }).catch(() => null) : null; }));
   out.lldb = await ctx.debuggerFor?.("rust").catch(() => null);
@@ -163,6 +186,11 @@ export function settingsHtml() {
 
     <section aria-labelledby="sTerm"><h2 id="sTerm">Terminal</h2>
       ${row("Shell", text("sShell", "terminalShell", "PowerShell (pwsh if it's installed)"), "The program a new terminal runs, like cmd.exe, pwsh.exe or a full path to Git Bash. Leave empty for PowerShell. Ctrl+` opens a terminal.", "sShell")}
+    </section>
+
+    <section aria-labelledby="sInst"><h2 id="sInst">Languages</h2>
+      <p class="hint">Ledger installs these with winget, which comes with Windows. Run also offers to install whatever a project needs.</p>
+      ${Object.entries(INSTALLS).map(([k, t]) => row(esc(t.name), `<div class="tool">${found(tools[k], "")}</div><div class="bar"><button class="btn" data-act="install" data-tool="${k}">${tools[k] ? "Update" : "Install"} ${esc(t.name)}</button></div>`, esc(t.note))).join("")}
     </section>
 
     <section aria-labelledby="sUpd"><h2 id="sUpd">Updates</h2>
@@ -260,6 +288,7 @@ export function wireSettings(root, rerender) {
     const a = ev.target.closest("[data-act]");
     if (!a) return;
     const act = a.dataset.act;
+    if (act === "install") { installTool(a.dataset.tool, () => rerender(true)); return; }
     if (act === "update-check") { ctx.checkUpdate?.(); return; }
     if (act === "godot-browse") {
       const p = await openDialog({ title: "Find the Godot program", multiple: false, directory: false, filters: [{ name: "Programs", extensions: ["exe", "x86_64", "app", "*"] }] });

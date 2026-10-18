@@ -24,7 +24,7 @@ import { Lsp, norm, uriToPath, pathToUri, toOffset, toPos, severity, unsnippet, 
 import { ansiToHtml, esc } from "./ansi.js";
 import { LANGS, langOf, dotOf } from "./langs.js";
 import { Keymap, keyString } from "./keys.js";
-import { settings, DEFAULTS, loadSettings, setSetting, initSettings, settingsHtml, wireSettings, isRecording, refreshSettingsTools, openInBrowser } from "./settings.js";
+import { settings, DEFAULTS, loadSettings, setSetting, initSettings, settingsHtml, wireSettings, isRecording, refreshSettingsTools, openInBrowser, INSTALLS, INSTALL_FOR, installTool } from "./settings.js";
 import { APP_NAME } from "./app.js";
 import { bracketColors, indentGuides, stickyScroll } from "./editorx.js";
 import { followBottom } from "./follow.js";
@@ -1774,7 +1774,20 @@ async function runAction(action) {
     requestAnimationFrame(() => { const f = $("sGodotPath"); f?.focus(); f?.scrollIntoView({ block: "center" }); });
     return;
   }
+  if (!(await haveTools(steps, () => runAction(action)))) return;
   startSteps(steps);
+}
+// Before running: if a step needs a language that isn't installed, offer to install it and run again after.
+async function haveTools(steps, retry) {
+  for (const prog of new Set(steps.map((s) => s.program))) {
+    const key = INSTALL_FOR[prog];
+    if (!key || (await invoke("tool_info", { name: prog }).catch(() => null))) continue;
+    const name = INSTALLS[key].name;
+    const c = await choose(`${name} isn't installed, and this needs it.`, [`Install ${name}`, "Cancel"]);
+    if (c === `Install ${name}`) installTool(key, (ok) => (ok ? retry() : toast(`${name} installed. If Run still can't find it, restart Ledger.`, 6000)));
+    return false;
+  }
+  return true;
 }
 async function pickScript(P) {
   if (!P?.node) { toast("No package.json here."); return; }
