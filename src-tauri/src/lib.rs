@@ -789,6 +789,47 @@ fn project_at(path: String, root: String) -> Option<Project> {
     }
 }
 
+/// Starter files for the project kinds that need no tool to create.
+fn web_template(kind: &str, name: &str) -> Option<Vec<(&'static str, String)>> {
+    let pkg = name.to_lowercase();
+    let html = |head: &str, body: &str| format!("<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>{name}</title>\n{head}</head>\n<body>\n{body}</body>\n</html>\n");
+    let vite = |extra_deps: &str, plugins_import: &str, plugins: &str| (
+        format!("{{\n  \"name\": \"{pkg}\",\n  \"private\": true,\n  \"version\": \"0.1.0\",\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  }},\n  \"dependencies\": {{\n    \"react\": \"^19.0.0\",\n    \"react-dom\": \"^19.0.0\"\n  }},\n  \"devDependencies\": {{\n    \"@vitejs/plugin-react\": \"^5.0.0\",{extra_deps}\n    \"vite\": \"^7.0.0\"\n  }}\n}}\n"),
+        format!("import {{ defineConfig }} from \"vite\";\nimport react from \"@vitejs/plugin-react\";\n{plugins_import}\nexport default defineConfig({{\n  plugins: [react(){plugins}],\n}});\n"),
+    );
+    let main_jsx = "import { StrictMode } from \"react\";\nimport { createRoot } from \"react-dom/client\";\nimport App from \"./App.jsx\";\nimport \"./index.css\";\n\ncreateRoot(document.getElementById(\"root\")).render(\n  <StrictMode>\n    <App />\n  </StrictMode>,\n);\n".to_string();
+    let react_html = html("", "  <div id=\"root\"></div>\n  <script type=\"module\" src=\"/src/main.jsx\"></script>\n");
+    Some(match kind {
+        "web" => vec![
+            ("index.html", html("  <link rel=\"stylesheet\" href=\"style.css\">\n  <script src=\"script.js\" defer></script>\n", &format!("  <h1>{name}</h1>\n  <p>Click <b>Go Live</b> in the status bar. The page reloads every time you save.</p>\n  <button id=\"hello\">Say hello</button>\n"))),
+            ("style.css", "body {\n  font-family: system-ui, sans-serif;\n  max-width: 40rem;\n  margin: 3rem auto;\n  padding: 0 1rem;\n  line-height: 1.5;\n}\n".into()),
+            ("script.js", "document.getElementById(\"hello\").addEventListener(\"click\", () => {\n  alert(\"Hello!\");\n});\n".into()),
+        ],
+        "node" => vec![
+            ("package.json", format!("{{\n  \"name\": \"{pkg}\",\n  \"version\": \"0.1.0\",\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"start\": \"node index.js\",\n    \"dev\": \"node --watch index.js\"\n  }}\n}}\n")),
+            ("index.js", format!("// {name}: F5 runs it with node --watch, so it restarts when you save.\nconsole.log(\"Hello from {name}!\");\n")),
+        ],
+        "react" => {
+            let (package, config) = vite("", "", "");
+            vec![
+                ("package.json", package), ("vite.config.js", config), ("index.html", react_html), ("src/main.jsx", main_jsx),
+                ("src/App.jsx", "import { useState } from \"react\";\n\nexport default function App() {\n  const [count, setCount] = useState(0);\n  return (\n    <main>\n      <h1>Hello, React</h1>\n      <button onClick={() => setCount(count + 1)}>Clicked {count} times</button>\n    </main>\n  );\n}\n".into()),
+                ("src/index.css", "body {\n  font-family: system-ui, sans-serif;\n  margin: 3rem;\n}\n".into()),
+            ]
+        }
+        "react-tailwind" => {
+            let (package, config) = vite("\n    \"@tailwindcss/vite\": \"^4.1.0\",\n    \"tailwindcss\": \"^4.1.0\",", "import tailwindcss from \"@tailwindcss/vite\";\n", ", tailwindcss()");
+            vec![
+                ("package.json", package), ("vite.config.js", config), ("index.html", react_html), ("src/main.jsx", main_jsx),
+                ("src/App.jsx", "import { useState } from \"react\";\n\nexport default function App() {\n  const [count, setCount] = useState(0);\n  return (\n    <main className=\"mx-auto max-w-xl p-12\">\n      <h1 className=\"text-3xl font-bold\">Hello, React + Tailwind</h1>\n      <button className=\"mt-6 rounded-lg bg-black px-4 py-2 text-white\" onClick={() => setCount(count + 1)}>\n        Clicked {count} times\n      </button>\n    </main>\n  );\n}\n".into()),
+                ("src/index.css", "@import \"tailwindcss\";\n".into()),
+            ]
+        }
+        "lua" => vec![("main.lua", format!("-- {name}\n-- F5 runs this file with lua.\n\nlocal function greet(who)\n  return \"Hello, \" .. who .. \"!\"\nend\n\nprint(greet(\"{name}\"))\n"))],
+        _ => return None,
+    })
+}
+
 /// `cargo new` / `dotnet new` style project creation. Returns the new folder.
 #[tauri::command]
 async fn new_project(parent: String, name: String, kind: String) -> Res<String> {
@@ -822,6 +863,19 @@ async fn new_project(parent: String, name: String, kind: String) -> Res<String> 
              end\n"
         );
         std::fs::write(dir.join("main.lust"), main).map_err(|e| format!("Couldn't write main.lust ({e})."))?;
+        return Ok(plain_path(&dir));
+    }
+    if let Some(files) = web_template(&kind, &name) {
+        // Web, Node and Lua projects are plain files; npm install happens on first Run.
+        let dir = Path::new(&parent).join(&name);
+        if dir.exists() {
+            return Err(format!("There's already something called {name} there."));
+        }
+        for (rel, text) in files {
+            let f = dir.join(rel);
+            std::fs::create_dir_all(f.parent().unwrap()).map_err(|e| format!("Couldn't make the folder ({e})."))?;
+            std::fs::write(&f, text).map_err(|e| format!("Couldn't write {rel} ({e})."))?;
+        }
         return Ok(plain_path(&dir));
     }
     let (tool, args): (&str, Vec<String>) = match kind.as_str() {
