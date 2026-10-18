@@ -23,7 +23,7 @@ import { Lsp, norm, uriToPath, pathToUri, toOffset, toPos, severity, unsnippet, 
 import { ansiToHtml, esc } from "./ansi.js";
 import { LANGS, langOf, dotOf } from "./langs.js";
 import { Keymap, keyString } from "./keys.js";
-import { settings, DEFAULTS, loadSettings, setSetting, initSettings, settingsHtml, wireSettings, isRecording, refreshSettingsTools } from "./settings.js";
+import { settings, DEFAULTS, loadSettings, setSetting, initSettings, settingsHtml, wireSettings, isRecording, refreshSettingsTools, openInBrowser } from "./settings.js";
 import { APP_NAME } from "./app.js";
 import { bracketColors, indentGuides, stickyScroll } from "./editorx.js";
 import { followBottom } from "./follow.js";
@@ -1646,12 +1646,13 @@ async function updateCtx() {
 function taskKind(P = S.ctx) {
   // A .lust file runs with lust, whatever project it sits in (or none).
   if (S.bufs.get(S.active)?.lang === "lust" && !S.bufs.get(S.active).virtual) return "lust";
-  if (!P) return null;
+  const html = S.bufs.get(S.active)?.lang === "html" && !S.bufs.get(S.active).virtual;
+  if (!P) return html ? "html" : null;
   if (P.godot) return "godot";
   if (P.rust && P.dotnet) return S.bufs.get(S.active)?.lang === "csharp" ? "dotnet" : "rust";
   if (P.dotnet) return "dotnet";
   if (P.rust) return "rust";
-  return null;
+  return html ? "html" : null;
 }
 // Each action is a list of steps; a step runs only if the one before succeeded.
 // `input: true` marks steps that run the user's program, which get the Input box.
@@ -1686,11 +1687,16 @@ function taskSteps(action, P = S.ctx) {
   return T[kind][action] || null;
 }
 function taskLabel(action) {
-  return { run: taskKind() === "godot" ? "Play" : "Run", build: "Build", check: "Check", test: "Test", lint: "Clippy", scene: "Play scene", debug: "Debug" }[action];
+  return { run: taskKind() === "godot" ? "Play" : taskKind() === "html" ? "Open in browser" : "Run", build: "Build", check: "Check", test: "Test", lint: "Clippy", scene: "Play scene", debug: "Debug" }[action];
 }
 async function runAction(action) {
   if (!S.root) { toast("Open a folder first."); return; }
   const P = await updateCtx();
+  if (action === "run" && taskKind(P) === "html") {
+    const url = pathToUri(S.active);
+    openInBrowser(url).catch((e) => toast("Couldn't open the browser: " + e, 5000));
+    return;
+  }
   const steps = taskSteps(action, P);
   if (!steps) {
     if (!P) toast(projectDirs().length > 1 ? "Open a file from the project you want. This folder holds several projects." : "No Cargo.toml, .csproj, .sln or project.godot here.", 5000);
@@ -1819,7 +1825,7 @@ function focusInput() {
 function renderStatus() {
   const kind = taskKind();
   const k = (id) => (keymap.label(id) ? ` (${keymap.label(id)})` : "");
-  const acts = !kind ? [] : kind === "lust" ? ["run", "check", "build"] : kind === "rust" ? ["run", "debug", "check", "test", "lint"] : kind === "dotnet" ? ["run", "debug", "build", "test"] : ["run", "debug", "scene", "build"].filter((a) => a === "debug" ? S.ctx?.dotnet : taskSteps(a));
+  const acts = !kind ? [] : kind === "lust" ? ["run", "check", "build"] : kind === "html" ? ["run"] : kind === "rust" ? ["run", "debug", "check", "test", "lint"] : kind === "dotnet" ? ["run", "debug", "build", "test"] : ["run", "debug", "scene", "build"].filter((a) => a === "debug" ? S.ctx?.dotnet : taskSteps(a));
   const id = { run: "task.run", build: "task.build", check: "task.check", test: "task.test", lint: "task.lint", scene: "task.scene", debug: "debug.start" };
   const hadFocus = $("stTasks").contains(document.activeElement) ? document.activeElement.dataset.task : null;
   $("stTasks").innerHTML = acts.map((a, i) => `<button data-task="${a}" class="${i === 0 ? "go" : ""}" title="${esc(taskLabel(a) + k(id[a]))}">${i === 0 ? '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2l7 3.8-7 3.8z" fill="currentColor"/></svg>' : ""}${esc(taskLabel(a))}</button>`).join("");
