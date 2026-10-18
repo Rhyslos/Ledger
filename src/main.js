@@ -1612,7 +1612,7 @@ function detectProject() {
   S.proj = { dir: S.root, rust: names.includes("Cargo.toml"), godot: names.includes("project.godot"), sln: pick(/\.slnx?$/i), csproj: pick(/\.csproj$/i) };
   S.proj.dotnet = !!(S.proj.sln || S.proj.csproj);
 }
-const MARKER = (b) => b === "Cargo.toml" || b === "project.godot" || /\.(csproj|slnx?)$/i.test(b);
+const MARKER = (b) => b === "Cargo.toml" || b === "project.godot" || b === "package.json" || /\.(csproj|slnx?)$/i.test(b);
 /** Folders under the root that hold a project, outermost first. */
 function projectDirs() {
   const dirs = [...new Set((S.files || []).filter((f) => MARKER(base(f))).map(parent))].sort((a, b) => a.length - b.length);
@@ -1646,14 +1646,20 @@ async function updateCtx() {
 function taskKind(P = S.ctx) {
   // A .lust file runs with lust, whatever project it sits in (or none).
   if (S.bufs.get(S.active)?.lang === "lust" && !S.bufs.get(S.active).virtual) return "lust";
-  const html = S.bufs.get(S.active)?.lang === "html" && !S.bufs.get(S.active).virtual;
-  if (!P) return html ? "html" : null;
+  const b = S.bufs.get(S.active), lang = b && !b.virtual ? b.lang : null;
+  const html = lang === "html";
+  if (!P) return html ? "html" : lang === "javascript" ? "nodefile" : null;
   if (P.godot) return "godot";
+  // A web project, or a Tauri-style one with web files open: npm scripts win.
+  if (P.node && (!(P.rust || P.dotnet) || WEB_LANGS.has(lang))) return "node";
   if (P.rust && P.dotnet) return S.bufs.get(S.active)?.lang === "csharp" ? "dotnet" : "rust";
   if (P.dotnet) return "dotnet";
   if (P.rust) return "rust";
   return html ? "html" : null;
 }
+const WEB_LANGS = new Set(["javascript", "jsx", "typescript", "tsx", "html", "css", "scss", "less"]);
+// The script Run starts in an npm project: dev, then start, then serve.
+const runScript = (P) => ["dev", "start", "serve"].find((n) => P.scripts?.includes(n));
 // Each action is a list of steps; a step runs only if the one before succeeded.
 // `input: true` marks steps that run the user's program, which get the Input box.
 function taskSteps(action, P = S.ctx) {
@@ -1664,6 +1670,26 @@ function taskSteps(action, P = S.ctx) {
     const file = S.active, prog = settings.lust || "lust";
     const step = (sub, input) => ({ label: "lust " + sub, program: prog, args: [sub, base(file)], cwd: parent(file), input, lust: true });
     return { run: [step("run", true)], check: [step("check")], build: [step("build")] }[action] || null;
+  }
+  const nodeFile = () => {
+    const b = S.bufs.get(S.active);
+    return b && !b.virtual && b.lang === "javascript" ? { label: "node " + base(S.active), program: "node", args: [base(S.active)], cwd: parent(S.active), input: true } : null;
+  };
+  if (kind === "nodefile") return action === "run" ? [nodeFile()] : null;
+  if (kind === "node") {
+    const pm = P.pm || "npm", has = (n) => P.scripts?.includes(n);
+    const install = { label: pm + " install", program: pm, args: ["install"], cwd: P.dir };
+    const script = (n, input) => [...(P.needs_install ? [install] : []), { label: `${pm} run ${n}`, program: pm, args: ["run", n], cwd: P.dir, input }];
+    if (action === "install") return [install];
+    if (action.startsWith("script:")) return script(action.slice(7), true);
+    const lint = ["lint", "typecheck", "check"].find(has);
+    const run = runScript(P);
+    return {
+      run: run ? script(run, true) : nodeFile() ? [nodeFile()] : null,
+      build: has("build") ? script("build") : null,
+      test: has("test") ? script("test", true) : null,
+      check: lint ? script(lint) : null,
+    }[action] || null;
   }
   const cwd = P.dir;
   const dotTarget = P.sln || P.csproj;
@@ -1687,19 +1713,21 @@ function taskSteps(action, P = S.ctx) {
   return T[kind][action] || null;
 }
 function taskLabel(action) {
-  return { run: taskKind() === "godot" ? "Play" : taskKind() === "html" ? "Open in browser" : "Run", build: "Build", check: "Check", test: "Test", lint: "Clippy", scene: "Play scene", debug: "Debug" }[action];
+  return { run: taskKind() === "godot" ? "Play" : taskKind() === "html" ? "Open in browser" : "Run", build: "Build", check: taskKind() === "node" ? "Lint" : "Check", test: "Test", lint: "Clippy", scene: "Play scene", debug: "Debug", scripts: "Scripts…" }[action];
 }
 async function runAction(action) {
   if (!S.root) { toast("Open a folder first."); return; }
   const P = await updateCtx();
-  if (action === "run" && taskKind(P) === "html") {
+  if (action === "scripts") { pickScript(P); return; }
+  if (action === "run" && (taskKind(P) === "html" || (taskKind(P) === "node" && !runScript(P) && S.bufs.get(S.active)?.lang === "html"))) {
     const url = pathToUri(S.active);
     openInBrowser(url).catch((e) => toast("Couldn't open the browser: " + e, 5000));
     return;
   }
   const steps = taskSteps(action, P);
   if (!steps) {
-    if (!P) toast(projectDirs().length > 1 ? "Open a file from the project you want. This folder holds several projects." : "No Cargo.toml, .csproj, .sln or project.godot here.", 5000);
+    if (!P) toast(projectDirs().length > 1 ? "Open a file from the project you want. This folder holds several projects." : "No Cargo.toml, .csproj, .sln, project.godot or package.json here.", 5000);
+    else if (taskKind(P) === "node") toast(action === "run" ? "package.json has no dev, start or serve script. Pick one from Scripts." : `package.json has no script for ${taskLabel(action)}.`, 5000);
     else if (action === "scene") toast("Open a .tscn scene file to play it.");
     else toast(`${taskLabel(action)} isn't available for this project.`);
     return;
@@ -1711,6 +1739,14 @@ async function runAction(action) {
     return;
   }
   startSteps(steps);
+}
+async function pickScript(P) {
+  if (!P?.node) { toast("No package.json here."); return; }
+  const pm = P.pm || "npm";
+  const names = [...(P.scripts || []), pm + " install"];
+  const i = await choose(`Run a script from package.json (${pm})`, names, true);
+  if (i == null || i < 0) return;
+  startSteps(taskSteps(i === names.length - 1 ? "install" : "script:" + names[i], P));
 }
 async function startSteps(steps, onDone, onFail) {
   if (!S.root) { toast("Open a folder first."); return; }
@@ -1825,7 +1861,7 @@ function focusInput() {
 function renderStatus() {
   const kind = taskKind();
   const k = (id) => (keymap.label(id) ? ` (${keymap.label(id)})` : "");
-  const acts = !kind ? [] : kind === "lust" ? ["run", "check", "build"] : kind === "html" ? ["run"] : kind === "rust" ? ["run", "debug", "check", "test", "lint"] : kind === "dotnet" ? ["run", "debug", "build", "test"] : ["run", "debug", "scene", "build"].filter((a) => a === "debug" ? S.ctx?.dotnet : taskSteps(a));
+  const acts = !kind ? [] : kind === "lust" ? ["run", "check", "build"] : kind === "html" || kind === "nodefile" ? ["run"] : kind === "node" ? ["run", "build", "test", "check", "scripts"].filter((a) => a === "scripts" || a === "run" || taskSteps(a)) : kind === "rust" ? ["run", "debug", "check", "test", "lint"] : kind === "dotnet" ? ["run", "debug", "build", "test"] : ["run", "debug", "scene", "build"].filter((a) => a === "debug" ? S.ctx?.dotnet : taskSteps(a));
   const id = { run: "task.run", build: "task.build", check: "task.check", test: "task.test", lint: "task.lint", scene: "task.scene", debug: "debug.start" };
   const hadFocus = $("stTasks").contains(document.activeElement) ? document.activeElement.dataset.task : null;
   $("stTasks").innerHTML = acts.map((a, i) => `<button data-task="${a}" class="${i === 0 ? "go" : ""}" title="${esc(taskLabel(a) + k(id[a]))}">${i === 0 ? '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2l7 3.8-7 3.8z" fill="currentColor"/></svg>' : ""}${esc(taskLabel(a))}</button>`).join("");
@@ -2309,6 +2345,7 @@ C("task.build", "Build", "Ctrl+Shift+B", () => runAction("build"));
 C("task.test", "Run tests", "Ctrl+Alt+T", () => runAction("test"));
 C("task.check", "Check (Rust)", "Ctrl+Alt+C", () => runAction("check"));
 C("task.lint", "Clippy (Rust)", [], () => runAction("lint"));
+C("task.scripts", "Run a package.json script…", [], () => runAction("scripts"));
 C("task.scene", "Play current scene (Godot)", "Ctrl+F5", () => runAction("scene"));
 C("task.custom", "Run a command…", [], async () => {
   const s = (await promptText("Command to run in the project folder", taskKind() === "rust" ? "cargo run -- " : "dotnet ", "for example: cargo run -- input.txt"))?.trim();
@@ -2386,12 +2423,13 @@ document.addEventListener("keydown", (e) => {
   }
   if (BLOCKED.has(k)) e.preventDefault();
 }, true);
-// Links to websites open in the normal browser.
+// Links to websites open in the normal browser; local dev servers in the one picked in Settings.
 document.addEventListener("click", (e) => {
   const a = e.target.closest?.("a[href^='http']");
   if (!a) return;
   e.preventDefault();
-  openUrl(a.href).catch(() => toast("Couldn't open the browser."));
+  const local = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])[:/]/.test(a.href);
+  (local ? openInBrowser(a.href.replace("//0.0.0.0", "//localhost")) : openUrl(a.href)).catch(() => toast("Couldn't open the browser."));
 });
 document.addEventListener("contextmenu", (e) => { if (!e.target.closest(".cm-editor, input, textarea, .out")) e.preventDefault(); });
 

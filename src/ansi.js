@@ -5,7 +5,9 @@ export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&a
 const link = (file, line, col, text) => `<a data-file="${esc(file)}" data-line="${line}" data-col="${col || 1}" tabindex="0">${esc(text)}</a>`;
 
 // rustc / panics: src/main.rs:14:20, and Lust: main.lust:3:5 or main.lust:3
-const RS = /((?:[A-Za-z]:)?[\w.\-\/\\]*[\w\-]\.(?:rs|lust)):(\d+)(?::(\d+))?/g;
+const RS = /((?:[A-Za-z]:)?[\w.\-\/\\]*[\w\-]\.(?:rs|lust|m?[jt]sx?|cjs|vue|svelte|s?css)):(\d+)(?::(\d+))?/g;
+// Web addresses, such as the one a dev server prints when it starts.
+const URLS = /https?:\/\/[^\s"'<>]*[^\s"'<>.,;:)\]]/g;
 // MSBuild: C:\proj\Player.cs(12,5): error CS0103: ...   (may contain spaces, so anchored at line start)
 const MSB = /^(\s*)(.+?\.(?:cs|csproj|props|targets|sln|slnx|xaml))\((\d+)(?:,(\d+))?(?:,\d+,\d+)?\)(.*)$/;
 // .NET stack trace: at Player._Ready() in C:\proj\Player.cs:line 14
@@ -22,6 +24,15 @@ function linkify(text) {
     const i = m.index;
     return esc(text.slice(0, i)) + esc(m[1]) + link(m[2], m[3], 1, `${m[2]}:line ${m[3]}`) + esc(text.slice(i + m[0].length));
   }
+  let out = "", last = 0;
+  for (const u of text.matchAll(URLS)) {
+    out += files(text.slice(last, u.index)) + `<a href="${esc(u[0])}">${esc(u[0])}</a>`;
+    last = u.index + u[0].length;
+  }
+  return out + files(text.slice(last));
+}
+
+function files(text) {
   let out = "", last = 0;
   for (const r of text.matchAll(RS)) {
     out += esc(text.slice(last, r.index)) + link(r[1], r[2], r[3], r[0]);

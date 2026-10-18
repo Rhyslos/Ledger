@@ -723,10 +723,27 @@ struct Project {
     godot: bool,
     sln: Option<String>,
     csproj: Option<String>,
+    /// A package.json here: its script names, the package manager its lockfile
+    /// points at, and whether its packages still need installing.
+    node: bool,
+    scripts: Vec<String>,
+    pm: String,
+    needs_install: bool,
+}
+
+fn read_package(dir: &Path, p: &mut Project) {
+    let Ok(text) = std::fs::read_to_string(dir.join("package.json")) else { return };
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+    p.node = true;
+    p.scripts = v["scripts"].as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    let has = |f: &str| dir.join(f).exists();
+    p.pm = if has("pnpm-lock.yaml") { "pnpm" } else if has("yarn.lock") { "yarn" } else if has("bun.lockb") || has("bun.lock") { "bun" } else { "npm" }.into();
+    let deps = ["dependencies", "devDependencies"].iter().any(|k| v[k].as_object().is_some_and(|o| !o.is_empty()));
+    p.needs_install = deps && !dir.join("node_modules").is_dir();
 }
 
 fn project_in(dir: &Path) -> Option<Project> {
-    let mut p = Project { dir: plain_path(dir).replace('\\', "/"), rust: false, godot: false, sln: None, csproj: None };
+    let mut p = Project { dir: plain_path(dir).replace('\\', "/"), rust: false, godot: false, sln: None, csproj: None, node: false, scripts: vec![], pm: String::new(), needs_install: false };
     for e in std::fs::read_dir(dir).ok()?.flatten() {
         if !e.path().is_file() {
             continue;
@@ -741,13 +758,15 @@ fn project_in(dir: &Path) -> Option<Project> {
             p.sln = full();
         } else if n.ends_with(".csproj") && p.csproj.is_none() {
             p.csproj = full();
+        } else if n == "package.json" {
+            read_package(dir, &mut p);
         }
     }
-    (p.rust || p.godot || p.sln.is_some() || p.csproj.is_some()).then_some(p)
+    (p.rust || p.godot || p.node || p.sln.is_some() || p.csproj.is_some()).then_some(p)
 }
 
 /// The project `path` belongs to: the nearest folder at or above it, but not
-/// above `root`, holding a Cargo.toml, .csproj, .sln or project.godot. Lets one
+/// above `root`, holding a Cargo.toml, .csproj, .sln, project.godot or package.json. Lets one
 /// folder (a course folder, say) hold many projects.
 #[tauri::command]
 fn project_at(path: String, root: String) -> Option<Project> {
