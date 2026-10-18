@@ -2,6 +2,7 @@
 // page in a tab (Ctrl+P). Everything on the page works from the keyboard.
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { keyString, showKey } from "./keys.js";
 import { esc } from "./ansi.js";
 
@@ -34,6 +35,8 @@ export const DEFAULTS = {
   godot: "",
   lust: "lust",
   terminalShell: "",
+  browser: "default",
+  browserPath: "",
   debugRust: "",
   debugCsharp: "",
   keys: {},
@@ -86,6 +89,13 @@ export function setSetting(key, value) {
 }
 
 export function initSettings(c) { ctx = c; }
+
+// The browser Ledger opens web pages in (HTML files now, Live Server later).
+const BROWSERS = { chrome: "chrome.exe", edge: "msedge.exe", firefox: "firefox.exe", brave: "brave.exe" };
+export function openInBrowser(url) {
+  const app = settings.browser === "custom" ? settings.browserPath.trim() || undefined : BROWSERS[settings.browser];
+  return openUrl(url, app);
+}
 
 export const refreshSettingsTools = () => refreshTools();
 
@@ -150,6 +160,11 @@ export function settingsHtml() {
 
     <section aria-labelledby="sTerm"><h2 id="sTerm">Terminal</h2>
       ${row("Shell", text("sShell", "terminalShell", "PowerShell (pwsh if it's installed)"), "The program a new terminal runs, like cmd.exe, pwsh.exe or a full path to Git Bash. Leave empty for PowerShell. Ctrl+` opens a terminal.", "sShell")}
+    </section>
+
+    <section aria-labelledby="sWeb"><h2 id="sWeb">Web</h2>
+      ${row("Browser", select("sBrowser", "browser", [["default", "Windows default"], ["chrome", "Google Chrome"], ["edge", "Microsoft Edge"], ["firefox", "Firefox"], ["brave", "Brave"], ["custom", "Another program…"]]), "Where Run opens HTML files.", "sBrowser")}
+      ${row("Browser program", text("sBrowserPath", "browserPath", "C:\\Program Files\\Vivaldi\\Application\\vivaldi.exe"), "Used when Browser is set to Another program. A name on PATH or a full path.", "sBrowserPath")}
     </section>
 
     <section aria-labelledby="sDbg"><h2 id="sDbg">Debugging</h2>

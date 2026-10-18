@@ -6,6 +6,10 @@ import { Prec } from "@codemirror/state";
 import { rust, rustLanguage } from "@codemirror/lang-rust";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
+import { javascript } from "@codemirror/lang-javascript";
+import { html } from "@codemirror/lang-html";
+import { css } from "@codemirror/lang-css";
+import { sCSS, less } from "@codemirror/legacy-modes/mode/css";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { clike } from "@codemirror/legacy-modes/mode/clike";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
@@ -330,6 +334,14 @@ export const LANGS = {
   lust: { name: "Lust", dot: "lust", ext: () => [new LanguageSupport(StreamLanguage.define(lustMode)), Prec.high(syntaxHighlighting(lustStyle))], complete: lustCompletions },
   gdscript: { name: "GDScript", dot: "gd", ext: () => legacy(python, { commentTokens: { line: "#" } }) },
   godot: { name: "Godot resource", dot: "godot", ext: () => legacy(godotResource) },
+  javascript: { name: "JavaScript", dot: "js", languageId: "javascript", ext: () => javascript() },
+  jsx: { name: "JavaScript React", dot: "js", languageId: "javascriptreact", ext: () => javascript({ jsx: true }) },
+  typescript: { name: "TypeScript", dot: "ts", languageId: "typescript", ext: () => javascript({ typescript: true }) },
+  tsx: { name: "TypeScript React", dot: "ts", languageId: "typescriptreact", ext: () => javascript({ jsx: true, typescript: true }) },
+  html: { name: "HTML", dot: "html", languageId: "html", ext: () => html() },
+  css: { name: "CSS", dot: "css", languageId: "css", ext: () => css() },
+  scss: { name: "SCSS", dot: "css", languageId: "scss", ext: () => legacy(sCSS, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }) },
+  less: { name: "Less", dot: "css", languageId: "less", ext: () => legacy(less, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }) },
   toml: { name: "TOML", dot: "toml", ext: () => legacy(toml) },
   json: { name: "JSON", dot: "json", ext: () => json() },
   markdown: { name: "Markdown", dot: "md", ext: () => markdown() },
@@ -343,7 +355,9 @@ export const LANGS = {
 const BY_EXT = {
   rs: "rust", cs: "csharp", csx: "csharp", lust: "lust", gdshader: "gdshader", gdshaderinc: "gdshader", gd: "gdscript",
   tscn: "godot", tres: "godot", godot: "godot", import: "godot", cfg: "ini", ini: "ini", editorconfig: "ini",
-  toml: "toml", json: "json", md: "markdown",
+  toml: "toml", json: "json", jsonc: "json", md: "markdown",
+  js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx", ts: "typescript", mts: "typescript", cts: "typescript", tsx: "tsx",
+  html: "html", htm: "html", vue: "html", svelte: "html", astro: "html", css: "css", scss: "scss", sass: "scss", less: "less",
   csproj: "xml", fsproj: "xml", props: "xml", targets: "xml", slnx: "xml", xml: "xml", resx: "xml", xaml: "xml", config: "xml", svg: "xml",
   yml: "yaml", yaml: "yaml", ps1: "powershell", psm1: "powershell",
 };
