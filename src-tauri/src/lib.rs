@@ -1259,6 +1259,8 @@ async fn install_debugger(app: AppHandle, kind: String) -> Res<String> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+mod live;
+
 pub fn run() {
     tauri::Builder::default()
         // Must come first: a second launch (say, from Godot) hands its
@@ -1282,12 +1284,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Procs::default())
+        .manage(live::LiveServers::default())
         .on_window_event(|window, ev| {
             if let tauri::WindowEvent::Destroyed = ev {
                 stop_window(&window.state::<Procs>(), window.label(), false);
+                live::stop(&window.state::<live::LiveServers>(), window.label());
             }
         })
         .invoke_handler(tauri::generate_handler![
+            live::live_start,
+            live::live_stop,
+            live::live_reload,
             js_log,
             startup_args,
             exe_path,
