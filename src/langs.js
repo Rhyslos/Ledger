@@ -10,6 +10,7 @@ import { javascript } from "@codemirror/lang-javascript";
 import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { sCSS, less } from "@codemirror/legacy-modes/mode/css";
+import { webColours, legacyCssColours } from "./webcolours.js";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { clike } from "@codemirror/legacy-modes/mode/clike";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
@@ -335,14 +336,14 @@ export const LANGS = {
   lust: { name: "Lust", dot: "lust", ext: () => [new LanguageSupport(StreamLanguage.define(lustMode)), Prec.high(syntaxHighlighting(lustStyle))], complete: lustCompletions },
   gdscript: { name: "GDScript", dot: "gd", ext: () => legacy(python, { commentTokens: { line: "#" } }) },
   godot: { name: "Godot resource", dot: "godot", ext: () => legacy(godotResource) },
-  javascript: { name: "JavaScript", dot: "js", languageId: "javascript", ext: () => javascript() },
-  jsx: { name: "JavaScript React", dot: "js", languageId: "javascriptreact", ext: () => javascript({ jsx: true }) },
-  typescript: { name: "TypeScript", dot: "ts", languageId: "typescript", ext: () => javascript({ typescript: true }) },
-  tsx: { name: "TypeScript React", dot: "ts", languageId: "typescriptreact", ext: () => javascript({ jsx: true, typescript: true }) },
-  html: { name: "HTML", dot: "html", languageId: "html", ext: () => html() },
-  css: { name: "CSS", dot: "css", languageId: "css", ext: () => css() },
-  scss: { name: "SCSS", dot: "css", languageId: "scss", ext: () => legacy(sCSS, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }) },
-  less: { name: "Less", dot: "css", languageId: "less", ext: () => legacy(less, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }) },
+  javascript: { name: "JavaScript", dot: "js", languageId: "javascript", ext: () => [javascript(), webColours()] },
+  jsx: { name: "JavaScript React", dot: "js", languageId: "javascriptreact", ext: () => [javascript({ jsx: true }), webColours()] },
+  typescript: { name: "TypeScript", dot: "ts", languageId: "typescript", ext: () => [javascript({ typescript: true }), webColours()] },
+  tsx: { name: "TypeScript React", dot: "ts", languageId: "typescriptreact", ext: () => [javascript({ jsx: true, typescript: true }), webColours()] },
+  html: { name: "HTML", dot: "html", languageId: "html", ext: () => [html(), webColours()] },
+  css: { name: "CSS", dot: "css", languageId: "css", ext: () => [css(), webColours()] },
+  scss: { name: "SCSS", dot: "css", languageId: "scss", ext: () => [legacy(sCSS, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }), legacyCssColours()] },
+  less: { name: "Less", dot: "css", languageId: "less", ext: () => [legacy(less, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }), legacyCssColours()] },
   lua: { name: "Lua", dot: "lua", languageId: "lua", ext: () => legacy(lua, { commentTokens: { line: "--", block: { open: "--[[", close: "]]" } }, closeBrackets: { brackets: ["(", "[", "{", '"', "'"] } }) },
   toml: { name: "TOML", dot: "toml", ext: () => legacy(toml) },
   json: { name: "JSON", dot: "json", ext: () => json() },
