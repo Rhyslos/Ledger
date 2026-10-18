@@ -44,6 +44,24 @@ fn home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from)
 }
 
+/// PATH as Windows has it now (user + machine), read again after Ledger installs
+/// something, so new tools work without restarting Ledger.
+static FRESH_PATH: std::sync::Mutex<Option<OsString>> = std::sync::Mutex::new(None);
+
+#[tauri::command]
+async fn refresh_path() {
+    if !cfg!(windows) {
+        return;
+    }
+    let mut c = command_at(Path::new("powershell"));
+    c.args(["-NoProfile", "-Command", "[Environment]::GetEnvironmentVariable('Path','User'); [Environment]::GetEnvironmentVariable('Path','Machine')"]);
+    if let Ok(out) = c.stdin(Stdio::null()).stderr(Stdio::null()).output() {
+        let text = String::from_utf8_lossy(&out.stdout);
+        let joined = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(";");
+        *FRESH_PATH.lock().unwrap() = Some(joined.into());
+    }
+}
+
 fn child_path() -> OsString {
     let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(h) = std::env::var_os("CARGO_HOME") {
@@ -56,6 +74,11 @@ fn child_path() -> OsString {
     if cfg!(windows) {
         if let Some(pf) = std::env::var_os("ProgramFiles") {
             dirs.push(PathBuf::from(pf).join("dotnet"));
+            dirs.push(PathBuf::from(pf).join("nodejs"));
+        }
+        // Where winget puts command-line tools it installs.
+        if let Some(l) = std::env::var_os("LOCALAPPDATA") {
+            dirs.push(PathBuf::from(l).join("Microsoft").join("WinGet").join("Links"));
         }
     } else {
         dirs.push("/usr/local/share/dotnet".into());
@@ -64,6 +87,9 @@ fn child_path() -> OsString {
     }
     if let Some(p) = std::env::var_os("PATH") {
         dirs.extend(std::env::split_paths(&p));
+    }
+    if let Some(p) = FRESH_PATH.lock().unwrap().as_ref() {
+        dirs.extend(std::env::split_paths(p));
     }
     std::env::join_paths(dirs).unwrap_or_default()
 }
@@ -1351,6 +1377,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            refresh_path,
             live::live_start,
             live::live_stop,
             live::live_reload,
