@@ -2595,10 +2595,12 @@ async function closeFolder() {
   renderMain(); renderProblems();
 }
 async function newProject() {
-  const kinds = ["Lust program", "Rust program", "Rust library", "C# console app", "C# class library"];
+  const kinds = ["Lust program", "Rust program", "Rust library", "C# console app", "C# class library", "Website (HTML, CSS, JS)", "React (Vite)", "React + Tailwind (Vite)", "Node.js program", "Lua program"];
   const i = await choose("What kind of project?", kinds, true);
-  if (i == null) return;
-  const kind = ["lust", "rust", "rust-lib", "console", "classlib"][i];
+  if (i == null || i < 0) return;
+  const kind = ["lust", "rust", "rust-lib", "console", "classlib", "web", "react", "react-tailwind", "node", "lua"][i];
+  const MAIN = { lust: "main.lust", rust: "src/main.rs", "rust-lib": "src/lib.rs", console: "Program.cs", classlib: "Class1.cs", web: "index.html", react: "src/App.jsx", "react-tailwind": "src/App.jsx", node: "index.js", lua: "main.lua" };
+  const plain = !["rust", "rust-lib", "console", "classlib"].includes(kind); // no language server to start
   // With a folder open (a course folder, say), new projects go inside it by default.
   let dir = null;
   if (S.root) {
@@ -2615,18 +2617,19 @@ async function newProject() {
     const p = norm(await invoke("new_project", { parent: dir, name, kind }));
     if (S.root && isUnder(p, S.root)) {
       // Keep the folder open and add the project to it.
-      const main = kind === "lust" ? "main.lust" : kind === "rust" ? "src/main.rs" : kind === "rust-lib" ? "src/lib.rs" : kind === "console" ? "Program.cs" : "Class1.cs";
+      const main = MAIN[kind];
       await revealInTree(join(p, main));
       S.open.add(p);
       await refreshTree();
-      if (kind !== "lust") startServer(kind.startsWith("rust") ? "rust" : "csharp");
+      if (!plain) startServer(kind.startsWith("rust") ? "rust" : "csharp");
       await openFile(join(p, main), null, { quiet: true });
       revealInTree(join(p, main));
       toast(`Created ${name}. Run, Build and Test use the project of the file you have open.`, 4000);
-    } else if ((await openFolder(p)) && kind === "lust") {
-      await openFile(join(p, "main.lust"), null, { quiet: true });
-      revealInTree(join(p, "main.lust"));
+    } else if ((await openFolder(p)) && plain) {
+      await openFile(join(p, MAIN[kind]), null, { quiet: true });
+      revealInTree(join(p, MAIN[kind]));
     }
+    if (["react", "react-tailwind"].includes(kind)) toast("Press F5: Ledger installs the packages, then starts the dev server.", 6000);
   } catch (e) { toast(String(e), 6000); }
 }
 
