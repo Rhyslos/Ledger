@@ -1677,6 +1677,8 @@ async function updateCtx() {
 function taskKind(P = S.ctx) {
   // A .lust file runs with lust, whatever project it sits in (or none).
   if (S.bufs.get(S.active)?.lang === "lust" && !S.bufs.get(S.active).virtual) return "lust";
+  // A .lua file runs on its own with the lua interpreter.
+  if (S.bufs.get(S.active)?.lang === "lua" && !S.bufs.get(S.active).virtual) return "lua";
   const b = S.bufs.get(S.active), lang = b && !b.virtual ? b.lang : null;
   const html = lang === "html";
   if (!P) return html ? "html" : lang === "javascript" ? "nodefile" : null;
@@ -1706,6 +1708,7 @@ function taskSteps(action, P = S.ctx) {
     const b = S.bufs.get(S.active);
     return b && !b.virtual && b.lang === "javascript" ? { label: "node " + base(S.active), program: "node", args: [base(S.active)], cwd: parent(S.active), input: true } : null;
   };
+  if (kind === "lua") return action === "run" ? [{ label: "lua " + base(S.active), program: settings.lua || "lua", args: [base(S.active)], cwd: parent(S.active), input: true }] : null;
   if (kind === "nodefile") return action === "run" ? [nodeFile()] : null;
   if (kind === "node") {
     const pm = P.pm || "npm", has = (n) => P.scripts?.includes(n);
@@ -1892,7 +1895,7 @@ function focusInput() {
 function renderStatus() {
   const kind = taskKind();
   const k = (id) => (keymap.label(id) ? ` (${keymap.label(id)})` : "");
-  const acts = !kind ? [] : kind === "lust" ? ["run", "check", "build"] : kind === "html" || kind === "nodefile" ? ["run"] : kind === "node" ? ["run", "build", "test", "check", "scripts"].filter((a) => a === "scripts" || a === "run" || taskSteps(a)) : kind === "rust" ? ["run", "debug", "check", "test", "lint"] : kind === "dotnet" ? ["run", "debug", "build", "test"] : ["run", "debug", "scene", "build"].filter((a) => a === "debug" ? S.ctx?.dotnet : taskSteps(a));
+  const acts = !kind ? [] : kind === "lust" ? ["run", "check", "build"] : kind === "html" || kind === "nodefile" || kind === "lua" ? ["run"] : kind === "node" ? ["run", "build", "test", "check", "scripts"].filter((a) => a === "scripts" || a === "run" || taskSteps(a)) : kind === "rust" ? ["run", "debug", "check", "test", "lint"] : kind === "dotnet" ? ["run", "debug", "build", "test"] : ["run", "debug", "scene", "build"].filter((a) => a === "debug" ? S.ctx?.dotnet : taskSteps(a));
   const id = { run: "task.run", build: "task.build", check: "task.check", test: "task.test", lint: "task.lint", scene: "task.scene", debug: "debug.start" };
   const hadFocus = $("stTasks").contains(document.activeElement) ? document.activeElement.dataset.task : null;
   $("stTasks").innerHTML = acts.map((a, i) => `<button data-task="${a}" class="${i === 0 ? "go" : ""}" title="${esc(taskLabel(a) + k(id[a]))}">${i === 0 ? '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2l7 3.8-7 3.8z" fill="currentColor"/></svg>' : ""}${esc(taskLabel(a))}</button>`).join("");
