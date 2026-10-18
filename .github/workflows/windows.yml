@@ -1,5 +1,7 @@
-# Builds the Windows installer and a portable .exe on every push.
-# Download them from the run's page: Actions tab → the latest run → Artifacts.
+# Every push to main builds Ledger, numbers it 0.1.<run number> and publishes
+# it as a GitHub release. Installed copies of Ledger find it through
+# latest.json, download it in the background and offer "Restart to update".
+# Needs the repo secret TAURI_SIGNING_PRIVATE_KEY (the updater signing key).
 name: Windows build
 
 on:
@@ -7,10 +9,23 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
     steps:
+      - name: Check the signing key is set
+        shell: pwsh
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            throw "Add the secret TAURI_SIGNING_PRIVATE_KEY (Settings > Secrets and variables > Actions). Updates can't be published without it."
+          }
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -26,11 +41,48 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run tauri build
+      - name: Number this build
+        shell: pwsh
+        run: |
+          $v = "0.1.$env:GITHUB_RUN_NUMBER"
+          $f = "src-tauri/tauri.conf.json"
+          (Get-Content $f -Raw) -replace '"version":\s*"[^"]*"', "`"version`": `"$v`"" | Set-Content $f -NoNewline
+          "LEDGER_VERSION=$v" >> $env:GITHUB_ENV
+          Write-Host "Building Ledger $v"
+
+      # Signed updater files only here: local build.ps1 builds without the key.
+      - run: npm run tauri build -- --config src-tauri/tauri.updater.conf.json
 
       - name: Collect the installer and the portable exe
         shell: pwsh
         run: ./scripts/collect.ps1
+
+      - name: Write latest.json for the updater
+        shell: pwsh
+        run: |
+          $v = $env:LEDGER_VERSION
+          $setup = Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter "*-setup.exe" | Select-Object -First 1
+          $sig = Get-Content "$($setup.FullName).sig" -Raw
+          $latest = [ordered]@{
+            version = $v
+            notes = (git log -1 --pretty=%s)
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $sig.Trim()
+                url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v$v/$($setup.Name)"
+              }
+            }
+          }
+          $latest | ConvertTo-Json -Depth 5 | Set-Content "release/latest.json" -Encoding utf8NoBOM
+
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = $env:LEDGER_VERSION
+          gh release create "v$v" (Get-ChildItem release -File).FullName --title "Ledger $v" --notes "$(git log -1 --pretty=%B)" --target $env:GITHUB_SHA
 
       - uses: actions/upload-artifact@v4
         with:

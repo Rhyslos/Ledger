@@ -3,6 +3,7 @@ if (import.meta.env.VITE_DEBUG) import("./debug.js");
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { on as listen, winLabel } from "./win.js";
+import { initUpdate } from "./update.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -968,6 +969,7 @@ saveHooks.push((path, b) => { if (b.lang === "lust") lustCheck(path); });
 // ---------- Live Server ----------
 // Serves the open folder on localhost and reloads the page whenever a file in it is saved.
 const live = { port: 0, root: null };
+let updater = null;
 function liveUrl() {
   const b = S.bufs.get(S.active);
   const rel = b && !b.virtual && b.lang === "html" && isUnder(S.active, live.root) ? norm(S.active).slice(norm(live.root).length).replace(/^\/+/, "") : "";
@@ -2386,6 +2388,7 @@ C("task.build", "Build", "Ctrl+Shift+B", () => runAction("build"));
 C("task.test", "Run tests", "Ctrl+Alt+T", () => runAction("test"));
 C("task.check", "Check (Rust)", "Ctrl+Alt+C", () => runAction("check"));
 C("task.lint", "Clippy (Rust)", [], () => runAction("lint"));
+C("app.update", "Check for updates", [], () => updater?.check());
 C("live.toggle", "Live Server: start or stop", [], () => (live.port ? stopLive() : startLive()));
 C("live.open", "Live Server: open this page in the browser", [], openLive);
 C("task.scripts", "Run a package.json script…", [], () => runAction("scripts"));
@@ -2721,6 +2724,20 @@ async function boot() {
     editSnippets: () => snippets?.edit(),
     installDebugger: (kind) => debug?.install(kind),
     debuggerFor: async (kind) => debug?.adapterPath(kind),
+    checkUpdate: () => updater?.check(),
+  });
+  updater = initUpdate({
+    $, toast, settings, isMain: winLabel === "main",
+    // Ledger restarts to update: save first, or let the user keep working.
+    beforeInstall: async () => {
+      saveSession();
+      await new Promise((r) => setTimeout(r, 400)); // saveSession writes after a short delay
+      const d = dirtyPaths();
+      if (!d.length) return true;
+      const c = await choose(`Save changes to ${d.length === 1 ? base(d[0]) : d.length + " files"} before Ledger restarts?`, ["Save all and restart", "Restart without saving", "Cancel"]);
+      if (!c || c === "Cancel") return false;
+      return c === "Save all and restart" ? saveAll() : true;
+    },
   });
   wireSettings($("settings"), (keep) => { if (S.active === SETTINGS_TAB) renderSettingsPage(keep); });
   keymap.setOverrides(settings.keys);
