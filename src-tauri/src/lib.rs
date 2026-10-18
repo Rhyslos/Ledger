@@ -73,8 +73,9 @@ fn child_path() -> OsString {
     }
     if cfg!(windows) {
         if let Some(pf) = std::env::var_os("ProgramFiles") {
-            dirs.push(PathBuf::from(pf).join("dotnet"));
-            dirs.push(PathBuf::from(pf).join("nodejs"));
+            let pf = PathBuf::from(pf);
+            dirs.push(pf.join("dotnet"));
+            dirs.push(pf.join("nodejs"));
         }
         // Where winget puts command-line tools it installs.
         if let Some(l) = std::env::var_os("LOCALAPPDATA") {
