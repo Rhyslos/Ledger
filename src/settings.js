@@ -34,6 +34,7 @@ export const DEFAULTS = {
   csharpArgs: "",
   godot: "",
   lust: "lust",
+  lua: "lua",
   terminalShell: "",
   browser: "default",
   browserPath: "",
@@ -101,7 +102,7 @@ export function openInBrowser(url) {
 export const refreshSettingsTools = () => refreshTools();
 
 async function refreshTools() {
-  const names = { cargo: "cargo", ra: settings.rustAnalyzer || "rust-analyzer", dotnet: "dotnet", cs: settings.csharpServer || "csharp-ls", godot: settings.godot, git: "git", lust: settings.lust || "lust" };
+  const names = { cargo: "cargo", ra: settings.rustAnalyzer || "rust-analyzer", dotnet: "dotnet", cs: settings.csharpServer || "csharp-ls", godot: settings.godot, git: "git", lust: settings.lust || "lust", lua: settings.lua || "lua" };
   const out = {};
   await Promise.all(Object.entries(names).map(async ([k, n]) => { out[k] = n ? await invoke("tool_info", { name: n }).catch(() => null) : null; }));
   out.lldb = await ctx.debuggerFor?.("rust").catch(() => null);
@@ -188,6 +189,10 @@ export function settingsHtml() {
 
     <section aria-labelledby="sLust"><h2 id="sLust">Lust</h2>
       ${row("lust", text("sLustPath", "lust", "lust") + `<div class="tool">${found(tools.lust, 'Run build.cmd in the <a href="https://github.com/Rhyslos/Lust" target="_blank">Lust repo</a>, then put the full path to its bin\\lust.exe here.')}</div>`, "Runs .lust files (Run, Check, Build) and checks them for mistakes when you save. A name on PATH or a full path to lust.exe.", "sLustPath")}
+    </section>
+
+    <section aria-labelledby="sLua"><h2 id="sLua">Lua</h2>
+      ${row("lua", text("sLuaPath", "lua", "lua") + `<div class="tool">${found(tools.lua, 'Install Lua from <a href="https://luabinaries.sourceforge.net" target="_blank">luabinaries</a> (or <code>winget install DEVCOM.Lua</code>), then put its name or full path here. Some installs call it lua54.exe.')}</div>`, "Runs .lua files with Run (F5). A name on PATH or a full path.", "sLuaPath")}
     </section>
 
     <section aria-labelledby="sGodot"><h2 id="sGodot">Godot</h2>

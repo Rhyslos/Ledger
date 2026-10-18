@@ -16,6 +16,7 @@ import { properties } from "@codemirror/legacy-modes/mode/properties";
 import { xml } from "@codemirror/legacy-modes/mode/xml";
 import { python } from "@codemirror/legacy-modes/mode/python";
 import { yaml } from "@codemirror/legacy-modes/mode/yaml";
+import { lua } from "@codemirror/legacy-modes/mode/lua";
 import { powerShell } from "@codemirror/legacy-modes/mode/powershell";
 import { snippetCompletion as snip, completeFromList } from "@codemirror/autocomplete";
 
@@ -342,6 +343,7 @@ export const LANGS = {
   css: { name: "CSS", dot: "css", languageId: "css", ext: () => css() },
   scss: { name: "SCSS", dot: "css", languageId: "scss", ext: () => legacy(sCSS, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }) },
   less: { name: "Less", dot: "css", languageId: "less", ext: () => legacy(less, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }) },
+  lua: { name: "Lua", dot: "lua", languageId: "lua", ext: () => legacy(lua, { commentTokens: { line: "--", block: { open: "--[[", close: "]]" } }, closeBrackets: { brackets: ["(", "[", "{", '"', "'"] } }) },
   toml: { name: "TOML", dot: "toml", ext: () => legacy(toml) },
   json: { name: "JSON", dot: "json", ext: () => json() },
   markdown: { name: "Markdown", dot: "md", ext: () => markdown() },
@@ -355,7 +357,7 @@ export const LANGS = {
 const BY_EXT = {
   rs: "rust", cs: "csharp", csx: "csharp", lust: "lust", gdshader: "gdshader", gdshaderinc: "gdshader", gd: "gdscript",
   tscn: "godot", tres: "godot", godot: "godot", import: "godot", cfg: "ini", ini: "ini", editorconfig: "ini",
-  toml: "toml", json: "json", jsonc: "json", md: "markdown",
+  lua: "lua", luau: "lua", rockspec: "lua", toml: "toml", json: "json", jsonc: "json", md: "markdown",
   js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx", ts: "typescript", mts: "typescript", cts: "typescript", tsx: "tsx",
   html: "html", htm: "html", vue: "html", svelte: "html", astro: "html", css: "css", scss: "scss", sass: "scss", less: "less",
   csproj: "xml", fsproj: "xml", props: "xml", targets: "xml", slnx: "xml", xml: "xml", resx: "xml", xaml: "xml", config: "xml", svg: "xml",

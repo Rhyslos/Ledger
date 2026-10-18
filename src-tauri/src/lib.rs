@@ -93,14 +93,17 @@ fn candidates(name: &str) -> Vec<PathBuf> {
 }
 
 fn responds(p: &Path) -> bool {
-    command_at(p)
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    // Most tools answer --version; lua only knows -v.
+    ["--version", "-v"].iter().any(|a| {
+        command_at(p)
+            .arg(a)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    })
 }
 
 /// First candidate that actually runs. rustup puts stubs in ~/.cargo/bin that
