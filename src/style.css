@@ -191,6 +191,7 @@ button { cursor: pointer; }
 .status .go { color: var(--ink); font-weight: 500; }
 .status .go svg { color: var(--good); }
 .status .stop { color: var(--seal); font-weight: 500; }
+.status .update { color: var(--accent); font-weight: 500; }
 .status .live.on { color: var(--ink); font-weight: 500; }
 .status .live.on::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
 .status .sp { flex: 1; }
