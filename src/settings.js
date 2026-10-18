@@ -37,6 +37,7 @@ export const DEFAULTS = {
   terminalShell: "",
   browser: "default",
   browserPath: "",
+  livePort: 5500,
   debugRust: "",
   debugCsharp: "",
   keys: {},
@@ -163,8 +164,9 @@ export function settingsHtml() {
     </section>
 
     <section aria-labelledby="sWeb"><h2 id="sWeb">Web</h2>
-      ${row("Browser", select("sBrowser", "browser", [["default", "Windows default"], ["chrome", "Google Chrome"], ["edge", "Microsoft Edge"], ["firefox", "Firefox"], ["brave", "Brave"], ["custom", "Another program…"]]), "Where Run opens HTML files.", "sBrowser")}
+      ${row("Browser", select("sBrowser", "browser", [["default", "Windows default"], ["chrome", "Google Chrome"], ["edge", "Microsoft Edge"], ["firefox", "Firefox"], ["brave", "Brave"], ["custom", "Another program…"]]), "Where Run and Live Server open pages.", "sBrowser")}
       ${row("Browser program", text("sBrowserPath", "browserPath", "C:\\Program Files\\Vivaldi\\Application\\vivaldi.exe"), "Used when Browser is set to Another program. A name on PATH or a full path.", "sBrowserPath")}
+      ${row("Live Server port", text("sLivePort", "livePort", "5500", "number", 'min="1024" max="65535"'), "Go Live in the status bar serves the open folder here and reloads the browser when you save. If the port is busy, the next free one is used.", "sLivePort")}
     </section>
 
     <section aria-labelledby="sDbg"><h2 id="sDbg">Debugging</h2>

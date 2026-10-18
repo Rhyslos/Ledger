@@ -965,6 +965,37 @@ async function lustCheck(path) {
   for (const [f, list] of found) { lustShown.add(f); lspHandlers.diagnostics(f, list); }
 }
 saveHooks.push((path, b) => { if (b.lang === "lust") lustCheck(path); });
+// ---------- Live Server ----------
+// Serves the open folder on localhost and reloads the page whenever a file in it is saved.
+const live = { port: 0, root: null };
+function liveUrl() {
+  const b = S.bufs.get(S.active);
+  const rel = b && !b.virtual && b.lang === "html" && isUnder(S.active, live.root) ? norm(S.active).slice(norm(live.root).length).replace(/^\/+/, "") : "";
+  return `http://localhost:${live.port}/` + rel.split("/").map(encodeURIComponent).join("/");
+}
+async function startLive() {
+  if (!S.root) { toast("Open a folder first."); return; }
+  try {
+    live.port = await invoke("live_start", { root: S.root, port: +settings.livePort || 5500 });
+    live.root = S.root;
+  } catch (e) { toast("Live Server couldn't start: " + e, 5000); return; }
+  renderStatus();
+  openLive();
+}
+async function stopLive(quiet) {
+  if (!live.port) return;
+  await invoke("live_stop").catch(() => {});
+  live.port = 0; live.root = null;
+  renderStatus();
+  if (!quiet) toast("Live Server stopped.");
+}
+function openLive() {
+  if (!live.port) { startLive(); return; }
+  openInBrowser(liveUrl()).catch((e) => toast("Couldn't open the browser: " + e, 5000));
+}
+saveHooks.push((path, b) => {
+  if (live.port && isUnder(path, live.root)) invoke("live_reload", { css: b.lang === "css" }).catch(() => {});
+});
 async function saveAll() {
   let ok = true;
   for (const [p, b] of S.bufs) if (b.dirty) ok = (await save(p)) && ok;
@@ -1867,6 +1898,12 @@ function renderStatus() {
   $("stTasks").innerHTML = acts.map((a, i) => `<button data-task="${a}" class="${i === 0 ? "go" : ""}" title="${esc(taskLabel(a) + k(id[a]))}">${i === 0 ? '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2l7 3.8-7 3.8z" fill="currentColor"/></svg>' : ""}${esc(taskLabel(a))}</button>`).join("");
   if (hadFocus) $("stTasks").querySelector(`[data-task="${hadFocus}"]`)?.focus();
   $("stStop").hidden = !S.running;
+  const lv = $("stLive");
+  if (live.port && live.root !== S.root) stopLive(true); // another folder was opened in this window
+  lv.hidden = !live.port && !(S.root && (hasAny(/\.html?$/i) || taskKind() === "html"));
+  lv.classList.toggle("on", !!live.port);
+  lv.textContent = live.port ? "Port " + live.port : "Go Live";
+  lv.title = live.port ? `Live Server at localhost:${live.port}. Click to stop.` : "Serve this folder and reload the browser on save";
   $("stStop").title = "Stop" + k("task.stop");
   const showIn = S.running && S.runInput && S.ptab === "output";
   if ($("stdinForm").hidden === showIn) $("stdinForm").hidden = !showIn;
@@ -1887,6 +1924,7 @@ function renderStatus() {
 }
 $("stTasks").addEventListener("click", (ev) => { const b = ev.target.closest("[data-task]"); if (b) (b.dataset.task === "debug" ? debug?.start() : runAction(b.dataset.task)); });
 $("stStop").onclick = stopTask;
+$("stLive").onclick = () => (live.port ? stopLive() : startLive());
 $("stToggle").onclick = () => toggleExplorer();
 $("stSearch").onclick = () => openPalette("files");
 $("stProblems").onclick = () => showPanel("problems", true);
@@ -2345,6 +2383,8 @@ C("task.build", "Build", "Ctrl+Shift+B", () => runAction("build"));
 C("task.test", "Run tests", "Ctrl+Alt+T", () => runAction("test"));
 C("task.check", "Check (Rust)", "Ctrl+Alt+C", () => runAction("check"));
 C("task.lint", "Clippy (Rust)", [], () => runAction("lint"));
+C("live.toggle", "Live Server: start or stop", [], () => (live.port ? stopLive() : startLive()));
+C("live.open", "Live Server: open this page in the browser", [], openLive);
 C("task.scripts", "Run a package.json script…", [], () => runAction("scripts"));
 C("task.scene", "Play current scene (Godot)", "Ctrl+F5", () => runAction("scene"));
 C("task.custom", "Run a command…", [], async () => {
@@ -2540,6 +2580,7 @@ async function closeFolder() {
   if (!S.root || !(await closeAll())) return;
   await Promise.all(Object.values(servers).map((s) => s.stop()));
   invoke("task_stop").catch(() => {});
+  stopLive(true);
   S.root = null; S.kids.clear(); S.open.clear(); S.diags.clear(); S.files = null;
   S.proj = { rust: false, dotnet: false, godot: false, sln: null, csproj: null };
   S.ctx = null;
