@@ -11,6 +11,7 @@ import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { sCSS, less } from "@codemirror/legacy-modes/mode/css";
 import { webColours, legacyCssColours } from "./webcolours.js";
+import { tailwindSwatches } from "./tailwind.js";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { clike } from "@codemirror/legacy-modes/mode/clike";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
@@ -336,12 +337,12 @@ export const LANGS = {
   lust: { name: "Lust", dot: "lust", ext: () => [new LanguageSupport(StreamLanguage.define(lustMode)), Prec.high(syntaxHighlighting(lustStyle))], complete: lustCompletions },
   gdscript: { name: "GDScript", dot: "gd", ext: () => legacy(python, { commentTokens: { line: "#" } }) },
   godot: { name: "Godot resource", dot: "godot", ext: () => legacy(godotResource) },
-  javascript: { name: "JavaScript", dot: "js", languageId: "javascript", ext: () => [javascript(), webColours()] },
-  jsx: { name: "JavaScript React", dot: "js", languageId: "javascriptreact", ext: () => [javascript({ jsx: true }), webColours()] },
-  typescript: { name: "TypeScript", dot: "ts", languageId: "typescript", ext: () => [javascript({ typescript: true }), webColours()] },
-  tsx: { name: "TypeScript React", dot: "ts", languageId: "typescriptreact", ext: () => [javascript({ jsx: true, typescript: true }), webColours()] },
-  html: { name: "HTML", dot: "html", languageId: "html", ext: () => [html(), webColours()] },
-  css: { name: "CSS", dot: "css", languageId: "css", ext: () => [css(), webColours()] },
+  javascript: { name: "JavaScript", dot: "js", server: "web", tailwind: true, languageId: "javascript", ext: () => [javascript(), webColours(), tailwindSwatches()] },
+  jsx: { name: "JavaScript React", dot: "js", server: "web", tailwind: true, languageId: "javascriptreact", ext: () => [javascript({ jsx: true }), webColours(), tailwindSwatches()] },
+  typescript: { name: "TypeScript", dot: "ts", server: "web", tailwind: true, languageId: "typescript", ext: () => [javascript({ typescript: true }), webColours(), tailwindSwatches()] },
+  tsx: { name: "TypeScript React", dot: "ts", server: "web", tailwind: true, languageId: "typescriptreact", ext: () => [javascript({ jsx: true, typescript: true }), webColours(), tailwindSwatches()] },
+  html: { name: "HTML", dot: "html", tailwind: true, languageId: "html", ext: () => [html(), webColours(), tailwindSwatches()] },
+  css: { name: "CSS", dot: "css", tailwind: true, languageId: "css", ext: () => [css(), webColours(), tailwindSwatches()] },
   scss: { name: "SCSS", dot: "css", languageId: "scss", ext: () => [legacy(sCSS, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }), legacyCssColours()] },
   less: { name: "Less", dot: "css", languageId: "less", ext: () => [legacy(less, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }), legacyCssColours()] },
   lua: { name: "Lua", dot: "lua", languageId: "lua", ext: () => legacy(lua, { commentTokens: { line: "--", block: { open: "--[[", close: "]]" } }, closeBrackets: { brackets: ["(", "[", "{", '"', "'"] } }) },
