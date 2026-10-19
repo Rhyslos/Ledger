@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { on as listen, winLabel } from "./win.js";
 import { initUpdate } from "./update.js";
+import { VITE, createSteps, withTailwindPlugin, CSS_FILES, FIRST_FILES } from "./scaffold.js";
+import { initTailwind, tailwindSource, tailwindChanged } from "./tailwind.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -14,7 +16,7 @@ import {
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { searchKeymap, highlightSelectionMatches, search } from "@codemirror/search";
-import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
+import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, completeFromList } from "@codemirror/autocomplete";
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap, syntaxHighlighting, HighlightStyle, indentUnit, StreamLanguage } from "@codemirror/language";
 import { lintGutter, setDiagnostics, lintKeymap } from "@codemirror/lint";
 import { rustLanguage } from "@codemirror/lang-rust";
@@ -265,6 +267,21 @@ const lspHandlers = {
 };
 servers.rust = new Lsp("rust", "rust-analyzer", lspHandlers);
 servers.csharp = new Lsp("csharp", "C#", lspHandlers);
+servers.web = new Lsp("web", "TypeScript", lspHandlers);
+
+// The completions a language brings itself (HTML tags and attributes, CSS
+// properties, JS keywords and local names), used when no server is running.
+async function langDataSource(ctx) {
+  for (const s of ctx.state.languageDataAt("autocomplete", ctx.pos)) {
+    const r = await (typeof s === "function" ? s(ctx) : completeFromList(s)(ctx));
+    if (r) return r;
+  }
+  return null;
+}
+initTailwind({
+  run: (dir, args) => invoke("run_capture", { cwd: dir, program: "node", args }).then((r) => (r.code === 0 ? r.out : "")),
+  dir: () => (S.ctx?.node ? S.ctx.dir : null),
+});
 
 const splitArgs = (s) => (String(s || "").match(/"[^"]*"|\S+/g) || []).map((a) => a.replace(/^"|"$/g, ""));
 function serverSpec(id) {
@@ -282,6 +299,11 @@ function serverSpec(id) {
     missing: "rust-analyzer isn't installed. Open Settings (Ctrl+P) and use the install button, or run: rustup component add rust-analyzer rust-src",
   };
   }
+  if (id === "web") return {
+    exe: "typescript-language-server", args: ["--stdio"],
+    initOptions: { preferences: { includeCompletionsForModuleExports: true, includeCompletionsWithInsertText: true, includeCompletionsForImportStatements: true, includeInlayParameterNameHints: "literals", includeInlayFunctionLikeReturnTypeHints: false } },
+    missing: "The JavaScript and TypeScript language server isn't installed. Open Settings (Ctrl+P) › Languages and install it.",
+  };
   return {
     exe: settings.csharpServer || "csharp-ls", args: splitArgs(settings.csharpArgs), initOptions: {},
     missing: "The C# language server isn't installed. Open Settings (Ctrl+P) and use the install button, or run: dotnet tool install --global csharp-ls",
@@ -601,7 +623,11 @@ function extensionsFor(path, b) {
     rectangularSelection(), crosshairCursor(), highlightActiveLine(), selectingClass, highlightSelectionMatches(), search({ top: true }),
     cfg.of(cfgExt()), infoField, xcfg.of(xExt(path, b)),
     autocompletion({
-      override: [...(hasServer ? [completionSource(path)] : L.complete ? [L.complete] : []), ...(snippets ? [snippets.source(b.lang, L.languageId)] : [])],
+      override: [
+        ...(hasServer ? [completionSource(path), (ctx) => (started(serverOf(S.bufs.get(path))) ? null : langDataSource(ctx))] : L.complete ? [L.complete] : [langDataSource]),
+        ...(L.tailwind ? [tailwindSource] : []),
+        ...(snippets ? [snippets.source(b.lang, L.languageId)] : []),
+      ],
       activateOnTypingDelay: 60, maxRenderedOptions: 80,
     }),
     lintGutter(),
@@ -965,7 +991,7 @@ async function lustCheck(path) {
   lustShown.clear();
   for (const [f, list] of found) { lustShown.add(f); lspHandlers.diagnostics(f, list); }
 }
-saveHooks.push((path, b) => { if (b.lang === "lust") lustCheck(path); });
+saveHooks.push((path, b) => { if (b.lang === "lust") lustCheck(path); if (/\.css$|tailwind\.config\./.test(path)) tailwindChanged(); });
 // ---------- Live Server ----------
 // Serves the open folder on localhost and reloads the page whenever a file in it is saved.
 const live = { port: 0, root: null };
@@ -1798,7 +1824,8 @@ async function pickScript(P) {
   startSteps(taskSteps(i === names.length - 1 ? "install" : "script:" + names[i], P));
 }
 async function startSteps(steps, onDone, onFail) {
-  if (!S.root) { toast("Open a folder first."); return; }
+  // Steps with their own folder (creating a project, installing a language) also run with no folder open.
+  if (!S.root && !steps.every((s) => s.cwd || !s.godot && settingsFile)) { toast("Open a folder first."); return; }
   await saveAll();
   showPanel("output");
   outFollow().reset(); // a new run always starts at the bottom
@@ -1808,7 +1835,7 @@ async function startSteps(steps, onDone, onFail) {
   startStep(steps[0]);
 }
 async function startStep(step) {
-  const cwd = step.cwd || S.ctx?.dir || S.root;
+  const cwd = step.cwd || S.ctx?.dir || S.root || parent(settingsFile);
   S.running = true;
   S.runStart = performance.now();
   S.runLabel = step.label;
@@ -1816,7 +1843,7 @@ async function startStep(step) {
   S.runInput = !!step.input;
   const show = (a) => (a === cwd ? "." : isAbs(a) && isUnder(norm(a), cwd) ? norm(a).slice(cwd.length + 1) : a);
   const shown = `${step.godot ? base(norm(step.program)) : step.program} ${step.args.map(show).join(" ")}`;
-  appendOut(`<span class="cmd">$ ${esc(shown)}${cwd !== S.root ? `   <span class="where">in ${esc(rel(cwd))}</span>` : ""}</span>`);
+  appendOut(`<span class="cmd">$ ${esc(shown)}${cwd !== S.root ? `   <span class="where">in ${esc(S.root && isUnder(cwd, S.root) ? rel(cwd) : cwd)}</span>` : ""}</span>`);
   renderStatus();
   const run = ++S.runSeq;
   S.run = run; // set before starting, so events from an older run are ignored
@@ -2611,12 +2638,25 @@ async function closeFolder() {
   renderMain(); renderProblems();
 }
 async function newProject() {
-  const kinds = ["Lust program", "Rust program", "Rust library", "C# console app", "C# class library", "Website (HTML, CSS, JS)", "React (Vite)", "React + Tailwind (Vite)", "Node.js program", "Lua program"];
+  const kinds = ["Web app with Vite (React, Vue, Svelte…)", "Next.js app", "Website (plain HTML, CSS and JS)", "Node.js program", "Lua program", "Lust program", "Rust program", "Rust library", "C# console app", "C# class library"];
   const i = await choose("What kind of project?", kinds, true);
   if (i == null || i < 0) return;
-  const kind = ["lust", "rust", "rust-lib", "console", "classlib", "web", "react", "react-tailwind", "node", "lua"][i];
-  const MAIN = { lust: "main.lust", rust: "src/main.rs", "rust-lib": "src/lib.rs", console: "Program.cs", classlib: "Class1.cs", web: "index.html", react: "src/App.jsx", "react-tailwind": "src/App.jsx", node: "index.js", lua: "main.lua" };
-  const plain = !["rust", "rust-lib", "console", "classlib"].includes(kind); // no language server to start
+  const kind = ["vite", "next", "web", "node", "lua", "lust", "rust", "rust-lib", "console", "classlib"][i];
+  let web = null;
+  if (kind === "vite" || kind === "next") {
+    web = { kind };
+    if (kind === "vite") {
+      const f = await choose("Which framework?", VITE.map(([n]) => n), true);
+      if (f == null || f < 0) return;
+      web.template = VITE[f][1];
+    }
+    const l = await choose("Which language?", ["TypeScript", "JavaScript"], true);
+    if (l == null || l < 0) return;
+    web.ts = l === 0;
+    const tw = await choose("Add Tailwind CSS?", ["Yes", "No"], true);
+    if (tw == null || tw < 0) return;
+    web.tailwind = tw === 0;
+  }
   // With a folder open (a course folder, say), new projects go inside it by default.
   let dir = null;
   if (S.root) {
@@ -2626,27 +2666,60 @@ async function newProject() {
   }
   dir ??= await openDialog({ directory: true, multiple: false, title: "Where should the project go?" });
   if (!dir) return;
-  const name = (await promptText(`New ${kinds[i]} in ${base(norm(dir))}`, "", "project name, like hello_world"))?.trim();
+  dir = norm(dir);
+  const label = web ? (kind === "next" ? "Next.js" : VITE.find(([, t]) => t === web.template)[0]) + " app" : kinds[i];
+  const name = (await promptText(`New ${label} in ${base(dir)}`, "", web ? "project name, like my-app" : "project name, like hello_world"))?.trim();
   if (!name) return;
-  if (!/^[A-Za-z][\w-]*$/.test(name)) { toast("Use letters, numbers, - and _ only, starting with a letter."); return; }
+  if (web ? !/^[a-z0-9][a-z0-9._-]*$/.test(name) : !/^[A-Za-z][\w-]*$/.test(name)) {
+    toast(web ? "Web app names use lowercase letters, numbers, - . and _ (npm's rule)." : "Use letters, numbers, - and _ only, starting with a letter.", 5000);
+    return;
+  }
+  if (web) { await newWebProject({ ...web, name, dir }); return; }
+  const MAIN = { lust: "main.lust", rust: "src/main.rs", "rust-lib": "src/lib.rs", console: "Program.cs", classlib: "Class1.cs", web: "index.html", node: "index.js", lua: "main.lua" };
+  const plain = !["rust", "rust-lib", "console", "classlib"].includes(kind); // no language server to start
   try {
     const p = norm(await invoke("new_project", { parent: dir, name, kind }));
-    if (S.root && isUnder(p, S.root)) {
-      // Keep the folder open and add the project to it.
-      const main = MAIN[kind];
-      await revealInTree(join(p, main));
-      S.open.add(p);
-      await refreshTree();
-      if (!plain) startServer(kind.startsWith("rust") ? "rust" : "csharp");
-      await openFile(join(p, main), null, { quiet: true });
-      revealInTree(join(p, main));
-      toast(`Created ${name}. Run, Build and Test use the project of the file you have open.`, 4000);
-    } else if ((await openFolder(p)) && plain) {
-      await openFile(join(p, MAIN[kind]), null, { quiet: true });
-      revealInTree(join(p, MAIN[kind]));
-    }
-    if (["react", "react-tailwind"].includes(kind)) toast("Press F5: Ledger installs the packages, then starts the dev server.", 6000);
+    await openNewProject(p, MAIN[kind], plain ? null : kind.startsWith("rust") ? "rust" : "csharp");
   } catch (e) { toast(String(e), 6000); }
+}
+// Opens a project that was just made: inside the open folder, or as the folder.
+async function openNewProject(p, main, server) {
+  if (S.root && isUnder(p, S.root)) {
+    await revealInTree(join(p, main));
+    S.open.add(p);
+    await refreshTree();
+    if (server) startServer(server);
+    await openFile(join(p, main), null, { quiet: true });
+    revealInTree(join(p, main));
+    toast(`Created ${base(p)}. Run, Build and Test use the project of the file you have open.`, 4000);
+  } else if (await openFolder(p)) {
+    await openFile(join(p, main), null, { quiet: true });
+    revealInTree(join(p, main));
+  }
+}
+// Vite and Next.js: the official create commands, shown in Output, then Tailwind and the first file.
+async function newWebProject(o) {
+  const at = join(o.dir, o.name);
+  if ((await invoke("file_stats", { paths: [at] }).catch(() => [null]))[0] != null) { toast(`There's already something called ${o.name} there.`); return; }
+  const steps = createSteps(o);
+  if (!(await haveTools(steps, () => newWebProject(o)))) return;
+  startSteps(steps, async () => {
+    try {
+      if (o.kind === "vite" && o.tailwind) {
+        const cfgs = ["vite.config.ts", "vite.config.js", "vite.config.mts", "vite.config.mjs"].map((f) => join(at, f));
+        const cfg = cfgs[(await invoke("file_stats", { paths: cfgs })).findIndex((x) => x != null)];
+        const old = cfg ? await invoke("read_file", { path: cfg }) : "";
+        await invoke("write_file", { path: cfg || join(at, o.ts ? "vite.config.ts" : "vite.config.js"), contents: withTailwindPlugin(old) });
+        const cssPaths = CSS_FILES.map((f) => join(at, f));
+        const css = cssPaths[(await invoke("file_stats", { paths: cssPaths })).findIndex((x) => x != null)];
+        if (css) await invoke("write_file", { path: css, contents: '@import "tailwindcss";\n\n' + (await invoke("read_file", { path: css })) });
+      }
+      const firsts = FIRST_FILES.map((f) => join(at, f));
+      const first = FIRST_FILES[(await invoke("file_stats", { paths: firsts })).findIndex((x) => x != null)] || "package.json";
+      await openNewProject(at, first, null);
+      toast("Ready. F5 starts the dev server.", 5000);
+    } catch (e) { toast("The project was made, but setting it up didn't finish: " + e, 6000); }
+  });
 }
 
 // ---------- launch arguments (and Godot) ----------

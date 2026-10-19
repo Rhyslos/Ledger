@@ -78,6 +78,10 @@ fn child_path() -> OsString {
             dirs.push(pf.join("nodejs"));
         }
         // Where winget puts command-line tools it installs.
+        // Where npm puts programs installed with --global.
+        if let Some(a) = std::env::var_os("APPDATA") {
+            dirs.push(PathBuf::from(a).join("npm"));
+        }
         if let Some(l) = std::env::var_os("LOCALAPPDATA") {
             dirs.push(PathBuf::from(l).join("Microsoft").join("WinGet").join("Links"));
         }
@@ -820,12 +824,6 @@ fn project_at(path: String, root: String) -> Option<Project> {
 fn web_template(kind: &str, name: &str) -> Option<Vec<(&'static str, String)>> {
     let pkg = name.to_lowercase();
     let html = |head: &str, body: &str| format!("<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>{name}</title>\n{head}</head>\n<body>\n{body}</body>\n</html>\n");
-    let vite = |extra_deps: &str, plugins_import: &str, plugins: &str| (
-        format!("{{\n  \"name\": \"{pkg}\",\n  \"private\": true,\n  \"version\": \"0.1.0\",\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  }},\n  \"dependencies\": {{\n    \"react\": \"^19.0.0\",\n    \"react-dom\": \"^19.0.0\"\n  }},\n  \"devDependencies\": {{\n    \"@vitejs/plugin-react\": \"^5.0.0\",{extra_deps}\n    \"vite\": \"^7.0.0\"\n  }}\n}}\n"),
-        format!("import {{ defineConfig }} from \"vite\";\nimport react from \"@vitejs/plugin-react\";\n{plugins_import}\nexport default defineConfig({{\n  plugins: [react(){plugins}],\n}});\n"),
-    );
-    let main_jsx = "import { StrictMode } from \"react\";\nimport { createRoot } from \"react-dom/client\";\nimport App from \"./App.jsx\";\nimport \"./index.css\";\n\ncreateRoot(document.getElementById(\"root\")).render(\n  <StrictMode>\n    <App />\n  </StrictMode>,\n);\n".to_string();
-    let react_html = html("", "  <div id=\"root\"></div>\n  <script type=\"module\" src=\"/src/main.jsx\"></script>\n");
     Some(match kind {
         "web" => vec![
             ("index.html", html("  <link rel=\"stylesheet\" href=\"style.css\">\n  <script src=\"script.js\" defer></script>\n", &format!("  <h1>{name}</h1>\n  <p>Click <b>Go Live</b> in the status bar. The page reloads every time you save.</p>\n  <button id=\"hello\">Say hello</button>\n"))),
@@ -836,22 +834,6 @@ fn web_template(kind: &str, name: &str) -> Option<Vec<(&'static str, String)>> {
             ("package.json", format!("{{\n  \"name\": \"{pkg}\",\n  \"version\": \"0.1.0\",\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"start\": \"node index.js\",\n    \"dev\": \"node --watch index.js\"\n  }}\n}}\n")),
             ("index.js", format!("// {name}: F5 runs it with node --watch, so it restarts when you save.\nconsole.log(\"Hello from {name}!\");\n")),
         ],
-        "react" => {
-            let (package, config) = vite("", "", "");
-            vec![
-                ("package.json", package), ("vite.config.js", config), ("index.html", react_html), ("src/main.jsx", main_jsx),
-                ("src/App.jsx", "import { useState } from \"react\";\n\nexport default function App() {\n  const [count, setCount] = useState(0);\n  return (\n    <main>\n      <h1>Hello, React</h1>\n      <button onClick={() => setCount(count + 1)}>Clicked {count} times</button>\n    </main>\n  );\n}\n".into()),
-                ("src/index.css", "body {\n  font-family: system-ui, sans-serif;\n  margin: 3rem;\n}\n".into()),
-            ]
-        }
-        "react-tailwind" => {
-            let (package, config) = vite("\n    \"@tailwindcss/vite\": \"^4.1.0\",\n    \"tailwindcss\": \"^4.1.0\",", "import tailwindcss from \"@tailwindcss/vite\";\n", ", tailwindcss()");
-            vec![
-                ("package.json", package), ("vite.config.js", config), ("index.html", react_html), ("src/main.jsx", main_jsx),
-                ("src/App.jsx", "import { useState } from \"react\";\n\nexport default function App() {\n  const [count, setCount] = useState(0);\n  return (\n    <main className=\"mx-auto max-w-xl p-12\">\n      <h1 className=\"text-3xl font-bold\">Hello, React + Tailwind</h1>\n      <button className=\"mt-6 rounded-lg bg-black px-4 py-2 text-white\" onClick={() => setCount(count + 1)}>\n        Clicked {count} times\n      </button>\n    </main>\n  );\n}\n".into()),
-                ("src/index.css", "@import \"tailwindcss\";\n".into()),
-            ]
-        }
         "lua" => vec![("main.lua", format!("-- {name}\n-- F5 runs this file with lua.\n\nlocal function greet(who)\n  return \"Hello, \" .. who .. \"!\"\nend\n\nprint(greet(\"{name}\"))\n"))],
         _ => return None,
     })
