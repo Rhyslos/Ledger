@@ -80,19 +80,26 @@ function load(dir) {
 // Where a class list is being typed: class="…", className="…" or {`…`}, @apply …, clsx("…") and friends.
 const WHERE = /(?:\bclass(?:Name)?\s*=\s*\{?\s*["'`][^"'`]*|@apply\s+[^;{}]*|\b(?:clsx|cn|cva|cx|twMerge|twJoin|classNames|classnames|tw)\s*\([^)]*?["'`][^"'`]*)$/;
 
+const lineBefore = (ctx) => { const line = ctx.state.doc.lineAt(ctx.pos); return line.text.slice(0, ctx.pos - line.from); };
+/** True when the cursor is in a class list (main.js skips the language server there). */
+export const inClassList = (ctx) => WHERE.test(lineBefore(ctx));
+const VALID = /^[-\w./[\]%#!]*$/;
+
 async function source(ctx) {
   const dir = host?.dir();
   if (!dir) return null;
-  const line = ctx.state.doc.lineAt(ctx.pos);
-  const before = line.text.slice(0, ctx.pos - line.from);
+  const before = lineBefore(ctx);
   if (!WHERE.test(before)) return null;
   const word = /[^\s"'`]*$/.exec(before)[0];
-  if (!word && !ctx.explicit) return null;
-  const data = await load(dir);
-  if (!data) return null;
   // After hover: or md:, complete the class that comes after the last colon.
-  const from = ctx.pos - word.length + word.lastIndexOf(":") + 1;
-  return { from, options: data.options, validFor: /^[-\w./[\]%#!]*$/ };
+  const seg = word.slice(word.lastIndexOf(":") + 1);
+  if (!seg && !ctx.explicit) return null;
+  const data = await load(dir);
+  if (!data || ctx.aborted) return null;
+  // 23,000 classes: hand the editor only those starting with the first letter typed, then let it
+  // narrow that list itself while the word keeps growing.
+  const options = seg ? data.options.filter((o) => o.label[0] === seg[0]) : data.options;
+  return { from: ctx.pos - seg.length, options, validFor: (text) => VALID.test(text) && text.startsWith(seg) };
 }
 
 const swatch = {

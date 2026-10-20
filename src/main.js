@@ -5,7 +5,7 @@ import { emit } from "@tauri-apps/api/event";
 import { on as listen, winLabel } from "./win.js";
 import { initUpdate } from "./update.js";
 import { VITE, createSteps, withTailwindPlugin, CSS_FILES, FIRST_FILES } from "./scaffold.js";
-import { initTailwind, tailwindSource, tailwindChanged } from "./tailwind.js";
+import { initTailwind, tailwindSource, tailwindChanged, inClassList } from "./tailwind.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -360,16 +360,25 @@ function completionSource(path) {
     const trig = word.from === word.to && (/\.$/.test(prev) ? "." : /::$/.test(prev) ? ":" : null);
     if (!ctx.explicit && !trig && word.from === word.to) return null;
     if (!srv) return null;
+    if (!ctx.explicit && inClassList(ctx)) return null; // Tailwind answers inside class lists
     syncDoc(path, ctx.state.doc);
     const res = await srv.request("textDocument/completion", {
       ...srv.at(path, ctx.state.doc, ctx.pos),
       context: trig ? { triggerKind: 2, triggerCharacter: trig } : { triggerKind: 1 },
     });
     if (!res || ctx.aborted) return null;
-    const items = (Array.isArray(res) ? res : res.items || []).slice()
-      .sort((a, b2) => (a.sortText || a.label).localeCompare(b2.sortText || b2.label)).slice(0, 300);
+    // Big lists (TypeScript sends thousands): keep what can match the typed word, sort cheaply, and let
+    // the editor narrow this list as you type instead of asking the server on every key.
+    const typed = ctx.state.sliceDoc(word.from, ctx.pos).toLowerCase();
+    const key = (it) => (it.filterText || it.label).toLowerCase();
+    let items = Array.isArray(res) ? res : res.items || [];
+    if (typed) items = items.filter((it) => key(it).startsWith(typed[0]));
+    let reuse = !res.isIncomplete;
+    if (items.length > 1500) { items = items.filter((it) => key(it).startsWith(typed)); reuse = false; }
+    items = items.map((it) => [it.sortText || it.label, it]).sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0)).slice(0, 1500).map((p) => p[1]);
     return {
       from: word.from,
+      validFor: reuse ? (text) => /^\w*$/.test(text) && text.toLowerCase().startsWith(typed) : undefined,
       options: items.map((it, i) => ({
         label: it.filterText || it.label,
         displayLabel: it.label + (it.labelDetails?.detail || ""),
@@ -1382,8 +1391,15 @@ $("tree").addEventListener("click", (ev) => {
   const d = ev.target.closest("[data-dir]");
   if (d) { S.sel = d.dataset.dir; S.selDir = true; toggleDir(d.dataset.dir); return; }
   const f = ev.target.closest("[data-file]");
-  if (f) { S.sel = f.dataset.file; S.selDir = false; openFile(f.dataset.file); }
+  if (f) {
+    // Like VS Code: a click shows the file but keeps the keyboard in the explorer (Delete, F2, arrows);
+    // a double-click moves into the editor.
+    const p = f.dataset.file;
+    S.sel = p; S.selDir = false;
+    openFile(p, null, { keepFocus: true }).then(() => { const n = $("tree").querySelector(`[data-file="${CSS.escape(p)}"]`); if (n) moveCursor(n); });
+  }
 });
+$("tree").addEventListener("dblclick", (ev) => { if (ev.target.closest("[data-file]") && S.bufs.get(S.active)) view.focus(); });
 $("tree").addEventListener("contextmenu", (ev) => {
   if (!S.root) return;
   ev.preventDefault();
@@ -2429,6 +2445,7 @@ C("task.test", "Run tests", "Ctrl+Alt+T", () => runAction("test"));
 C("task.check", "Check (Rust)", "Ctrl+Alt+C", () => runAction("check"));
 C("task.lint", "Clippy (Rust)", [], () => runAction("lint"));
 C("app.update", "Check for updates", [], () => updater?.check());
+C("panel.dock", "Move the panel (terminal, output) to the right or the bottom", [], togglePanelDock);
 C("live.toggle", "Live Server: start or stop", [], () => (live.port ? stopLive() : startLive()));
 C("live.open", "Live Server: open this page in the browser", [], openLive);
 C("task.scripts", "Run a package.json script…", [], () => runAction("scripts"));
@@ -2535,9 +2552,28 @@ const applySizes = () => {
   document.documentElement.style.setProperty("--side-w", prefs.sideW + "px");
   document.documentElement.style.setProperty("--panel-h", prefs.panelH + "px");
   document.documentElement.style.setProperty("--split-w", (prefs.splitPct || 50) + "%");
+  document.documentElement.style.setProperty("--panel-w", (prefs.panelW || 600) + "px");
+  const right = prefs.panelDock === "right";
+  document.querySelector(".main").classList.toggle("dock-right", right);
+  const t = right ? "Move the panel to the bottom" : "Move the panel to the right";
+  $("bDockPanel").title = t; $("bDockPanel").setAttribute("aria-label", t);
 };
+function togglePanelDock() {
+  prefs.panelDock = prefs.panelDock === "right" ? "bottom" : "right";
+  savePrefs();
+  applySizes();
+  if ($("panel").hidden) showPanel("terminal");
+}
+$("bDockPanel").onclick = togglePanelDock;
 drag($("sideSplit"), (e) => { prefs.sideW = Math.max(170, Math.min(600, e.clientX)); applySizes(); });
-drag($("panelSplit"), (e) => { prefs.panelH = Math.max(80, Math.min(innerHeight - 160, innerHeight - (settings.statusBar === "top" ? 0 : 28) - e.clientY)); applySizes(); });
+drag($("panelSplit"), (e) => {
+  if (prefs.panelDock === "right") {
+    const r = document.querySelector(".main").getBoundingClientRect();
+    prefs.panelW = Math.round(Math.max(240, Math.min(r.width - 300, r.right - e.clientX)));
+    applySizes();
+    return;
+  }
+  prefs.panelH = Math.max(80, Math.min(innerHeight - 160, innerHeight - (settings.statusBar === "top" ? 0 : 28) - e.clientY)); applySizes(); });
 drag($("paneSplit"), (e) => {
   const r = $("panes").getBoundingClientRect();
   prefs.splitPct = Math.max(15, Math.min(85, ((e.clientX - r.left) / r.width) * 100));
