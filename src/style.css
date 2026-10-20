@@ -180,6 +180,13 @@ button { cursor: pointer; }
 /* bottom panel */
 .panel { flex: none; height: var(--panel-h, 230px); display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--bg); position: relative; min-height: 80px; }
 .hsplit { position: absolute; left: 0; right: 0; top: -3px; height: 6px; cursor: row-resize; z-index: 2; }
+/* The panel docked on the right: full height beside the editor (good on wide screens). */
+.main.dock-right { display: grid; grid-template-columns: minmax(0, 1fr) var(--panel-w, 600px); grid-template-rows: auto auto minmax(0, 1fr); }
+.main.dock-right > .tabs { grid-column: 1; grid-row: 1; }
+.main.dock-right > .crumbs { grid-column: 1; grid-row: 2; }
+.main.dock-right > .panes { grid-column: 1; grid-row: 3; }
+.main.dock-right > .panel { grid-column: 2; grid-row: 1 / -1; height: auto; min-width: 240px; border-top: 0; border-left: 1px solid var(--line); }
+.main.dock-right .hsplit { top: 0; bottom: 0; left: -3px; right: auto; width: 6px; height: auto; cursor: col-resize; }
 .ptabs { flex: none; display: flex; align-items: center; gap: 2px; padding: 4px 8px 2px 10px; }
 .ptabs button[data-ptab] { background: none; border: 0; padding: 3px 8px; font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--faint); border-radius: var(--r); }
 .ptabs button[data-ptab]:hover { color: var(--ink); }
