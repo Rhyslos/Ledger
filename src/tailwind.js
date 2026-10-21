@@ -72,7 +72,10 @@ function load(dir) {
       });
       for (const v of d.variants) options.push({ label: v + ":", type: "keyword", boost: -2 });
       return { options };
-    }).catch(() => null));
+    }).catch(() => null).then((r) => {
+      if (!r) setTimeout(() => cache.delete(dir), 15000); // not installed yet, or a broken config: retry soon
+      return r;
+    }));
   }
   return cache.get(dir);
 }

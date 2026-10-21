@@ -1063,6 +1063,7 @@ function dropBuffer(path) {
 }
 async function closeTab(key, force) {
   if (!key) return false;
+  if (!force && pageOf(key)?.confirmClose && !(await pageOf(key).confirmClose(key))) return false;
   const b = S.bufs.get(key);
   if (b?.dirty && !force) {
     const c = await choose(`Save changes to ${base(key)} before closing?`, ["Save", "Don't save", "Cancel"]);
@@ -1741,7 +1742,7 @@ function taskKind(P = S.ctx) {
   if (S.bufs.get(S.active)?.lang === "lua" && !S.bufs.get(S.active).virtual) return "lua";
   const b = S.bufs.get(S.active), lang = b && !b.virtual ? b.lang : null;
   const html = lang === "html";
-  if (!P) return html ? "html" : lang === "javascript" ? "nodefile" : null;
+  if (!P) return html ? "html" : lang === "javascript" || lang === "typescript" ? "nodefile" : null;
   if (P.godot) return "godot";
   // A web project, or a Tauri-style one with web files open: npm scripts win.
   if (P.node && (!(P.rust || P.dotnet) || WEB_LANGS.has(lang))) return "node";
@@ -1766,7 +1767,7 @@ function taskSteps(action, P = S.ctx) {
   }
   const nodeFile = () => {
     const b = S.bufs.get(S.active);
-    return b && !b.virtual && b.lang === "javascript" ? { label: "node " + base(S.active), program: "node", args: [base(S.active)], cwd: parent(S.active), input: true } : null;
+    return b && !b.virtual && (b.lang === "javascript" || b.lang === "typescript") ? { label: "node " + base(S.active), program: "node", args: [base(S.active)], cwd: parent(S.active), input: true } : null;
   };
   if (kind === "lua") return action === "run" ? [{ label: "lua " + base(S.active), program: settings.lua || "lua", args: [base(S.active)], cwd: parent(S.active), input: true }] : null;
   if (kind === "nodefile") return action === "run" ? [nodeFile()] : null;
@@ -1814,7 +1815,7 @@ async function runAction(action) {
   const P = await updateCtx();
   if (action === "scripts") { pickScript(P); return; }
   if (action === "run" && (taskKind(P) === "html" || (taskKind(P) === "node" && !runScript(P) && S.bufs.get(S.active)?.lang === "html"))) {
-    const url = pathToUri(S.active);
+    const url = live.port && isUnder(S.active, live.root) ? liveUrl() : pathToUri(S.active);
     openInBrowser(url).catch((e) => toast("Couldn't open the browser: " + e, 5000));
     return;
   }

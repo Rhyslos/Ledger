@@ -7,6 +7,8 @@ name: Windows build
 on:
   push:
     branches: [main, master]
+  # Pull requests are built too, so a broken build shows up before merging. Only main publishes.
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -20,15 +22,16 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
     steps:
       - name: Check the signing key is set
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
             throw "Add the secret TAURI_SIGNING_PRIVATE_KEY (Settings > Secrets and variables > Actions). Updates can't be published without it."
           }
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -51,13 +54,17 @@ jobs:
           Write-Host "Building Ledger $v"
 
       # Signed updater files only here: local build.ps1 builds without the key.
-      - run: npm run tauri build -- --config src-tauri/tauri.updater.conf.json
+      - if: github.event_name != 'pull_request'
+        run: npm run tauri build -- --config src-tauri/tauri.updater.conf.json
+      - if: github.event_name == 'pull_request'
+        run: npm run tauri build
 
       - name: Collect the installer and the portable exe
         shell: pwsh
         run: ./scripts/collect.ps1
 
       - name: Write latest.json for the updater
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           $v = $env:LEDGER_VERSION
@@ -77,6 +84,7 @@ jobs:
           $latest | ConvertTo-Json -Depth 5 | Set-Content "release/latest.json" -Encoding utf8NoBOM
 
       - name: Publish the release
+        if: github.event_name != 'pull_request'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

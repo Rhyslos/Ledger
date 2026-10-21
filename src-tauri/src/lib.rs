@@ -144,7 +144,12 @@ fn find_working(name: &str) -> Option<PathBuf> {
         let p = PathBuf::from(name);
         return p.is_file().then_some(p);
     }
-    candidates(name).into_iter().find(|p| responds(p))
+    let found = candidates(name);
+    // The HTML, CSS, JSON and ESLint servers have no --version and exit with an error; being on PATH is enough.
+    if name.starts_with("vscode-") {
+        return found.into_iter().next();
+    }
+    found.into_iter().find(|p| responds(p))
 }
 
 fn find_tool(name: &str) -> PathBuf {

@@ -186,6 +186,7 @@ button { cursor: pointer; }
 .main.dock-right > .crumbs { grid-column: 1; grid-row: 2; }
 .main.dock-right > .panes { grid-column: 1; grid-row: 3; }
 .main.dock-right > .panel { grid-column: 2; grid-row: 1 / -1; height: auto; min-width: 240px; border-top: 0; border-left: 1px solid var(--line); }
+.main.dock-right:has(> .panel[hidden]) { grid-template-columns: minmax(0, 1fr) 0; }
 .main.dock-right .hsplit { top: 0; bottom: 0; left: -3px; right: auto; width: 6px; height: auto; cursor: col-resize; }
 .ptabs { flex: none; display: flex; align-items: center; gap: 2px; padding: 4px 8px 2px 10px; }
 .ptabs button[data-ptab] { background: none; border: 0; padding: 3px 8px; font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--faint); border-radius: var(--r); }
