@@ -293,6 +293,16 @@ fn list_dir(path: String) -> Res<Vec<Entry>> {
     Ok(out)
 }
 
+/// A file's bytes as they are (images), sent as binary rather than as text or JSON.
+#[tauri::command]
+async fn read_bytes(path: String) -> Result<tauri::ipc::Response, String> {
+    let meta = std::fs::metadata(&path).map_err(err)?;
+    if meta.len() > 128 * 1024 * 1024 {
+        return Err("This file is over 128 MB, too big to show here.".into());
+    }
+    std::fs::read(&path).map(tauri::ipc::Response::new).map_err(err)
+}
+
 #[tauri::command]
 fn read_file(path: String) -> Res<String> {
     let meta = std::fs::metadata(&path).map_err(err)?;
@@ -1431,6 +1441,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             refresh_path,
+            read_bytes,
             db::db_schema,
             db::db_rows,
             db::db_query,
