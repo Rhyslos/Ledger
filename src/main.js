@@ -5,6 +5,7 @@ import { emit } from "@tauri-apps/api/event";
 import { on as listen, winLabel } from "./win.js";
 import { initUpdate } from "./update.js";
 import { initDb, DB_EXT } from "./db.js";
+import { initImages, IMG_EXT } from "./image.js";
 import { VITE, createSteps, withTailwindPlugin, CSS_FILES, FIRST_FILES } from "./scaffold.js";
 import { initTailwind, tailwindSource, tailwindChanged, inClassList } from "./tailwind.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -752,6 +753,8 @@ function makeBuffer(path, text, opts = {}) {
 async function openFile(path, at, opts = {}) {
   // Databases open in their own tab (src/db.js); "@db:" is how a restored session names them.
   if (app.openDb && (DB_EXT.test(path) || String(path).startsWith("@db:"))) return app.openDb(String(path).replace(/^@db:/, ""), opts);
+  // Images open in a viewer tab (src/image.js); "Edit code" on an SVG passes asText to get the text editor.
+  if (app.openImage && !opts.asText && (IMG_EXT.test(path) || String(path).startsWith("@img:"))) return app.openImage(String(path).replace(/^@img:/, ""), opts);
   path = norm(path);
   if (opts.uri && /^csharp:/i.test(opts.uri)) return openMetadata(opts.uri, at, opts.server);
   if (!S.bufs.has(path)) {
@@ -2913,6 +2916,7 @@ async function boot() {
   snippets = initSnippets(app, () => settingsFile);
   initGit(app);
   initDb(app);
+  initImages(app);
   debug = app.debug = initDebugger(app);
   view = panes[0].view = new EditorView({ parent: $("editor") });
   panes[0].el.classList.add("focused");

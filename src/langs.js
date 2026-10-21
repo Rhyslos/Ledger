@@ -448,6 +448,7 @@ export function dotOf(path) {
   if (b === "project.godot") return "godot";
   if (/\.(sln|slnx|csproj)$/i.test(b)) return "proj";
   if (/\.(db|sqlite|sqlite3|db3|s3db)$/i.test(b)) return "db";
+  if (/\.(png|jpe?g|gif|webp|svg|avif|bmp|ico|apng|jfif)$/i.test(b)) return "img";
   const l = langOf(path);
   if (b.startsWith(".") && l === "text") return "cfg";
   return LANGS[l].dot;
