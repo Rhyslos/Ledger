@@ -102,8 +102,8 @@ const LUST_CONTROL = "is then or either loop stop skip return try error like kee
 const LUST_DEFINE = "class object node assembly schema database route method hook has new create";
 const LUST_MODULE = "fetch get pass end save load saved lua view style";
 const LUST_TYPES = "int float string truth array cMap map";
-const LUST_BUILTINS = "print wait random ask";
-const LUST_OBJECTS = "Maths Files Time Json Web";
+const LUST_BUILTINS = "print wait ask";
+const LUST_OBJECTS = "Maths Files Time Json Web Random";
 const lustSet = (s) => new Set(s.split(" "));
 const LK = { control: lustSet(LUST_CONTROL), define: lustSet(LUST_DEFINE), module: lustSet(LUST_MODULE), types: lustSet(LUST_TYPES), builtins: lustSet(LUST_BUILTINS), objects: lustSet(LUST_OBJECTS) };
 
@@ -228,6 +228,7 @@ const lustCompletions = completeFromList([
   ...LUST_BUILTINS.split(" ").map((l) => ({ label: l, type: "function", apply: l + "()", detail: "built-in" })),
   ...LUST_OBJECTS.split(" ").map((l) => ({ label: l, type: "class", detail: "built-in object" })),
   { label: "true", type: "constant" }, { label: "false", type: "constant" }, { label: "nothing", type: "constant" },
+  snip("Random[${1}, ${6}]", { label: "Random", detail: "a random number from the first to the second", type: "function" }),
   snip("class ${Name} {\n\thas {\n\t\t${string} ${name} = ${\"\"};\n\t}\n\n\tmethod ${hello}() {\n\t\t${}\n\t}\n}", { label: "class", detail: "blueprint, made with new", type: "class" }),
   snip("object ${Name} {\n\thas {\n\t\t${int} ${count} = ${0};\n\t}\n}", { label: "object", detail: "one ready-made thing", type: "class" }),
   snip("node ${Room} {\n\thas {\n\t\t${}\n\t}\n\n\tmethod onOpen() {\n\t\t${}\n\t}\n\n\tmethod onClose() {\n\t\t${}\n\t}\n}", { label: "node", detail: "opens and closes; closing ends what it made", type: "class" }),
