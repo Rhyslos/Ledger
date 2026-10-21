@@ -141,6 +141,8 @@ export class Lsp {
       if (gen !== this.gen) return false;
       this.caps = init?.capabilities || {};
       this.notify("initialized", {}, true);
+      // Some servers (JSON) take their settings pushed; the rest ask with workspace/configuration.
+      if (spec.settings) this.notify("workspace/didChangeConfiguration", { settings: spec.settings });
       ok(true);
       // Servers without status notifications are "ready" once initialised.
       if (this.caps.experimental?.serverStatusNotification || this.id === "rust") this.setStatus("indexing", true);
