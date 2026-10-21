@@ -35,6 +35,8 @@ export const DEFAULTS = {
   godot: "",
   lust: "lust",
   lua: "lua",
+  luaVersion: "Lua 5.4",
+  luaServer: "",
   terminalShell: "",
   browser: "default",
   browserPath: "",
@@ -98,6 +100,7 @@ export function initSettings(c) { ctx = c; }
 export const INSTALLS = {
   node: { name: "Node.js", cmd: "node", id: "OpenJS.NodeJS.LTS", note: "Runs JavaScript, npm, React, Vite and Tailwind." },
   lua: { name: "Lua", cmd: "lua", id: "DEVCOM.Lua", note: "Runs .lua files." },
+  luals: { name: "Lua language server", cmd: "lua-language-server", id: "LuaLS.lua-language-server", note: "Completions, errors, hover help and go-to-definition in .lua files." },
   rust: { name: "Rust", cmd: "cargo", id: "Rustlang.Rustup", note: "Also needs the Visual Studio C++ build tools; rustup tells you if they're missing." },
   dotnet: { name: ".NET SDK", cmd: "dotnet", id: "Microsoft.DotNet.SDK.10", note: "C# and Godot .NET projects." },
   git: { name: "Git", cmd: "git", id: "Git.Git", note: "Source control, cloning and pushing." },
@@ -134,7 +137,7 @@ export function openInBrowser(url) {
 export const refreshSettingsTools = () => refreshTools();
 
 async function refreshTools() {
-  const names = { cargo: "cargo", ra: settings.rustAnalyzer || "rust-analyzer", dotnet: "dotnet", cs: settings.csharpServer || "csharp-ls", godot: settings.godot, git: "git", lust: settings.lust || "lust", lua: settings.lua || "lua", node: "node", rust: "cargo", tsls: "typescript-language-server", htmlls: "vscode-html-language-server" };
+  const names = { cargo: "cargo", ra: settings.rustAnalyzer || "rust-analyzer", dotnet: "dotnet", cs: settings.csharpServer || "csharp-ls", godot: settings.godot, git: "git", lust: settings.lust || "lust", lua: settings.lua || "lua", node: "node", rust: "cargo", tsls: "typescript-language-server", htmlls: "vscode-html-language-server", luals: settings.luaServer || "lua-language-server" };
   const out = {};
   await Promise.all(Object.entries(names).map(async ([k, n]) => { out[k] = n ? await invoke("tool_info", { name: n }).catch(() => null) : null; }));
   out.lldb = await ctx.debuggerFor?.("rust").catch(() => null);
@@ -204,7 +207,7 @@ export function settingsHtml() {
 
     <section aria-labelledby="sInst"><h2 id="sInst">Languages</h2>
       <p class="hint">Ledger installs these with winget, which comes with Windows. Run also offers to install whatever a project needs.</p>
-      ${row("Web servers", `<div class="tool">JavaScript and TypeScript: ${found(tools.tsls, "")}</div><div class="tool">HTML and CSS: ${found(tools.htmlls, "")}</div><div class="bar"><button class="btn" data-act="tsls-install">${tools.tsls && tools.htmlls ? "Update" : "Install"} the web language servers</button><button class="btn" data-act="restart-web">Restart</button></div>`, "Completions, errors, hover help and go-to-definition for JavaScript, TypeScript, React, HTML and CSS. Installed with npm, so Node.js comes first. Tailwind classes complete on their own in any project that uses Tailwind.")}
+      ${row("Web servers", `<div class="tool">JavaScript and TypeScript: ${found(tools.tsls, "")}</div><div class="tool">HTML, CSS and JSON: ${found(tools.htmlls, "")}</div><div class="bar"><button class="btn" data-act="tsls-install">${tools.tsls && tools.htmlls ? "Update" : "Install"} the web language servers</button><button class="btn" data-act="restart-web">Restart</button></div>`, "Completions, errors, hover help and go-to-definition for JavaScript, TypeScript, React, HTML, CSS and JSON (package.json, tsconfig and other config files are checked against their schemas). Installed with npm, so Node.js comes first. Tailwind classes complete on their own in any project that uses Tailwind.")}
       ${Object.entries(INSTALLS).map(([k, t]) => {
         // .NET: an older SDK counts as found, but the C# server needs 10, so say so and offer that one.
         const need10 = k === "dotnet" && tools.dotnet && !hasSdk(10);
@@ -247,6 +250,8 @@ export function settingsHtml() {
 
     <section aria-labelledby="sLua"><h2 id="sLua">Lua</h2>
       ${row("lua", text("sLuaPath", "lua", "lua") + `<div class="tool">${found(tools.lua, 'Install Lua from <a href="https://luabinaries.sourceforge.net" target="_blank">luabinaries</a> (or <code>winget install DEVCOM.Lua</code>), then put its name or full path here. Some installs call it lua54.exe.')}</div>`, "Runs .lua files with Run (F5). A name on PATH or a full path.", "sLuaPath")}
+      ${row("Lua version", select("sLuaVer", "luaVersion", [["Lua 5.4", "Lua 5.4"], ["Lua 5.3", "Lua 5.3"], ["Lua 5.2", "Lua 5.2"], ["Lua 5.1", "Lua 5.1"], ["LuaJIT", "LuaJIT"]]), "Which Lua the language server checks your code against.", "sLuaVer")}
+      ${row("Language server", text("sLuaLs", "luaServer", "lua-language-server") + `<div class="tool">${found(tools.luals, "Install it under Languages above.")}</div>`, "Leave empty for the one on PATH, or a full path to lua-language-server.exe.", "sLuaLs")}
     </section>
 
     <section aria-labelledby="sGodot"><h2 id="sGodot">Godot</h2>

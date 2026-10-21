@@ -412,9 +412,11 @@ export const LANGS = {
   css: { name: "CSS", dot: "css", server: "css", tailwind: true, languageId: "css", ext: () => [css(), webColours(), tailwindSwatches()] },
   scss: { name: "SCSS", dot: "css", server: "css", languageId: "scss", ext: () => [legacy(sCSS, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }), legacyCssColours()] },
   less: { name: "Less", dot: "css", server: "css", languageId: "less", ext: () => [legacy(less, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }), legacyCssColours()] },
-  lua: { name: "Lua", dot: "lua", languageId: "lua", ext: () => legacy(lua, { commentTokens: { line: "--", block: { open: "--[[", close: "]]" } }, closeBrackets: { brackets: ["(", "[", "{", '"', "'"] } }) },
+  lua: { name: "Lua", dot: "lua", server: "lua", languageId: "lua", ext: () => legacy(lua, { commentTokens: { line: "--", block: { open: "--[[", close: "]]" } }, closeBrackets: { brackets: ["(", "[", "{", '"', "'"] } }) },
+  luau: { name: "Luau", dot: "lua", languageId: "luau", ext: () => legacy(lua, { commentTokens: { line: "--", block: { open: "--[[", close: "]]" } }, closeBrackets: { brackets: ["(", "[", "{", '"', "'"] } }) },
   toml: { name: "TOML", dot: "toml", ext: () => legacy(toml) },
-  json: { name: "JSON", dot: "json", ext: () => json() },
+  json: { name: "JSON", dot: "json", server: "json", languageId: "json", ext: () => json() },
+  jsonc: { name: "JSON with comments", dot: "json", server: "json", languageId: "jsonc", ext: () => json() },
   markdown: { name: "Markdown", dot: "md", ext: () => markdown() },
   xml: { name: "XML", dot: "xml", ext: () => legacy(xml, { commentTokens: { block: { open: "<!--", close: "-->" } } }) },
   yaml: { name: "YAML", dot: "cfg", ext: () => legacy(yaml) },
@@ -426,7 +428,7 @@ export const LANGS = {
 const BY_EXT = {
   rs: "rust", cs: "csharp", csx: "csharp", lust: "lust", lst: "lust", lsc: "lust", gdshader: "gdshader", gdshaderinc: "gdshader", gd: "gdscript",
   tscn: "godot", tres: "godot", godot: "godot", import: "godot", cfg: "ini", ini: "ini", editorconfig: "ini",
-  lua: "lua", luau: "lua", rockspec: "lua", toml: "toml", json: "json", jsonc: "json", md: "markdown",
+  lua: "lua", luau: "luau", rockspec: "lua", toml: "toml", json: "json", jsonc: "jsonc", md: "markdown",
   js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx", ts: "typescript", mts: "typescript", cts: "typescript", tsx: "tsx",
   html: "html", htm: "html", vue: "html", svelte: "html", astro: "html", css: "css", scss: "scss", sass: "scss", less: "less",
   csproj: "xml", fsproj: "xml", props: "xml", targets: "xml", slnx: "xml", xml: "xml", resx: "xml", xaml: "xml", config: "xml", svg: "xml",
@@ -437,6 +439,8 @@ export function langOf(path) {
   const b = String(path).split(/[\\/]/).pop();
   if (b === "Cargo.lock") return "toml";
   if (b === ".editorconfig") return "ini";
+  // JSON that allows comments (TypeScript, ESLint, Babel and editor configs).
+  if (/^(tsconfig|jsconfig)(\..*)?\.json$|^\.(eslintrc|babelrc|swcrc)(\.json)?$|^devcontainer\.json$|^\.luarc\.json$/i.test(b)) return "jsonc";
   const e = (b.match(/\.([^.]+)$/)?.[1] || "").toLowerCase();
   return BY_EXT[e] || "text";
 }
