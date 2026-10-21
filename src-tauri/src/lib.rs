@@ -168,6 +168,46 @@ fn command_at(exe: &Path) -> Command {
     c
 }
 
+/// "Open with Ledger" in Explorer's right-click menu (the installer adds it): whether it's there,
+/// and turning it on or off. Off also leaves a note so updates don't add it back.
+#[tauri::command]
+fn shell_menu_state() -> bool {
+    cfg!(windows) && reg(&["query", r"HKCU\Software\Classes\Directory\shell\Ledger"])
+}
+
+#[tauri::command]
+fn shell_menu(on: bool) -> Res<()> {
+    if !cfg!(windows) {
+        return Err("This is a Windows menu.".into());
+    }
+    let exe = std::env::current_exe().map_err(err)?;
+    let exe = plain_path(&exe);
+    let keys = [(r"*", "%1"), (r"Directory", "%1"), (r"Directory\Background", "%V")];
+    for (key, arg) in keys {
+        let base = format!(r"HKCU\Software\Classes\{key}\shell\Ledger");
+        if on {
+            let ok = reg(&["add", &base, "/ve", "/d", "Open with Ledger", "/f"])
+                && reg(&["add", &base, "/v", "Icon", "/d", &exe, "/f"])
+                && reg(&["add", &format!(r"{base}\command"), "/ve", "/d", &format!("\"{exe}\" \"{arg}\""), "/f"]);
+            if !ok {
+                return Err("Windows didn't let Ledger change the menu.".into());
+            }
+        } else {
+            reg(&["delete", &base, "/f"]);
+        }
+    }
+    if on {
+        reg(&["delete", r"HKCU\Software\Ledger", "/v", "NoShellMenu", "/f"]);
+    } else {
+        reg(&["add", r"HKCU\Software\Ledger", "/v", "NoShellMenu", "/d", "1", "/f"]);
+    }
+    Ok(())
+}
+
+fn reg(args: &[&str]) -> bool {
+    command_at(Path::new("reg")).args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false)
+}
+
 /// Where a tool resolves to, if it works. Used by the settings page.
 #[tauri::command]
 async fn tool_info(name: String) -> Option<String> {
@@ -1468,6 +1508,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             refresh_path,
+            shell_menu,
+            shell_menu_state,
             read_bytes,
             db::db_schema,
             db::db_rows,
