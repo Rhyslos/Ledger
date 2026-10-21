@@ -341,10 +341,10 @@ export const LANGS = {
   jsx: { name: "JavaScript React", dot: "js", server: "web", tailwind: true, languageId: "javascriptreact", ext: () => [javascript({ jsx: true }), webColours(), tailwindSwatches()] },
   typescript: { name: "TypeScript", dot: "ts", server: "web", tailwind: true, languageId: "typescript", ext: () => [javascript({ typescript: true }), webColours(), tailwindSwatches()] },
   tsx: { name: "TypeScript React", dot: "ts", server: "web", tailwind: true, languageId: "typescriptreact", ext: () => [javascript({ jsx: true, typescript: true }), webColours(), tailwindSwatches()] },
-  html: { name: "HTML", dot: "html", tailwind: true, languageId: "html", ext: () => [html(), webColours(), tailwindSwatches()] },
-  css: { name: "CSS", dot: "css", tailwind: true, languageId: "css", ext: () => [css(), webColours(), tailwindSwatches()] },
-  scss: { name: "SCSS", dot: "css", languageId: "scss", ext: () => [legacy(sCSS, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }), legacyCssColours()] },
-  less: { name: "Less", dot: "css", languageId: "less", ext: () => [legacy(less, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }), legacyCssColours()] },
+  html: { name: "HTML", dot: "html", server: "html", tailwind: true, languageId: "html", ext: () => [html(), webColours(), tailwindSwatches()] },
+  css: { name: "CSS", dot: "css", server: "css", tailwind: true, languageId: "css", ext: () => [css(), webColours(), tailwindSwatches()] },
+  scss: { name: "SCSS", dot: "css", server: "css", languageId: "scss", ext: () => [legacy(sCSS, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }), legacyCssColours()] },
+  less: { name: "Less", dot: "css", server: "css", languageId: "less", ext: () => [legacy(less, { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } }), legacyCssColours()] },
   lua: { name: "Lua", dot: "lua", languageId: "lua", ext: () => legacy(lua, { commentTokens: { line: "--", block: { open: "--[[", close: "]]" } }, closeBrackets: { brackets: ["(", "[", "{", '"', "'"] } }) },
   toml: { name: "TOML", dot: "toml", ext: () => legacy(toml) },
   json: { name: "JSON", dot: "json", ext: () => json() },
@@ -380,6 +380,7 @@ export function dotOf(path) {
   if (b === "Cargo.lock") return "lock";
   if (b === "project.godot") return "godot";
   if (/\.(sln|slnx|csproj)$/i.test(b)) return "proj";
+  if (/\.(db|sqlite|sqlite3|db3|s3db)$/i.test(b)) return "db";
   const l = langOf(path);
   if (b.startsWith(".") && l === "text") return "cfg";
   return LANGS[l].dot;

@@ -1325,6 +1325,7 @@ async fn install_debugger(app: AppHandle, kind: String) -> Res<String> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+mod db;
 mod live;
 
 pub fn run() {
@@ -1361,6 +1362,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             refresh_path,
+            db::db_schema,
+            db::db_rows,
+            db::db_query,
+            db::db_apply,
+            db::db_export,
             live::live_start,
             live::live_stop,
             live::live_reload,
