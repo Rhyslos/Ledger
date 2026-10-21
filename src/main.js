@@ -2712,10 +2712,10 @@ async function closeFolder() {
   renderMain(); renderProblems();
 }
 async function newProject() {
-  const kinds = ["Web app with Vite (React, Vue, Svelte…)", "Next.js app", "Website (plain HTML, CSS and JS)", "Node.js program", "Lua program", "Lust program", "Rust program", "Rust library", "C# console app", "C# class library"];
+  const kinds = ["Web app with Vite (React, Vue, Svelte…)", "Next.js app", "Website (plain HTML, CSS and JS)", "Node.js program", "Lua program", "Lust program", "Lust app (with a window)", "Rust program", "Rust library", "C# console app", "C# class library"];
   const i = await choose("What kind of project?", kinds, true);
   if (i == null || i < 0) return;
-  const kind = ["vite", "next", "web", "node", "lua", "lust", "rust", "rust-lib", "console", "classlib"][i];
+  const kind = ["vite", "next", "web", "node", "lua", "lust", "lust-app", "rust", "rust-lib", "console", "classlib"][i];
   let web = null;
   if (kind === "vite" || kind === "next") {
     web = { kind };
@@ -2749,7 +2749,7 @@ async function newProject() {
     return;
   }
   if (web) { await newWebProject({ ...web, name, dir }); return; }
-  const MAIN = { lust: "main.lst", rust: "src/main.rs", "rust-lib": "src/lib.rs", console: "Program.cs", classlib: "Class1.cs", web: "index.html", node: "index.js", lua: "main.lua" };
+  const MAIN = { lust: "main.lst", "lust-app": "main.lst", rust: "src/main.rs", "rust-lib": "src/lib.rs", console: "Program.cs", classlib: "Class1.cs", web: "index.html", node: "index.js", lua: "main.lua" };
   const plain = !["rust", "rust-lib", "console", "classlib"].includes(kind); // no language server to start
   try {
     const p = norm(await invoke("new_project", { parent: dir, name, kind }));

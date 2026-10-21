@@ -98,14 +98,18 @@ const godotResource = {
 // capital) in a soft blue, objects (Game:start(), Farm.gold, Maths:sqrt) in orange, types muted,
 // questions and loops in a lighter red, comments green, text and numbers sand, punctuation grey,
 // the rest plain. Structure, states and the names being declared are a touch heavier (500), never fully bold.
+// In a view, the pieces of the screen (column, text, button…) share the classes' blue, since your own
+// pieces are classes too, and the style words in [ ] are muted like types.
 const LUST_CONTROL = "is then or either loop stop skip return try error like keep";
 const LUST_DEFINE = "class object node assembly schema database route method hook has new create";
 const LUST_MODULE = "fetch get pass end save load saved lua view style";
 const LUST_TYPES = "int float string truth array cMap map";
 const LUST_BUILTINS = "print wait ask";
 const LUST_OBJECTS = "Maths Files Time Json Web Random";
+const LUST_PIECES = "column row stack scroll space text button input checkbox slider image every";
+const LUST_STYLES = "pad padX padY padTop padRight padBottom padLeft gap width height grow minWidth maxWidth minHeight maxHeight size tiny small large huge weight bold muted strike nowrap color background round pill border borderWidth shadow opacity left center right top middle bottom spread subtle hover placeholder from to step cover disabled title fill";
 const lustSet = (s) => new Set(s.split(" "));
-const LK = { control: lustSet(LUST_CONTROL), define: lustSet(LUST_DEFINE), module: lustSet(LUST_MODULE), types: lustSet(LUST_TYPES), builtins: lustSet(LUST_BUILTINS), objects: lustSet(LUST_OBJECTS) };
+const LK = { control: lustSet(LUST_CONTROL), define: lustSet(LUST_DEFINE), module: lustSet(LUST_MODULE), types: lustSet(LUST_TYPES), builtins: lustSet(LUST_BUILTINS), objects: lustSet(LUST_OBJECTS), pieces: lustSet(LUST_PIECES) };
 
 const LT = {
   structure: Tag.define(),  // class object node state has method hook new fetch get pass end …
@@ -140,8 +144,10 @@ const lustMode = {
   // ("type" after class, "obj" after object/node/assembly/database, "fn" after method). after:
   // the last punctuation that matters for the next word (":" or "."). opts: the depth of a state's
   // [ options ] while inside them. block: inside a --[[ comment ]] that goes over several lines.
-  startState: () => ({ depth: 0, def: null, after: null, opts: null, block: false }),
-  copyState: (s) => ({ ...s }),
+  // styled: a [ ] coming up holds styles (after view, a piece, or style name =). styles: the depths
+  // of the style lists we're in (hover:[ … ] nests one). styleWord: the next word names a style.
+  startState: () => ({ depth: 0, def: null, after: null, opts: null, block: false, styled: false, styles: [], styleWord: false }),
+  copyState: (s) => ({ ...s, styles: [...s.styles] }),
   tokenTable: { lustStructure: LT.structure, lustFlow: LT.flow, lustName: LT.name, lustType: LT.type, lustValue: LT.value, lustComment: LT.comment, lustPunct: LT.punct, lustPlain: LT.plain, lustState: LT.state, lustClass: LT.cls, lustObject: LT.obj },
   token(stream, st) {
     if (st.block) {
@@ -162,6 +168,22 @@ const lustMode = {
     const w = stream.match(/^[A-Za-z_]\w*/);
     if (w) {
       const word = w[0];
+      // Inside a style list, the first word after [ or , is the style's name.
+      if (st.styles.length && st.styles[st.styles.length - 1] === st.depth) {
+        if (st.styleWord) { st.styleWord = false; return "lustType"; }
+        if (word === "true" || word === "false" || word === "nothing") return "lustValue";
+        if (LK.control.has(word) || word === "not") return "lustFlow";
+        return "lustPlain";
+      }
+      // style card = [pad 16, round];
+      if (st.def === "style") { st.def = null; st.styled = true; return "lustName"; }
+      if (word === "style" && after == null) { st.def = "style"; return "lustStructure"; }
+      if (word === "view" && after == null) { st.styled = true; return "lustStructure"; }
+      // A piece of the screen starts its line: column [gap 8] {, text name [muted];, every 1.0 { … }
+      const lineStart = stream.string.slice(0, stream.start).trim() === "";
+      if (lineStart && after == null && LK.pieces.has(word) && !stream.match(/^\s*[=(.:,]/, false)) { st.styled = true; return "lustClass"; }
+      // Your own piece: TodoRow [width 300] { label = task };
+      if (lineStart && /^[A-Z]/.test(word) && stream.match(/^\s*\[/, false)) { st.styled = true; return "lustClass"; }
       // States: state Mood = [Calm, Busy [Rushed]];  state is Mood.Calm;
       if (word === "state") { st.def = "state"; return "lustState"; }
       if (st.opts != null && st.depth >= st.opts) return "lustPlain";   // the options themselves stay plain
@@ -193,21 +215,27 @@ const lustMode = {
       return "lustPlain";
     }
     const ch = stream.next();
+    const inStyles = st.styles.length && st.styles[st.styles.length - 1] === st.depth;
     if (ch === "{" || ch === "[") {
       st.depth++;
       if (ch === "[" && st.def === "state" && st.opts == null) st.opts = st.depth;
+      if (ch === "[" && (st.styled || inStyles)) { st.styles.push(st.depth); st.styleWord = true; }
+      if (ch === "{") st.styled = false;
       st.def = null;
       return "lustPunct";
     }
     if (ch === "}" || ch === "]") {
+      if (st.styles.length && st.styles[st.styles.length - 1] === st.depth) st.styles.pop();
       st.depth = Math.max(0, st.depth - 1);
       if (st.opts != null && st.depth < st.opts) st.opts = null;
+      if (ch === "]" && !st.styles.length) st.styled = false;
       return "lustPunct";
     }
+    if (ch === "," && inStyles) { st.styleWord = true; return "lustPunct"; }
     if (ch === "(" || ch === ")") { st.def = null; return "lustPunct"; }
     if (ch === "?") return "lustFlow";
     if (ch === ":" || ch === ".") { st.after = ch; return "lustPunct"; }
-    if (ch === ";" || ch === ",") { st.def = null; return "lustPunct"; }
+    if (ch === ";" || ch === ",") { st.def = null; if (ch === ";") st.styled = false; return "lustPunct"; }
     return "lustPunct";
   },
   indent(st, textAfter, cx) {
@@ -227,6 +255,8 @@ const lustCompletions = completeFromList([
   ...LUST_TYPES.split(" ").map((l) => ({ label: l, type: "type" })),
   ...LUST_BUILTINS.split(" ").map((l) => ({ label: l, type: "function", apply: l + "()", detail: "built-in" })),
   ...LUST_OBJECTS.split(" ").map((l) => ({ label: l, type: "class", detail: "built-in object" })),
+  ...LUST_PIECES.split(" ").map((l) => ({ label: l, type: "keyword", detail: "piece of a view" })),
+  ...LUST_STYLES.split(" ").filter((l) => !LK.pieces.has(l)).map((l) => ({ label: l, type: "property", detail: "style" })),
   { label: "true", type: "constant" }, { label: "false", type: "constant" }, { label: "nothing", type: "constant" },
   snip("Random[${1}, ${6}]", { label: "Random", detail: "a random number from the first to the second", type: "function" }),
   snip("class ${Name} {\n\thas {\n\t\t${string} ${name} = ${\"\"};\n\t}\n\n\tmethod ${hello}() {\n\t\t${}\n\t}\n}", { label: "class", detail: "blueprint, made with new", type: "class" }),
@@ -256,6 +286,20 @@ const lustCompletions = completeFromList([
   snip("database ${Shop} in \"${shop.db}\" {\n\tcMap(${string name}, ${float price}) ${items};\n}", { label: "database", detail: "tables kept in a file", type: "class" }),
   snip("schema ${NewUser} {\n\thas {\n\t\t${string name};\n\t}\n}", { label: "schema", detail: "the shape of data coming in", type: "class" }),
   snip("route \"${/api}\" {\n\tget \"${/hello/:who}\" => ${hello};\n}", { label: "route", detail: "answer web requests", type: "keyword" }),
+  // Views: windows drawn by Lust.
+  snip("assembly ${App} {\n\thas {\n\t\t${int} ${count} = ${0};\n\t}\n\n\tview [title \"${My app}\", width ${480}, height ${360}] {\n\t\tcolumn [gap 12, pad 24] {\n\t\t\t${}\n\t\t}\n\t}\n}\n\n${App}:open();", { label: "app", detail: "an assembly with a window, opened", type: "class" }),
+  snip("view {\n\tcolumn [gap ${8}] {\n\t\t${}\n\t}\n}", { label: "view", detail: "what the screen shows", type: "keyword" }),
+  snip("column [gap ${8}] {\n\t${}\n}", { label: "column", detail: "pieces top to bottom", type: "keyword" }),
+  snip("row [gap ${8}] {\n\t${}\n}", { label: "row", detail: "pieces side by side", type: "keyword" }),
+  snip("scroll [gap ${4}] {\n\t${}\n}", { label: "scroll", detail: "a column that scrolls", type: "keyword" }),
+  snip("text ${\"Hello\"};", { label: "text", detail: "words on the screen", type: "keyword" }),
+  snip("button \"${Start}\" [${blue}] {\n\t${}\n}", { label: "button", detail: "runs its block when clicked", type: "keyword" }),
+  snip("input ${name} [placeholder \"${Your name}\"];", { label: "input", detail: "a text box bound to a field", type: "keyword" }),
+  snip("checkbox ${done};", { label: "checkbox", detail: "ticks a truth field", type: "keyword" }),
+  snip("slider ${volume} [from ${0}, to ${100}];", { label: "slider", detail: "drags a number field", type: "keyword" }),
+  snip("image \"${picture.png}\" [width ${120}];", { label: "image", detail: "a PNG or JPEG", type: "keyword" }),
+  snip("every ${1.0} {\n\t${}\n}", { label: "every", detail: "runs again and again while shown", type: "keyword" }),
+  snip("style ${card} = [${pad 16, round, shadow}];", { label: "style", detail: "a named set of styles", type: "keyword" }),
 ]);
 
 // ----- C# -----
