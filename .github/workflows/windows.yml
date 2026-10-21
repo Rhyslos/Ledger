@@ -14,6 +14,13 @@ on:
 permissions:
   contents: write
 
+# When several merges land close together, only the newest build publishes: an older one finishing
+# last would otherwise become the "latest" release and the updater would offer a version that's missing
+# the newer changes.
+concurrency:
+  group: windows-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
