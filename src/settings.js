@@ -143,6 +143,8 @@ async function refreshTools() {
   out.lldb = await ctx.debuggerFor?.("rust").catch(() => null);
   out.netcoredbg = await ctx.debuggerFor?.("csharp").catch(() => null);
   // Which .NET SDKs are installed ("10.0.100 [C:\\Program Files\\dotnet\\sdk]" per line): csharp-ls needs 10.
+  // "Lust 2.0.0-alpha.17", shown in Settings › Lust.
+  out.lustVersion = out.lust ? ((await invoke("run_capture", { cwd: ".", program: settings.lust || "lust", args: ["version"] }).catch(() => null))?.out || "").trim() : "";
   out.sdks = [];
   if (out.dotnet) {
     const r = await invoke("run_capture", { cwd: ".", program: "dotnet", args: ["--list-sdks"] }).catch(() => null);
@@ -245,7 +247,7 @@ export function settingsHtml() {
     </section>
 
     <section aria-labelledby="sLust"><h2 id="sLust">Lust</h2>
-      ${row("lust", text("sLustPath", "lust", "lust") + `<div class="tool">${found(tools.lust, 'Download <b>lust-windows</b> from the Actions tab of the <a href="https://github.com/Rhyslos/Lust" target="_blank">Lust repo</a> (or run <code>cargo build --release</code> in it), then put the full path to lust.exe here.')}</div>`, "Runs Lust files, .lst and .lsc (Run, Check, Build), and checks them for mistakes when you save. A name on PATH or a full path to lust.exe.", "sLustPath")}
+      ${row("lust", text("sLustPath", "lust", "lust") + `<div class="tool">${tools.lustVersion ? esc(tools.lustVersion) + " · " : ""}${found(tools.lust, 'Download <b>lust-windows</b> from the Actions tab of the <a href="https://github.com/Rhyslos/Lust" target="_blank">Lust repo</a> (or run <code>cargo build --release</code> in it), then put the full path to lust.exe here.')}</div><div class="bar"><button class="btn" data-act="lust-install">${tools.lust ? "Update" : "Install"} Lust</button></div>`, "Install builds Lust from github.com/Rhyslos/Lust with Rust (installed first if needed), which takes a few minutes. Runs Lust files, .lst and .lsc (Run, Check, Build), and checks them for mistakes when you save. A name on PATH or a full path to lust.exe.", "sLustPath")}
     </section>
 
     <section aria-labelledby="sLua"><h2 id="sLua">Lua</h2>
@@ -322,6 +324,21 @@ export function wireSettings(root, rerender) {
       return;
     }
     if (act === "install") { installTool(a.dataset.tool, () => rerender(true)); return; }
+    if (act === "lust-install") {
+      // cargo install builds lust.exe into ~/.cargo/bin, which Ledger already looks in.
+      const go = () => {
+        const after = async () => {
+          // A path set by hand (an old lust.exe) would hide the one just installed: use the installed one.
+          if (settings.lust && settings.lust !== "lust" && (await invoke("tool_info", { name: "lust" }).catch(() => null))) setSetting("lust", "lust");
+          await refreshTools();
+          rerender(true);
+          if (tools.lust) ctx.toast((tools.lustVersion || "Lust") + " is ready.");
+        };
+        ctx.runTask("cargo", ["install", "--git", "https://github.com/Rhyslos/Lust", "--locked", "--force", "lust"], "Installing Lust", after, after);
+      };
+      if (tools.cargo) go(); else installTool("rust", (ok) => (ok ? go() : ctx.toast("Lust needs Rust, and Rust didn't install. Check the Output panel.", 7000)));
+      return;
+    }
     if (act === "update-check") { ctx.checkUpdate?.(); return; }
     if (act === "godot-browse") {
       const p = await openDialog({ title: "Find the Godot program", multiple: false, directory: false, filters: [{ name: "Programs", extensions: ["exe", "x86_64", "app", "*"] }] });

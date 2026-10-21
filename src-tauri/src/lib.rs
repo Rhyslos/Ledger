@@ -909,9 +909,35 @@ pass Counter;
 end
 "#;
 
+/// A new LustScript project's main.lsc.
+const LUST_SCRIPT_MAIN: &str = r#"-- NAME: LustScript, which turns into Lua.
+--
+-- F5 runs it here. Build writes main.lua next to it, plain Lua 5.1 that
+-- Garry's Mod (LuaJIT), Luau and other Lua hosts can run.
+
+method greet(string who) {
+    print("Hello, " + who + "!");
+}
+
+greet("NAME");
+
+end
+"#;
+
 /// `cargo new` / `dotnet new` style project creation. Returns the new folder.
 #[tauri::command]
 async fn new_project(parent: String, name: String, kind: String) -> Res<String> {
+    if kind == "lustscript" {
+        // LustScript: a .lsc file that turns into Lua (lust build writes main.lua next to it).
+        let dir = Path::new(&parent).join(&name);
+        if dir.exists() {
+            return Err(format!("There's already something called {name} there."));
+        }
+        std::fs::create_dir_all(&dir).map_err(|e| format!("Couldn't make the folder ({e})."))?;
+        let main = LUST_SCRIPT_MAIN.replace("NAME", &name);
+        std::fs::write(dir.join("main.lsc"), main).map_err(|e| format!("Couldn't write main.lsc ({e})."))?;
+        return Ok(plain_path(&dir));
+    }
     if kind == "lust" || kind == "lust-app" {
         // A Lust project is just a folder with a main.lst; no tool needed to make it.
         let dir = Path::new(&parent).join(&name);

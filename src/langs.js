@@ -109,6 +109,37 @@ const LUST_OBJECTS = "Maths Files Time Json Web Random";
 const LUST_PIECES = "column row stack scroll space text button input checkbox slider image every";
 const LUST_STYLES = "pad padX padY padTop padRight padBottom padLeft gap width height grow minWidth maxWidth minHeight maxHeight size tiny small large huge weight bold muted strike nowrap color background round pill border borderWidth shadow opacity left center right top middle bottom spread subtle hover placeholder from to step cover disabled title fill";
 const lustSet = (s) => new Set(s.split(" "));
+// Colours a view can use: [blue], background gray1, color red7…
+const LUST_COLOURS = ["black", "white", ..."gray red orange yellow green teal blue indigo purple pink".split(" ").flatMap((c) => [c, ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => c + n)])].join(" ");
+// The standard library and the methods on text and arrays (Lust's src/stdlib.rs), for completing after Maths:, name: and name.
+const LUST_LIB = {
+  Maths: ["abs(x)", "min(a, b)", "max(a, b)", "clamp(x, low, high)", "round(x)", "floor(x)", "ceil(x)", "sqrt(x)", "sin(x)", "cos(x)", "tan(x)", "power(x, p)"],
+  Files: ["read(path)", "write(path, text)", "append(path, text)", "exists(path)", "remove(path)", "list(folder)", "makeFolder(path)"],
+  Time: ["now()", "clock()", "date()", "time()", "addDays(date, n)", "daysBetween(from, to)", "weekday(date)", "isDate(text)"],
+  Json: ["write(value)", "pretty(value)", "read(text)"],
+  Web: ["get(url)", "post(url, body)", "serve(port)", "request(kind, path, body)", "fail(code, message)"],
+};
+const LUST_TEXT = ["contains(text)", "startsWith(text)", "endsWith(text)", "find(text)", "replace(old, new)", "replaceAll(pattern, new)", "split(by)", "slice(from, to)", "matches(pattern)", "findAll(pattern)", "capture(pattern)"];
+const LUST_ARRAY = ["join(between)", "has(value)", "find(value)", "remove(value)", "sort()", "reverse()"];
+const LUST_CONVERT = ["text()", "int()", "float()", "upper()", "lower()", "trim()"];
+const libOption = (sig, detail) => {
+  const name = sig.slice(0, sig.indexOf("(")), args = sig.slice(name.length + 1, -1);
+  let n = 0;
+  return snip(name + "(" + (args ? args.split(", ").map((a) => "${" + ++n + ":" + a + "}").join(", ") : "") + ")", { label: name, detail: detail + " · " + sig, type: "method" });
+};
+const LIB_OPTIONS = Object.fromEntries(Object.entries(LUST_LIB).map(([o, l]) => [o, l.map((s) => libOption(s, o))]));
+const VALUE_OPTIONS = [...LUST_TEXT.map((s) => libOption(s, "text")), ...LUST_ARRAY.map((s) => libOption(s, "array"))];
+const CONVERT_OPTIONS = LUST_CONVERT.map((s) => libOption(s, "turns it into"));
+/** After Maths: (and the other built-in objects), a value's : or its . — the library, methods and conversions. */
+function lustMembers(ctx) {
+  const lib = ctx.matchBefore(/\b(Maths|Files|Time|Json|Web):\w*$/);
+  if (lib) return { from: lib.from + lib.text.indexOf(":") + 1, options: LIB_OPTIONS[lib.text.slice(0, lib.text.indexOf(":"))], validFor: /^\w*$/ };
+  const val = ctx.matchBefore(/(?:\b[a-z_]\w*|[)\]"])[:.]\w*$/);
+  if (!val) return null;
+  const at = val.text.search(/[:.]\w*$/);
+  return { from: val.from + at + 1, options: val.text[at] === "." ? CONVERT_OPTIONS : VALUE_OPTIONS, validFor: /^\w*$/ };
+}
+
 const LK = { control: lustSet(LUST_CONTROL), define: lustSet(LUST_DEFINE), module: lustSet(LUST_MODULE), types: lustSet(LUST_TYPES), builtins: lustSet(LUST_BUILTINS), objects: lustSet(LUST_OBJECTS), pieces: lustSet(LUST_PIECES) };
 
 const LT = {
@@ -257,6 +288,7 @@ const lustCompletions = completeFromList([
   ...LUST_OBJECTS.split(" ").map((l) => ({ label: l, type: "class", detail: "built-in object" })),
   ...LUST_PIECES.split(" ").map((l) => ({ label: l, type: "keyword", detail: "piece of a view" })),
   ...LUST_STYLES.split(" ").filter((l) => !LK.pieces.has(l)).map((l) => ({ label: l, type: "property", detail: "style" })),
+  ...LUST_COLOURS.split(" ").map((l) => ({ label: l, type: "constant", detail: "colour", boost: -1 })),
   { label: "true", type: "constant" }, { label: "false", type: "constant" }, { label: "nothing", type: "constant" },
   snip("Random[${1}, ${6}]", { label: "Random", detail: "a random number from the first to the second", type: "function" }),
   snip("class ${Name} {\n\thas {\n\t\t${string} ${name} = ${\"\"};\n\t}\n\n\tmethod ${hello}() {\n\t\t${}\n\t}\n}", { label: "class", detail: "blueprint, made with new", type: "class" }),
@@ -401,7 +433,7 @@ export const LANGS = {
   rust: { name: "Rust", dot: "rs", server: "rust", languageId: "rust", ext: () => [rust(), rustLanguage.data.of({ closeBrackets: { brackets: ["(", "[", "{", '"'] } })] },
   csharp: { name: "C#", dot: "cs", server: "csharp", languageId: "csharp", ext: () => new LanguageSupport(StreamLanguage.define(csMode)) },
   gdshader: { name: "Godot shader", dot: "shader", ext: () => new LanguageSupport(StreamLanguage.define(gdshaderMode)), complete: gdshaderCompletions },
-  lust: { name: "Lust", dot: "lust", ext: () => [new LanguageSupport(StreamLanguage.define(lustMode)), Prec.high(syntaxHighlighting(lustStyle))], complete: lustCompletions },
+  lust: { name: "Lust", dot: "lust", ext: () => [new LanguageSupport(StreamLanguage.define(lustMode)), Prec.high(syntaxHighlighting(lustStyle))], complete: (ctx) => lustMembers(ctx) || lustCompletions(ctx) },
   gdscript: { name: "GDScript", dot: "gd", ext: () => legacy(python, { commentTokens: { line: "#" } }) },
   godot: { name: "Godot resource", dot: "godot", ext: () => legacy(godotResource) },
   javascript: { name: "JavaScript", dot: "js", server: "web", tailwind: true, languageId: "javascript", ext: () => [javascript(), webColours(), tailwindSwatches()] },
