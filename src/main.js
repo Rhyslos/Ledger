@@ -984,15 +984,35 @@ async function save(path = S.active) {
 const saveHooks = [];
 
 // ---------- Lust: mistakes in the Problems list ----------
-// After a .lust file is saved (or opened), `lust check` runs quietly and its
-// messages (main.lust:3:5  missing ; …) become problems and squiggles.
-const LUST_LINE = /^(.+?\.lust):(\d+):(\d+)  (.*)$/;
+// After a .lst or .lsc file is saved (or opened), `lust check` runs quietly and its
+// messages (entities/player.lst:3:5  missing ; …) become problems and squiggles.
+const LUST_LINE = /^(.+?\.(?:lst|lsc|lust)):(\d+):(\d+)  (.*)$/;
 const lustShown = new Set();
 let lustSeq = 0;
+// A Lust project's folder is the nearest one up with a main.lst (or main.lsc) in it. Lust
+// names files from there, and fetch paths start there, so lust runs from there too.
+async function lustRoot(path) {
+  const dirs = [];
+  for (let d = parent(path), i = 0; i < 24; i++) {
+    dirs.push(d);
+    if (S.root && norm(d) === norm(S.root)) break;
+    const up = parent(d);
+    if (!up || up === d) break;
+    d = up;
+  }
+  const paths = dirs.flatMap((d) => [join(d, "main.lst"), join(d, "main.lsc")]);
+  const stats = await invoke("file_stats", { paths }).catch(() => []);
+  const i = stats.findIndex((x) => x != null);
+  return i < 0 ? parent(path) : dirs[Math.floor(i / 2)];
+}
+// Each Lust file's project folder, found when it's opened or saved, for Run and Build.
+const lustRoots = new Map();
+const lustRel = (root, path) => norm(path).slice(norm(root).replace(/\/$/, "").length + 1);
 async function lustCheck(path) {
-  const seq = ++lustSeq, dir = parent(path);
+  const seq = ++lustSeq, dir = await lustRoot(path);
+  lustRoots.set(norm(path), dir);
   let r;
-  try { r = await invoke("run_capture", { cwd: dir, program: settings.lust || "lust", args: ["check", base(path)] }); }
+  try { r = await invoke("run_capture", { cwd: dir, program: settings.lust || "lust", args: ["check", lustRel(dir, path)] }); }
   catch { return; } // lust isn't set up; Run says how to fix that
   if (seq !== lustSeq) return;
   const found = new Map();
@@ -1760,9 +1780,10 @@ function taskSteps(action, P = S.ctx) {
   const kind = taskKind(P);
   if (!kind) return null;
   if (kind === "lust") {
-    // Run from the file's own folder, so Lust's messages (main.lust:3:5) link back to it.
-    const file = S.active, prog = settings.lust || "lust";
-    const step = (sub, input) => ({ label: "lust " + sub, program: prog, args: [sub, base(file)], cwd: parent(file), input, lust: true });
+    // Run from the project's folder (the one with main.lst), so Lust's messages
+    // (entities/player.lst:3:5) link back to the right files.
+    const file = S.active, prog = settings.lust || "lust", root = lustRoots.get(norm(file)) || parent(file);
+    const step = (sub, input) => ({ label: "lust " + sub, program: prog, args: [sub, lustRel(root, file)], cwd: root, input, lust: true });
     return { run: [step("run", true)], check: [step("check")], build: [step("build")] }[action] || null;
   }
   const nodeFile = () => {
@@ -2728,7 +2749,7 @@ async function newProject() {
     return;
   }
   if (web) { await newWebProject({ ...web, name, dir }); return; }
-  const MAIN = { lust: "main.lust", rust: "src/main.rs", "rust-lib": "src/lib.rs", console: "Program.cs", classlib: "Class1.cs", web: "index.html", node: "index.js", lua: "main.lua" };
+  const MAIN = { lust: "main.lst", rust: "src/main.rs", "rust-lib": "src/lib.rs", console: "Program.cs", classlib: "Class1.cs", web: "index.html", node: "index.js", lua: "main.lua" };
   const plain = !["rust", "rust-lib", "console", "classlib"].includes(kind); // no language server to start
   try {
     const p = norm(await invoke("new_project", { parent: dir, name, kind }));
