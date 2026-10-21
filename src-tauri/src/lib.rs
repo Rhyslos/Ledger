@@ -844,16 +844,79 @@ fn web_template(kind: &str, name: &str) -> Option<Vec<(&'static str, String)>> {
     })
 }
 
+/// A new Lust app's main.lst: it opens a window. NAME is the project's name.
+const LUST_APP_MAIN: &str = r#"-- NAME: where the program starts. It opens a window.
+--
+-- Welcome to Lust! F5 runs this file, and mistakes are underlined when you save.
+-- The window is described in view { }: change the data, and the window follows.
+fetch "ui/counter":Counter;
+
+assembly App {
+    has {
+        string name = "";
+    }
+
+    view [title "NAME", width 480, height 360] {
+        column [gap 16, pad 24] {
+            text "NAME" [huge, bold];
+            input name [placeholder "What's your name?", width fill];
+            is name != ""? then {
+                text "Hello, " + name + "!" [large];
+            }
+            Counter { label = "Clicks" };
+        }
+    }
+}
+
+App:open();
+end
+"#;
+
+/// A piece of the new app's window, in its own file.
+const LUST_APP_COUNTER: &str = r#"-- A piece of the screen: it counts clicks, and remembers its count between redraws.
+assembly Counter {
+    has {
+        string label = "";
+        int count = 0;
+    }
+
+    view {
+        row [gap 8, pad 12, round, background gray1] {
+            text label + ": " + count.text();
+            space;
+            button "Add one" [blue] {
+                count = count + 1;
+            }
+            button "Reset" [subtle, disabled count == 0] {
+                count = 0;
+            }
+        }
+    }
+}
+
+pass Counter;
+end
+"#;
+
 /// `cargo new` / `dotnet new` style project creation. Returns the new folder.
 #[tauri::command]
 async fn new_project(parent: String, name: String, kind: String) -> Res<String> {
-    if kind == "lust" {
+    if kind == "lust" || kind == "lust-app" {
         // A Lust project is just a folder with a main.lst; no tool needed to make it.
         let dir = Path::new(&parent).join(&name);
         if dir.exists() {
             return Err(format!("There's already something called {name} there."));
         }
         std::fs::create_dir_all(&dir).map_err(|e| format!("Couldn't make the folder ({e})."))?;
+        if kind == "lust-app" {
+            // An app opens a window, with one piece of it in its own file in ui/.
+            std::fs::create_dir_all(dir.join("ui")).map_err(|e| format!("Couldn't make the ui folder ({e})."))?;
+            std::fs::write(dir.join("ui").join("counter.lst"), LUST_APP_COUNTER).map_err(|e| format!("Couldn't write ui/counter.lst ({e})."))?;
+            std::fs::write(dir.join("main.lst"), LUST_APP_MAIN.replace("NAME", &name)).map_err(|e| format!("Couldn't write main.lst ({e})."))?;
+            let ignore = "# What lust build makes, and saves.\n/main\n/main.exe\n*.save\n*.db\n";
+            std::fs::write(dir.join(".gitignore"), ignore).map_err(|e| format!("Couldn't write .gitignore ({e})."))?;
+            return Ok(plain_path(&dir));
+        }
         let main = format!(
             "-- {name}: where the program starts.\n\
              --\n\
