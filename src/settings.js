@@ -145,6 +145,7 @@ async function refreshTools() {
   // Which .NET SDKs are installed ("10.0.100 [C:\\Program Files\\dotnet\\sdk]" per line): csharp-ls needs 10.
   // "Lust 2.0.0-alpha.17", shown in Settings › Lust.
   out.lustVersion = out.lust ? ((await invoke("run_capture", { cwd: ".", program: settings.lust || "lust", args: ["version"] }).catch(() => null))?.out || "").trim() : "";
+  out.shellMenu = await invoke("shell_menu_state").catch(() => false);
   out.sdks = [];
   if (out.dotnet) {
     const r = await invoke("run_capture", { cwd: ".", program: "dotnet", args: ["--list-sdks"] }).catch(() => null);
@@ -217,6 +218,10 @@ export function settingsHtml() {
         const label = need10 ? "Install the .NET 10 SDK" : `${tools[k] ? "Update" : "Install"} ${esc(t.name)}`;
         return row(esc(t.name), `<div class="tool">${found(tools[k], "")}</div>${sdks}<div class="bar"><button class="btn" data-act="install" data-tool="${k}">${label}</button></div>`, esc(t.note));
       }).join("")}
+    </section>
+
+    <section aria-labelledby="sWin"><h2 id="sWin">Windows</h2>
+      ${row("Explorer menu", `<div class="tool">${tools.shellMenu ? '<span class="ok">On</span> · right-click a file, a folder, or inside a folder' : "Off"}</div><div class="bar"><button class="btn" data-act="shell-menu">${tools.shellMenu ? "Remove" : "Add"} “Open with Ledger”</button></div>`, "Puts “Open with Ledger” in File Explorer's right-click menu, like “Open with Code”. On Windows 11 it's under Show more options (Shift+F10 or Shift+right-click opens that menu straight away).")}
     </section>
 
     <section aria-labelledby="sUpd"><h2 id="sUpd">Updates</h2>
@@ -337,6 +342,12 @@ export function wireSettings(root, rerender) {
         ctx.runTask("cargo", ["install", "--git", "https://github.com/Rhyslos/Lust", "--locked", "--force", "lust"], "Installing Lust", after, after);
       };
       if (tools.cargo) go(); else installTool("rust", (ok) => (ok ? go() : ctx.toast("Lust needs Rust, and Rust didn't install. Check the Output panel.", 7000)));
+      return;
+    }
+    if (act === "shell-menu") {
+      try { await invoke("shell_menu", { on: !tools.shellMenu }); ctx.toast(tools.shellMenu ? "Removed from the right-click menu." : "Added to the right-click menu."); }
+      catch (e) { ctx.toast(String(e), 6000); }
+      await refreshTools(); rerender(true);
       return;
     }
     if (act === "update-check") { ctx.checkUpdate?.(); return; }
