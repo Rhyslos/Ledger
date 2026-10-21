@@ -145,8 +145,9 @@ fn find_working(name: &str) -> Option<PathBuf> {
         return p.is_file().then_some(p);
     }
     let found = candidates(name);
-    // The HTML, CSS, JSON and ESLint servers have no --version and exit with an error; being on PATH is enough.
-    if name.starts_with("vscode-") {
+    // The HTML, CSS, JSON and ESLint servers have no --version and exit with an error, and the Lua server is
+    // started the same careful way; being on PATH is enough.
+    if name.starts_with("vscode-") || name == "lua-language-server" {
         return found.into_iter().next();
     }
     found.into_iter().find(|p| responds(p))

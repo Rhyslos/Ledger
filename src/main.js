@@ -6,6 +6,7 @@ import { on as listen, winLabel } from "./win.js";
 import { initUpdate } from "./update.js";
 import { initDb, DB_EXT } from "./db.js";
 import { initImages, IMG_EXT } from "./image.js";
+import { initMarkdown } from "./md.js";
 import { VITE, createSteps, withTailwindPlugin, CSS_FILES, FIRST_FILES } from "./scaffold.js";
 import { initTailwind, tailwindSource, tailwindChanged, inClassList } from "./tailwind.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -203,6 +204,16 @@ function inlineMd(s) {
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/\[`?([^\]`]+)`?\]/g, "<code>$1</code>");
 }
+/** Colours a code block (Markdown preview) like the editor. False if the language isn't known. */
+function highlightInto(el, code, lang) {
+  const parser = FENCE[lang];
+  if (!parser) return false;
+  el.textContent = "";
+  highlightCode(code, parser.parse(code), hl,
+    (txt, cls) => { const sp = document.createElement("span"); if (cls) sp.className = cls; sp.textContent = txt; el.append(sp); },
+    () => el.append("\n"));
+  return true;
+}
 function renderMd(md, fallbackLang = "") {
   const el = document.createElement("div");
   el.className = "hv";
@@ -272,6 +283,8 @@ servers.csharp = new Lsp("csharp", "C#", lspHandlers);
 servers.web = new Lsp("web", "TypeScript", lspHandlers);
 servers.css = new Lsp("css", "CSS", lspHandlers);
 servers.html = new Lsp("html", "HTML", lspHandlers);
+servers.json = new Lsp("json", "JSON", lspHandlers);
+servers.lua = new Lsp("lua", "Lua", lspHandlers);
 
 // The completions a language brings itself (HTML tags and attributes, CSS
 // properties, JS keywords and local names), used when no server is running.
@@ -303,6 +316,25 @@ function serverSpec(id) {
     missing: "rust-analyzer isn't installed. Open Settings (Ctrl+P) and use the install button, or run: rustup component add rust-analyzer rust-src",
   };
   }
+  const SCHEMA = (f, name) => ({ fileMatch: [].concat(f), url: "https://json.schemastore.org/" + name + ".json" });
+// Schemas for common config files (SchemaStore), so they complete and get checked.
+  const JSON_SCHEMAS = [
+  SCHEMA("package.json", "package"), SCHEMA(["tsconfig.json", "tsconfig.*.json"], "tsconfig"), SCHEMA(["jsconfig.json", "jsconfig.*.json"], "jsconfig"),
+  SCHEMA([".eslintrc", ".eslintrc.json"], "eslintrc"), SCHEMA([".prettierrc", ".prettierrc.json"], "prettierrc"), SCHEMA([".babelrc", "babel.config.json"], "babelrc"),
+  SCHEMA("vercel.json", "vercel"), SCHEMA("turbo.json", "turbo"), SCHEMA(["deno.json", "deno.jsonc"], "deno"), SCHEMA("lerna.json", "lerna"),
+  SCHEMA("composer.json", "composer"), SCHEMA("appsettings*.json", "appsettings"), SCHEMA("global.json", "global"), SCHEMA("launchSettings.json", "launchsettings"),
+  SCHEMA(".luarc.json", "luarc"), SCHEMA(["manifest.json", "*.webmanifest"], "web-manifest-combined"), SCHEMA("components.json", "shadcn-ui"),
+];
+  if (id === "json") return {
+    exe: "vscode-json-language-server", args: ["--stdio"], initOptions: { provideFormatter: true },
+    settings: { json: { validate: { enable: true }, format: { enable: true }, schemas: JSON_SCHEMAS } },
+    missing: "The JSON language server isn't installed. Open Settings (Ctrl+P) › Languages and install the web language servers.",
+  };
+  if (id === "lua") return {
+    exe: settings.luaServer || "lua-language-server", args: [],
+    settings: { Lua: { runtime: { version: settings.luaVersion || "Lua 5.4" }, telemetry: { enable: false }, workspace: { checkThirdParty: false }, hint: { enable: true } } },
+    missing: "The Lua language server isn't installed. Open Settings (Ctrl+P) › Languages and install it.",
+  };
   if (id === "css" || id === "html") {
     // Tailwind's @theme, @apply, @tailwind… aren't plain CSS; the server shouldn't call them mistakes.
     const lint = { unknownAtRules: "ignore" };
@@ -2070,6 +2102,7 @@ function reconfigureAll() {
   for (const p of S.bufs.keys()) dispatchBuf(p, { effects: cfg.reconfigure(cfgExt()) });
 }
 function applySetting(key) {
+  if ((key === "luaVersion" || key === "luaServer") && started(servers.lua)) startServer("lua");
   if (key === "theme" || key === "codeColours" || key === "smoothCaret" || key === "cursorStyle") applyTheme();
   if (["fontSize", "fontFamily", "uiFont", "uiSize"].includes(key)) applyFonts();
   if (key === "tabSize" || key === "wordWrap") reconfigureAll();
@@ -2849,7 +2882,7 @@ const app = {
   showPanel, focusPanel, focusZone, currentZone, showSideView, sideViews, get sideView() { return sideView; },
   openFile, activate, addTab, save, saveAll, startSteps, appendOut, renderTabs, renderMain, renderStatus, scheduleUi,
   dispatchBuf, serverOf, needServer, syncDoc, renderMd, hl, norm, rel, base, parent, join, isUnder, isAbs, esc, splitArgs,
-  pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [],
+  highlightInto, pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [],
   cwd: () => S.ctx?.dir || S.root || "",
   updateCtx, taskKind, projectFor, projectDirs, invoke, keyString, openFolder, closeFolder,
   run: (id) => keymap.cmds.get(id)?.run(),
@@ -2917,6 +2950,7 @@ async function boot() {
   initGit(app);
   initDb(app);
   initImages(app);
+  initMarkdown(app);
   debug = app.debug = initDebugger(app);
   view = panes[0].view = new EditorView({ parent: $("editor") });
   panes[0].el.classList.add("focused");
