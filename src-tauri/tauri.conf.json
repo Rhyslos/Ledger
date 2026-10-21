@@ -48,6 +48,8 @@
     "fileAssociations": [
       {
         "ext": [
+          "lst",
+          "lsc",
           "lust"
         ],
         "name": "Lust.Source",

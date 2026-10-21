@@ -222,7 +222,7 @@ export function settingsHtml() {
     </section>
 
     <section aria-labelledby="sLust"><h2 id="sLust">Lust</h2>
-      ${row("lust", text("sLustPath", "lust", "lust") + `<div class="tool">${found(tools.lust, 'Run build.cmd in the <a href="https://github.com/Rhyslos/Lust" target="_blank">Lust repo</a>, then put the full path to its bin\\lust.exe here.')}</div>`, "Runs .lust files (Run, Check, Build) and checks them for mistakes when you save. A name on PATH or a full path to lust.exe.", "sLustPath")}
+      ${row("lust", text("sLustPath", "lust", "lust") + `<div class="tool">${found(tools.lust, 'Download <b>lust-windows</b> from the Actions tab of the <a href="https://github.com/Rhyslos/Lust" target="_blank">Lust repo</a> (or run <code>cargo build --release</code> in it), then put the full path to lust.exe here.')}</div>`, "Runs Lust files, .lst and .lsc (Run, Check, Build), and checks them for mistakes when you save. A name on PATH or a full path to lust.exe.", "sLustPath")}
     </section>
 
     <section aria-labelledby="sLua"><h2 id="sLua">Lua</h2>

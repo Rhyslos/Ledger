@@ -848,22 +848,21 @@ fn web_template(kind: &str, name: &str) -> Option<Vec<(&'static str, String)>> {
 #[tauri::command]
 async fn new_project(parent: String, name: String, kind: String) -> Res<String> {
     if kind == "lust" {
-        // A Lust project is just a folder with a main.lust; no tool needed to make it.
+        // A Lust project is just a folder with a main.lst; no tool needed to make it.
         let dir = Path::new(&parent).join(&name);
         if dir.exists() {
             return Err(format!("There's already something called {name} there."));
         }
         std::fs::create_dir_all(&dir).map_err(|e| format!("Couldn't make the folder ({e})."))?;
         let main = format!(
-            "// {name}\n\
-             //\n\
-             // Welcome to Lust! F5 runs this file, and mistakes are underlined when you save.\n\
-             // Ctrl+Shift+B builds a program you can start without Ledger.\n\
-             // Want a window? Make a new .lust file, type window and press Tab.\n\
+            "-- {name}: where the program starts.\n\
+             --\n\
+             -- Welcome to Lust! F5 runs this file, and mistakes are underlined when you save.\n\
+             -- Build makes a program you can start without Ledger.\n\
              \n\
              string who = ask(\"What's your name?\");\n\
              \n\
-             is who \"\"? then {{\n\
+             is who == \"\"? then {{\n\
              \x20   who = \"friend\";\n\
              }}\n\
              \n\
@@ -876,7 +875,9 @@ async fn new_project(parent: String, name: String, kind: String) -> Res<String> 
              \n\
              end\n"
         );
-        std::fs::write(dir.join("main.lust"), main).map_err(|e| format!("Couldn't write main.lust ({e})."))?;
+        std::fs::write(dir.join("main.lst"), main).map_err(|e| format!("Couldn't write main.lst ({e})."))?;
+        let ignore = "# What lust build makes, and saves.\n/main\n/main.exe\n*.save\n*.db\n";
+        std::fs::write(dir.join(".gitignore"), ignore).map_err(|e| format!("Couldn't write .gitignore ({e})."))?;
         return Ok(plain_path(&dir));
     }
     if let Some(files) = web_template(&kind, &name) {
@@ -1207,7 +1208,7 @@ async fn git(cwd: String, args: Vec<String>) -> Res<Captured> {
 }
 
 /// Runs a tool and returns what it printed, without a console window.
-/// Used to check .lust files with `lust check` after they're saved.
+/// Used to check Lust files (.lst, .lsc) with `lust check` after they're saved.
 #[tauri::command]
 async fn run_capture(cwd: String, program: String, args: Vec<String>) -> Res<Captured> {
     tauri::async_runtime::spawn_blocking(move || {

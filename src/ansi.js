@@ -5,7 +5,7 @@ export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&a
 const link = (file, line, col, text) => `<a data-file="${esc(file)}" data-line="${line}" data-col="${col || 1}" tabindex="0">${esc(text)}</a>`;
 
 // rustc / panics: src/main.rs:14:20, and Lust: main.lust:3:5 or main.lust:3
-const RS = /((?:[A-Za-z]:)?[\w.\-\/\\]*[\w\-]\.(?:rs|lust|m?[jt]sx?|cjs|vue|svelte|s?css|lua)):(\d+)(?::(\d+))?/g;
+const RS = /((?:[A-Za-z]:)?[\w.\-\/\\]*[\w\-]\.(?:rs|lust|lst|lsc|m?[jt]sx?|cjs|vue|svelte|s?css|lua)):(\d+)(?::(\d+))?/g;
 // Web addresses, such as the one a dev server prints when it starts.
 const URLS = /https?:\/\/[^\s"'<>]*[^\s"'<>.,;:)\]]/g;
 // MSBuild: C:\proj\Player.cs(12,5): error CS0103: ...   (may contain spaces, so anchored at line start)

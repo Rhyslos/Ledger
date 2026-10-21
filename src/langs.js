@@ -87,30 +87,31 @@ const godotResource = {
   languageData: { commentTokens: { line: ";" } },
 };
 
-// ----- Lust (.lust) -----
-// Lust is our own language: C#'s skeleton, a Lua accent, and checks written as
-// questions (`is hp 0? then { } or { }`).
+// ----- Lust (.lst, .lsc) -----
+// Lust is our own language (github.com/Rhyslos/Lust). .lst files become real programs,
+// .lsc files are LustScript, which becomes Lua. Old .lust files (Lust 1) are coloured the same.
 //
 // Lust always uses the quiet colours (which every language can use too, with
 // Settings › Code colours): the words that give a program its shape (class,
 // object, has, method…) in the logo's red, states in marine green (the word
 // state and a state's name; its options stay plain), classes (names with a
-// capital) in a soft blue, objects (Game:start(), Farm.gold) in orange, types muted, questions and loops in a lighter
-// red, comments green, text and numbers sand, punctuation grey, the rest plain. Structure, states and the names
-// being declared are a touch heavier (500), never fully bold.
-const LUST_CONTROL = "is then or either loop stop skip give";
-const LUST_DEFINE = "class object method do has new like";
-const LUST_MODULE = "send fetch get end save load saved";
-const LUST_TYPES = "int float string truth array cArray map";
-const LUST_BUILTINS = "print wait random ask readText writeText";
+// capital) in a soft blue, objects (Game:start(), Farm.gold, Maths:sqrt) in orange, types muted,
+// questions and loops in a lighter red, comments green, text and numbers sand, punctuation grey,
+// the rest plain. Structure, states and the names being declared are a touch heavier (500), never fully bold.
+const LUST_CONTROL = "is then or either loop stop skip return try error like keep";
+const LUST_DEFINE = "class object node assembly schema database route method hook has new create";
+const LUST_MODULE = "fetch get pass end save load saved lua view style";
+const LUST_TYPES = "int float string truth array cMap map";
+const LUST_BUILTINS = "print wait random ask";
+const LUST_OBJECTS = "Maths Files Time Json Web";
 const lustSet = (s) => new Set(s.split(" "));
-const LK = { control: lustSet(LUST_CONTROL), define: lustSet(LUST_DEFINE), module: lustSet(LUST_MODULE), types: lustSet(LUST_TYPES), builtins: lustSet(LUST_BUILTINS) };
+const LK = { control: lustSet(LUST_CONTROL), define: lustSet(LUST_DEFINE), module: lustSet(LUST_MODULE), types: lustSet(LUST_TYPES), builtins: lustSet(LUST_BUILTINS), objects: lustSet(LUST_OBJECTS) };
 
 const LT = {
-  structure: Tag.define(),  // class object state has method do like new send fetch get end
-  flow: Tag.define(),       // is then or either loop stop skip give not in ?
+  structure: Tag.define(),  // class object node state has method hook new fetch get pass end …
+  flow: Tag.define(),       // is then or either loop stop skip return try error not in ?
   name: Tag.define(),       // the name being declared: class Player, method hurt
-  type: Tag.define(),       // int float string truth array cArray
+  type: Tag.define(),       // int float string truth array cMap map
   value: Tag.define(),      // "text", 42, true, nothing
   comment: Tag.define(),
   punct: Tag.define(),
@@ -136,39 +137,54 @@ const lustStyle = HighlightStyle.define([
 const lustMode = {
   name: "lust",
   // depth: open { and [ for indenting. def: the next name is being defined
-  // ("type" after class/object, "fn" after method/do). after: the last
-  // punctuation that matters for the next word (":" or "."). opts: the depth of
-  // a state's [ options ] while inside them.
-  startState: () => ({ depth: 0, def: null, after: null, opts: null }),
+  // ("type" after class, "obj" after object/node/assembly/database, "fn" after method). after:
+  // the last punctuation that matters for the next word (":" or "."). opts: the depth of a state's
+  // [ options ] while inside them. block: inside a --[[ comment ]] that goes over several lines.
+  startState: () => ({ depth: 0, def: null, after: null, opts: null, block: false }),
   copyState: (s) => ({ ...s }),
   tokenTable: { lustStructure: LT.structure, lustFlow: LT.flow, lustName: LT.name, lustType: LT.type, lustValue: LT.value, lustComment: LT.comment, lustPunct: LT.punct, lustPlain: LT.plain, lustState: LT.state, lustClass: LT.cls, lustObject: LT.obj },
   token(stream, st) {
+    if (st.block) {
+      if (stream.skipTo("]]")) { stream.match("]]"); st.block = false; } else stream.skipToEnd();
+      return "lustComment";
+    }
     if (stream.eatSpace()) return null;
-    if (stream.match("//")) { stream.skipToEnd(); return "lustComment"; }
+    if (stream.match("--[[")) {
+      if (stream.skipTo("]]")) stream.match("]]"); else { stream.skipToEnd(); st.block = true; }
+      return "lustComment";
+    }
+    if (stream.match("//") || stream.match("--")) { stream.skipToEnd(); return "lustComment"; }
+    // lua { … } in LustScript: the Lua inside is shown as it is.
+    if (stream.match(/^"(?:[^"\\]|\\.)*"?/)) return "lustValue";
     const after = st.after;
     st.after = null;
-    if (stream.match(/^"(?:[^"\\]|\\.)*"?/)) return "lustValue";
     if (stream.match(/^\d+(?:\.\d+)?/)) return "lustValue";
     const w = stream.match(/^[A-Za-z_]\w*/);
     if (w) {
       const word = w[0];
-      // States: state = [idle, fighting [blocking]];  state season = […];  state is idle;
+      // States: state Mood = [Calm, Busy [Rushed]];  state is Mood.Calm;
       if (word === "state") { st.def = "state"; return "lustState"; }
       if (st.opts != null && st.depth >= st.opts) return "lustPlain";   // the options themselves stay plain
       if (st.def === "state" && word === "is") { st.def = "stateIs"; return "lustFlow"; }
       if (st.def === "state" && (word === "in" || word === "not" || LK.control.has(word))) st.def = null;
       else if (st.def === "state") return "lustState";
-      if (st.def === "stateIs") return "lustPlain";   // state is fighting.blocking: plain, like the options
+      if (st.def === "stateIs") return "lustPlain";   // state is Mood.Calm: plain, like the options
       if (after === ":" || after === ".") return "lustPlain";
-      if (word === "true" || word === "nothing") return "lustValue";
+      if (word === "true" || word === "false" || word === "nothing") return "lustValue";
       if (word === "not" || word === "in") return "lustFlow";
+      // A route's get, post, put and delete, and get "file":thing, are followed by a path.
+      if (["get", "post", "put", "delete"].includes(word) && stream.match(/^\s*"/, false)) return "lustStructure";
       if (LK.control.has(word)) return "lustFlow";
-      if (LK.define.has(word)) { st.def = word === "class" ? "type" : word === "object" ? "obj" : word === "method" || word === "do" ? "fn" : null; return "lustStructure"; }
+      if (LK.define.has(word)) {
+        st.def = word === "class" || word === "schema" ? "type" : ["object", "node", "assembly", "database"].includes(word) ? "obj" : word === "method" ? "fn" : null;
+        return "lustStructure";
+      }
       if (LK.module.has(word)) return "lustStructure";
       if (LK.types.has(word)) return "lustType";
+      if (LK.objects.has(word)) return "lustObject";
       if (st.def === "type") { st.def = null; return "lustClass"; }      // class Player
-      if (st.def === "obj") { st.def = null; return "lustObject"; }      // object Game
-      if (/^[A-Z]/.test(word) && after !== "." && after !== ":") {
+      if (st.def === "obj") { st.def = null; return "lustObject"; }      // object Game, node Cave
+      if (/^[A-Z]/.test(word)) {
         // An object is used directly (Game:start(), Farm.gold); a class only as a type (Player ada = new Player).
         return stream.match(/^\s*[:.]/, false) ? "lustObject" : "lustClass";
       }
@@ -198,7 +214,7 @@ const lustMode = {
     return Math.max(0, st.depth - (/^\s*[}\]]/.test(textAfter) ? 1 : 0)) * cx.unit;
   },
   languageData: {
-    commentTokens: { line: "//" },
+    commentTokens: { line: "--", block: { open: "--[[", close: "]]" } },
     closeBrackets: { brackets: ["(", "[", "{", '"'] },
     indentOnInput: /^\s*[}\]]$/,
   },
@@ -210,29 +226,35 @@ const lustCompletions = completeFromList([
   ...LUST_MODULE.split(" ").map((l) => ({ label: l, type: "keyword" })),
   ...LUST_TYPES.split(" ").map((l) => ({ label: l, type: "type" })),
   ...LUST_BUILTINS.split(" ").map((l) => ({ label: l, type: "function", apply: l + "()", detail: "built-in" })),
-  { label: "true", type: "constant" }, { label: "not true", type: "constant" }, { label: "nothing", type: "constant" },
-  snip("class ${Name} {\n\thas {\n\t\t${}\n\t}\n}", { label: "class", detail: "blueprint, made with new", type: "class" }),
-  snip("object ${Name} {\n\thas {\n\t\t${}\n\t}\n}", { label: "object", detail: "one ready-made thing", type: "class" }),
-  snip("has {\n\t${int}[${name} ${0}];\n}", { label: "has", detail: "fields", type: "text" }),
-  snip("method ${name}(${}) {\n\t${}\n}", { label: "method", detail: "belongs to a class or object", type: "function" }),
-  snip("do ${name}(${}) {\n\t${}\n}", { label: "do", detail: "function", type: "function" }),
-  snip("is ${value} ${check}? then {\n\t${}\n}", { label: "is", detail: "question check", type: "text" }),
-  snip("is ${value} ${check}? then {\n\t${}\n} or {\n\t${}\n}", { label: "is … or", detail: "question check with fallback", type: "text" }),
+  ...LUST_OBJECTS.split(" ").map((l) => ({ label: l, type: "class", detail: "built-in object" })),
+  { label: "true", type: "constant" }, { label: "false", type: "constant" }, { label: "nothing", type: "constant" },
+  snip("class ${Name} {\n\thas {\n\t\t${string} ${name} = ${\"\"};\n\t}\n\n\tmethod ${hello}() {\n\t\t${}\n\t}\n}", { label: "class", detail: "blueprint, made with new", type: "class" }),
+  snip("object ${Name} {\n\thas {\n\t\t${int} ${count} = ${0};\n\t}\n}", { label: "object", detail: "one ready-made thing", type: "class" }),
+  snip("node ${Room} {\n\thas {\n\t\t${}\n\t}\n\n\tmethod onOpen() {\n\t\t${}\n\t}\n\n\tmethod onClose() {\n\t\t${}\n\t}\n}", { label: "node", detail: "opens and closes; closing ends what it made", type: "class" }),
+  snip("assembly ${Loot} {\n\tcreate ${Item} {\n\t\t${name} = ${\"Potion\"};\n\t}\n}", { label: "assembly", detail: "ready-filled things: Loot:create(Item)", type: "class" }),
+  snip("has {\n\t${int} ${name} = ${0};\n}", { label: "has", detail: "fields", type: "text" }),
+  snip("method ${name}(${}) {\n\t${}\n}", { label: "method", detail: "does something", type: "function" }),
+  snip("method ${int} ${name}(${}) {\n\treturn ${0};\n}", { label: "method …", detail: "gives something back", type: "function" }),
+  snip("hook ${int}(${int n}) ${name} = new hook {\n\t${}\n};", { label: "hook", detail: "a method kept in a variable", type: "function" }),
+  snip("is ${value} == ${0}? then {\n\t${}\n}", { label: "is", detail: "question check", type: "text" }),
+  snip("is ${value} == ${0}? then {\n\t${}\n} or {\n\t${}\n}", { label: "is … or", detail: "question check with fallback", type: "text" }),
   snip("either ${check}? ${yes} or ${no}", { label: "either", detail: "one-line check", type: "text" }),
   snip("loop {\n\t${}\n}", { label: "loop", detail: "forever, until stop", type: "text" }),
   snip("loop ${3} {\n\t${}\n}", { label: "loop times", detail: "repeat", type: "text" }),
   snip("loop (${check}) {\n\t${}\n}", { label: "loop while", detail: "while true", type: "text" }),
-  snip("loop (${type} ${item} in ${list}) {\n\t${}\n}", { label: "loop in", detail: "each item", type: "text" }),
-  snip("state = [${idle}, ${busy}];", { label: "state", detail: "this file's state", type: "text" }),
-  snip("state ${mood} = [${calm}, ${busy}];", { label: "state named", detail: "a named state", type: "text" }),
-  snip("fetch ui;\n\nobject ${App} like Window {\n\thas {\n\t\tstring[title \"${My app}\"];\n\t\tint[width 360, height 240];\n\t}\n\n\tmethod build() {\n\t\tadd(new Label { text \"${Hello!}\" });\n\t\t${}\n\t}\n}\n\n${App}:open();", { label: "window", detail: "an app with a window", type: "class" }),
-  snip("class ${OkButton} like Button {\n\tmethod clicked() {\n\t\t${}\n\t}\n}", { label: "button", detail: "a button and what it does", type: "class" }),
+  snip("loop (${int} ${item} in ${list}) {\n\t${}\n}", { label: "loop in", detail: "each item", type: "text" }),
+  snip("try {\n\t${}\n} error (string ${message}) {\n\t${print(message);}\n}", { label: "try", detail: "carry on if something goes wrong", type: "text" }),
+  snip("state ${Mood} = [${Calm}, ${Busy}];", { label: "state", detail: "a list of options", type: "text" }),
+  snip("keep ${thing} in ${place};", { label: "keep", detail: "hold onto something made in a state", type: "keyword" }),
   snip("save ${game} = [${Things}];", { label: "save", detail: "what to keep between runs", type: "keyword" }),
   snip("is saved ${game}? then {\n\tload ${game};\n}", { label: "load", detail: "load it if it was saved", type: "keyword" }),
-  snip("send ${Thing};", { label: "send", detail: "share with other files", type: "keyword" }),
-  snip("cArray(${string name}) ${bag} = [];", { label: "cArray", detail: "connected array", type: "type" }),
-  snip("fetch ${file}:${Thing};", { label: "fetch", detail: "bring in", type: "keyword" }),
-  snip("get ${file}:${thing};", { label: "get", detail: "bring in one", type: "keyword" }),
+  snip("pass ${Thing};", { label: "pass", detail: "share with other files", type: "keyword" }),
+  snip("fetch \"${folder/file}\":${Thing};", { label: "fetch", detail: "bring in a class, object or state", type: "keyword" }),
+  snip("get \"${folder/file}\":${method};", { label: "get", detail: "bring in a method", type: "keyword" }),
+  snip("cMap(${int id}, ${string name}) ${bag} = [];", { label: "cMap", detail: "rows found by their key", type: "type" }),
+  snip("database ${Shop} in \"${shop.db}\" {\n\tcMap(${string name}, ${float price}) ${items};\n}", { label: "database", detail: "tables kept in a file", type: "class" }),
+  snip("schema ${NewUser} {\n\thas {\n\t\t${string name};\n\t}\n}", { label: "schema", detail: "the shape of data coming in", type: "class" }),
+  snip("route \"${/api}\" {\n\tget \"${/hello/:who}\" => ${hello};\n}", { label: "route", detail: "answer web requests", type: "keyword" }),
 ]);
 
 // ----- C# -----
@@ -357,7 +379,7 @@ export const LANGS = {
 };
 
 const BY_EXT = {
-  rs: "rust", cs: "csharp", csx: "csharp", lust: "lust", gdshader: "gdshader", gdshaderinc: "gdshader", gd: "gdscript",
+  rs: "rust", cs: "csharp", csx: "csharp", lust: "lust", lst: "lust", lsc: "lust", gdshader: "gdshader", gdshaderinc: "gdshader", gd: "gdscript",
   tscn: "godot", tres: "godot", godot: "godot", import: "godot", cfg: "ini", ini: "ini", editorconfig: "ini",
   lua: "lua", luau: "lua", rockspec: "lua", toml: "toml", json: "json", jsonc: "json", md: "markdown",
   js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx", ts: "typescript", mts: "typescript", cts: "typescript", tsx: "tsx",
