@@ -108,13 +108,21 @@ export const INSTALL_FOR = { node: "node", npm: "node", npx: "node", lua: "lua",
 /** Installs a language with winget, then makes Ledger see it. done(ok) after. */
 export function installTool(key, done) {
   const t = INSTALLS[key];
-  ctx.toast(`${tools[key] ? "Updating" : "Installing"} ${t.name}. Windows may ask for permission.`, 5000);
-  ctx.runTask("winget", [tools[key] ? "upgrade" : "install", "--id", t.id, "-e", "--accept-source-agreements", "--accept-package-agreements"], "Installing " + t.name, async () => {
+  ctx.toast(`Installing ${t.name}. Windows may ask for permission.`, 5000);
+  // `winget install` also upgrades an installed copy, and unlike `winget upgrade` it works when a different
+  // major version is there (.NET 8 installed, .NET 10 wanted). winget also exits with an error code for
+  // "already installed" and "no newer version", so the result is judged by looking for the tool afterwards.
+  const after = async () => {
     await invoke("refresh_path").catch(() => {});
     await refreshTools();
-    done?.(!!tools[key]);
-  });
+    const ok = key === "dotnet" ? hasSdk(10) : !!tools[key];
+    if (ok) ctx.toast(`${t.name} is ready.`);
+    done?.(ok);
+  };
+  ctx.runTask("winget", ["install", "--id", t.id, "-e", "--source", "winget", "--accept-source-agreements", "--accept-package-agreements"], "Installing " + t.name, after, after);
 }
+
+const hasSdk = (major) => (tools.sdks || []).some((v) => parseInt(v, 10) >= major);
 
 // The browser Ledger opens web pages in (HTML files now, Live Server later).
 const BROWSERS = { chrome: "chrome.exe", edge: "msedge.exe", firefox: "firefox.exe", brave: "brave.exe" };
@@ -131,6 +139,12 @@ async function refreshTools() {
   await Promise.all(Object.entries(names).map(async ([k, n]) => { out[k] = n ? await invoke("tool_info", { name: n }).catch(() => null) : null; }));
   out.lldb = await ctx.debuggerFor?.("rust").catch(() => null);
   out.netcoredbg = await ctx.debuggerFor?.("csharp").catch(() => null);
+  // Which .NET SDKs are installed ("10.0.100 [C:\\Program Files\\dotnet\\sdk]" per line): csharp-ls needs 10.
+  out.sdks = [];
+  if (out.dotnet) {
+    const r = await invoke("run_capture", { cwd: ".", program: "dotnet", args: ["--list-sdks"] }).catch(() => null);
+    out.sdks = (r?.out || "").split("\n").map((l) => l.trim().split(" ")[0]).filter(Boolean);
+  }
   tools = out;
   try { exe = await invoke("exe_path"); } catch {}
 }
@@ -191,7 +205,13 @@ export function settingsHtml() {
     <section aria-labelledby="sInst"><h2 id="sInst">Languages</h2>
       <p class="hint">Ledger installs these with winget, which comes with Windows. Run also offers to install whatever a project needs.</p>
       ${row("Web servers", `<div class="tool">JavaScript and TypeScript: ${found(tools.tsls, "")}</div><div class="tool">HTML and CSS: ${found(tools.htmlls, "")}</div><div class="bar"><button class="btn" data-act="tsls-install">${tools.tsls && tools.htmlls ? "Update" : "Install"} the web language servers</button><button class="btn" data-act="restart-web">Restart</button></div>`, "Completions, errors, hover help and go-to-definition for JavaScript, TypeScript, React, HTML and CSS. Installed with npm, so Node.js comes first. Tailwind classes complete on their own in any project that uses Tailwind.")}
-      ${Object.entries(INSTALLS).map(([k, t]) => row(esc(t.name), `<div class="tool">${found(tools[k], "")}</div><div class="bar"><button class="btn" data-act="install" data-tool="${k}">${tools[k] ? "Update" : "Install"} ${esc(t.name)}</button></div>`, esc(t.note))).join("")}
+      ${Object.entries(INSTALLS).map(([k, t]) => {
+        // .NET: an older SDK counts as found, but the C# server needs 10, so say so and offer that one.
+        const need10 = k === "dotnet" && tools.dotnet && !hasSdk(10);
+        const sdks = k === "dotnet" && tools.sdks?.length ? `<div class="tool">SDKs: ${esc(tools.sdks.join(", "))}${need10 ? ' · <span class="bad">no .NET 10, which the C# language server needs</span>' : ""}</div>` : "";
+        const label = need10 ? "Install the .NET 10 SDK" : `${tools[k] ? "Update" : "Install"} ${esc(t.name)}`;
+        return row(esc(t.name), `<div class="tool">${found(tools[k], "")}</div>${sdks}<div class="bar"><button class="btn" data-act="install" data-tool="${k}">${label}</button></div>`, esc(t.note));
+      }).join("")}
     </section>
 
     <section aria-labelledby="sUpd"><h2 id="sUpd">Updates</h2>
@@ -302,8 +322,17 @@ export function wireSettings(root, rerender) {
       const p = await openDialog({ title: "Find the Godot program", multiple: false, directory: false, filters: [{ name: "Programs", extensions: ["exe", "x86_64", "app", "*"] }] });
       if (p) { setSetting("godot", String(p)); await refreshTools(); rerender(true); refocus("#sGodotPath"); }
     }
-    if (act === "cs-install") await ctx.stopServer("csharp"); // Windows can't replace a running .exe
-    if (act === "cs-install") ctx.runTask("dotnet", ["tool", "update", "--global", "csharp-ls"], "Installing csharp-ls", () => { refreshTools().then(() => rerender(true)); ctx.restartServer("csharp"); });
+    if (act === "cs-install") {
+      // csharp-ls runs on .NET 10: get that SDK first if it's missing, then the tool.
+      const go = async () => {
+        await ctx.stopServer("csharp"); // Windows can't replace a running .exe
+        const after = () => { refreshTools().then(() => rerender(true)); ctx.restartServer("csharp"); };
+        ctx.runTask("dotnet", ["tool", tools.cs ? "update" : "install", "--global", "csharp-ls"], "Installing csharp-ls", after, after);
+      };
+      if (hasSdk(10)) go();
+      else { ctx.toast("csharp-ls needs the .NET 10 SDK, so that's installed first.", 6000); installTool("dotnet", (ok) => (ok ? go() : ctx.toast("The .NET 10 SDK didn't install. Check the Output panel.", 7000))); }
+      return;
+    }
     if (act === "ra-install") await ctx.stopServer("rust");
     if (act === "ra-install") ctx.runTask("rustup", ["component", "add", "rust-analyzer", "rust-src"], "Installing rust-analyzer", () => { refreshTools().then(() => rerender(true)); ctx.restartServer("rust"); });
     if (act === "restart-rust") ctx.restartServer("rust");
