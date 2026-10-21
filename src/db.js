@@ -299,11 +299,11 @@ export function initDb(app) {
     input.addEventListener("blur", () => finish(true));
   }
 
-  async function applyEdits(d) {
+  async function applyEdits(d, ask = true) {
     const t = tableOf(d), cells = d.edits.size, adds = d.inserts.length, dels = d.deletes.size;
     const parts = [cells && `${cells} changed cell${cells === 1 ? "" : "s"}`, adds && `${adds} new row${adds === 1 ? "" : "s"}`, dels && `${dels} deleted row${dels === 1 ? "" : "s"}`].filter(Boolean).join(", ");
-    const c = await choose(`Save to ${t.name}: ${parts}? Everything is saved together, or nothing if something fails.`, ["Save", "Cancel"]);
-    if (c !== "Save") return;
+    const c = ask ? await choose(`Save to ${t.name}: ${parts}? Everything is saved together, or nothing if something fails.`, ["Save", "Cancel"]) : "Save";
+    if (ask && c !== "Save") return false;
     const edits = [
       ...[...d.edits].filter(([k]) => !d.deletes.has(+k.split(":")[0])).map(([k, value]) => { const i = k.indexOf(":"); return { kind: "update", rowid: +k.slice(0, i), column: k.slice(i + 1), value }; }),
       ...d.inserts.map((values) => ({ kind: "insert", values })),
@@ -315,7 +315,8 @@ export function initDb(app) {
       toast("Saved.");
       await loadSchema(d, true);
       app.renderTabs();
-    } catch (e) { toast("Nothing was saved: " + e, 7000); }
+      return true;
+    } catch (e) { toast("Nothing was saved: " + e, 7000); return false; }
   }
 
   async function addFilter(d) {
@@ -442,6 +443,13 @@ export function initDb(app) {
     },
     label: (k) => { const d = dbs.get(k); return (d ? base(d.path) : "Database") + (d && pending(d) ? " •" : ""); },
     dot: "db",
+    confirmClose: async (k) => {
+      const d = dbs.get(k);
+      if (!d || !pending(d)) return true;
+      const c = await choose(`${base(d.path)} has ${pending(d)} unsaved change${pending(d) === 1 ? "" : "s"} to ${d.table}.`, ["Save", "Don't save", "Cancel"]);
+      if (c === "Save") return applyEdits(d, false);
+      return c === "Don't save";
+    },
     focus: () => (cur()?.mode === "sql" ? sqlView?.focus() : el.querySelector(".db-grid")?.focus()),
     close: (k) => { if (shown === k) { sqlView?.destroy(); sqlView = null; sqlFor = null; shown = null; } dbs.delete(k); },
   });
