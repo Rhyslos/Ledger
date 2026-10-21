@@ -17,8 +17,10 @@ const MAX_QUERY_ROWS: usize = 5000;
 fn open(path: &str, write: bool) -> Res<Connection> {
     let mut head = [0u8; 16];
     use std::io::Read;
-    std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut head)).map_err(|e| format!("Couldn't open the file ({e})."))?;
-    if &head != b"SQLite format 3\0" {
+    std::fs::File::open(path).map_err(|e| format!("Couldn't open the file ({e})."))?.read(&mut head).ok();
+    // An empty file is an empty database to SQLite.
+    let empty = std::fs::metadata(path).map(|m| m.len() == 0).unwrap_or(false);
+    if !empty && &head != b"SQLite format 3\0" {
         return Err("This isn't a SQLite database.".into());
     }
     let flags = if write { OpenFlags::SQLITE_OPEN_READ_WRITE } else { OpenFlags::SQLITE_OPEN_READ_ONLY } | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX;
@@ -330,6 +332,23 @@ fn apply(path: &str, table: &str, edits: Vec<Edit>) -> Res<usize> {
     }
     tx.commit().map_err(|e| e.to_string())?;
     Ok(n)
+}
+
+// ---------- new database ----------
+
+/// Makes a new, empty SQLite file. Returns false if the file was already there (it's opened as it is).
+#[tauri::command]
+pub async fn db_create(path: String) -> Res<bool> {
+    blocking(move || {
+        if std::path::Path::new(&path).exists() {
+            return Ok(false);
+        }
+        let c = Connection::open(&path).map_err(|e| e.to_string())?;
+        // SQLite writes nothing until there's something to save; this makes it a real database file now.
+        c.execute_batch("PRAGMA user_version = 1; PRAGMA user_version = 0;").map_err(|e| e.to_string())?;
+        Ok(true)
+    })
+    .await
 }
 
 // ---------- export ----------

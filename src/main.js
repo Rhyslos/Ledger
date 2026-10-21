@@ -1428,6 +1428,7 @@ function treeMenu(p, isDir, x, y) {
   const items = [
     { label: "New file…", key: "file.new", run: () => newFile(dirOf) },
     { label: "New folder…", key: "file.newFolder", run: () => newFolder(dirOf) },
+    { label: "New SQLite database…", run: () => app.newDb?.(dirOf) },
   ];
   if (p && !isDir) items.unshift({ label: "Open", hint: "Enter", run: () => openFile(p) }, "-");
   if (p) items.push("-", { label: "Rename…", hint: "F2", run: () => renamePath(p) }, { label: "Move to Recycle Bin", hint: "Delete", danger: true, run: () => deletePath(p) }, "-",

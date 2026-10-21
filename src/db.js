@@ -9,7 +9,7 @@ import { history, defaultKeymap, historyKeymap } from "@codemirror/commands";
 import { autocompletion, completionKeymap, closeBrackets } from "@codemirror/autocomplete";
 import { syntaxHighlighting } from "@codemirror/language";
 import { sql, SQLite } from "@codemirror/lang-sql";
-import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { save as saveDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
 
 export const DB_EXT = /\.(db|sqlite|sqlite3|db3|s3db)$/i;
 const PAGE = 200;
@@ -42,8 +42,34 @@ export function initDb(app) {
     app.addTab(key);
     if (!opts.background) app.activate(key);
     if (isNew) await loadSchema(dbs.get(key));
+    const d = dbs.get(key);
+    // A brand-new database: start in the SQL tab with a table to make.
+    if (isNew && !d.err && !d.tables.length) {
+      d.mode = "sql";
+      d.query = "CREATE TABLE items (\n  id INTEGER PRIMARY KEY,\n  name TEXT NOT NULL,\n  created_at TEXT DEFAULT CURRENT_TIMESTAMP\n);\n";
+      if (shown === key) draw();
+    }
     return true;
   }
+
+  /** New SQLite database…: dir is where the save dialog starts (the explorer folder). */
+  async function newDb(dir) {
+    const start = dir || app.S.root;
+    const out = await saveDialog({ title: "New SQLite database", defaultPath: start ? app.join(start, "database.db") : "database.db", filters: [{ name: "SQLite database", extensions: ["db", "sqlite", "sqlite3"] }] });
+    if (!out) return;
+    try {
+      const made = await invoke("db_create", { path: out });
+      if (made) app.refreshTree?.();
+      await openDb(out);
+    } catch (e) { toast("Couldn't make the database: " + e, 6000); }
+  }
+  async function openDbFile() {
+    const p = await openDialog({ title: "Open a database", multiple: false, directory: false, filters: [{ name: "SQLite database", extensions: ["db", "sqlite", "sqlite3", "db3", "s3db"] }, { name: "All files", extensions: ["*"] }] });
+    if (p) openDb(String(p));
+  }
+  app.command("db.new", "New SQLite database…", [], () => newDb());
+  app.command("db.open", "Open database…", [], openDbFile);
+  app.newDb = newDb;
 
   async function loadSchema(d, keepTable) {
     try {

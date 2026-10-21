@@ -1367,6 +1367,7 @@ pub fn run() {
             db::db_query,
             db::db_apply,
             db::db_export,
+            db::db_create,
             live::live_start,
             live::live_stop,
             live::live_reload,
