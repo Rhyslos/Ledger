@@ -2912,7 +2912,7 @@ async function boot() {
   settingsFile = norm(await invoke("settings_path").catch(() => "")) || null;
   initSettings({
     keymap, apply: applySetting, toast, choose, appName: APP_NAME,
-    runTask: (program, args, label, done) => startSteps([{ label, program, args }], done),
+    runTask: (program, args, label, done, fail) => startSteps([{ label, program, args }], done, fail),
     restartServer: (id) => (S.root ? startServer(id) : toast("Open a folder first.")),
     stopServer: (id) => servers[id].stop(),
     openFile: (p) => openFile(norm(p)),
