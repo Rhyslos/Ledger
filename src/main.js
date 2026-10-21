@@ -1543,9 +1543,9 @@ async function newFolder(dir = targetDir()) {
   S.sel = path; S.selDir = true;
   await refreshTree();
 }
-async function renamePath(p) {
+async function renamePath(p, newName) {
   if (!p) return;
-  const name = (await promptText(`Rename ${base(p)}`, base(p)))?.trim();
+  const name = newName ?? (await promptText(`Rename ${base(p)}`, base(p)))?.trim();
   if (!name || name === base(p)) return;
   if (!validName(name) || name.includes("/")) { toast("That isn't a usable name."); return; }
   const to = join(parent(p), name);
@@ -1819,7 +1819,8 @@ function taskSteps(action, P = S.ctx) {
     // (entities/player.lst:3:5) link back to the right files.
     const file = S.active, prog = settings.lust || "lust", root = lustRoots.get(norm(file)) || parent(file);
     const step = (sub, input) => ({ label: "lust " + sub, program: prog, args: [sub, lustRel(root, file)], cwd: root, input, lust: true });
-    return { run: [step("run", true)], check: [step("check")], build: [step("build")] }[action] || null;
+    const script = /\.lsc$/i.test(file);
+    return { run: [step("run", true)], check: [step("check")], build: [step("build")], lua: [step("lua")], rust: script ? null : [step("rust")] }[action] || null;
   }
   const nodeFile = () => {
     const b = S.bufs.get(S.active);
@@ -1869,6 +1870,15 @@ function taskLabel(action) {
 async function runAction(action) {
   if (!S.root) { toast("Open a folder first."); return; }
   const P = await updateCtx();
+  // Lust 2 only reads .lst and .lsc; a Lust 1 file can become a .lst in one go.
+  if (taskKind(P) === "lust" && /\.lust$/i.test(S.active || "")) {
+    const to = S.active.replace(/\.lust$/i, ".lst");
+    const c = await choose(`Lust 2 programs end in .lst. Rename ${base(S.active)} to ${base(to)}? (Lust 1 code may need changes too.)`, ["Rename", "Cancel"]);
+    if (c !== "Rename") return;
+    await saveAll();
+    await renamePath(S.active, base(to)); // also moves the open tab over to the new name
+    return;
+  }
   if (action === "scripts") { pickScript(P); return; }
   if (action === "run" && (taskKind(P) === "html" || (taskKind(P) === "node" && !runScript(P) && S.bufs.get(S.active)?.lang === "html"))) {
     const url = live.port && isUnder(S.active, live.root) ? liveUrl() : pathToUri(S.active);
@@ -2520,6 +2530,8 @@ C("task.check", "Check (Rust)", "Ctrl+Alt+C", () => runAction("check"));
 C("task.lint", "Clippy (Rust)", [], () => runAction("lint"));
 C("app.update", "Check for updates", [], () => updater?.check());
 C("panel.dock", "Move the panel (terminal, output) to the right or the bottom", [], togglePanelDock);
+C("lust.lua", "Lust: show the Lua this file turns into", [], () => runAction("lua"));
+C("lust.rust", "Lust: show the Rust this file turns into (.lst)", [], () => runAction("rust"));
 C("live.toggle", "Live Server: start or stop", [], () => (live.port ? stopLive() : startLive()));
 C("live.open", "Live Server: open this page in the browser", [], openLive);
 C("task.scripts", "Run a package.json script…", [], () => runAction("scripts"));
@@ -2748,10 +2760,10 @@ async function closeFolder() {
   renderMain(); renderProblems();
 }
 async function newProject() {
-  const kinds = ["Web app with Vite (React, Vue, Svelte…)", "Next.js app", "Website (plain HTML, CSS and JS)", "Node.js program", "Lua program", "Lust program", "Lust app (with a window)", "Rust program", "Rust library", "C# console app", "C# class library"];
+  const kinds = ["Web app with Vite (React, Vue, Svelte…)", "Next.js app", "Website (plain HTML, CSS and JS)", "Node.js program", "Lua program", "Lust program", "Lust app (with a window)", "LustScript (.lsc, turns into Lua)", "Rust program", "Rust library", "C# console app", "C# class library"];
   const i = await choose("What kind of project?", kinds, true);
   if (i == null || i < 0) return;
-  const kind = ["vite", "next", "web", "node", "lua", "lust", "lust-app", "rust", "rust-lib", "console", "classlib"][i];
+  const kind = ["vite", "next", "web", "node", "lua", "lust", "lust-app", "lustscript", "rust", "rust-lib", "console", "classlib"][i];
   let web = null;
   if (kind === "vite" || kind === "next") {
     web = { kind };
@@ -2785,7 +2797,15 @@ async function newProject() {
     return;
   }
   if (web) { await newWebProject({ ...web, name, dir }); return; }
-  const MAIN = { lust: "main.lst", "lust-app": "main.lst", rust: "src/main.rs", "rust-lib": "src/lib.rs", console: "Program.cs", classlib: "Class1.cs", web: "index.html", node: "index.js", lua: "main.lua" };
+  // Lust programs and apps come from lust new itself when lust is installed, so they always match
+  // the Lust you have (and lust new gets built programs ready on this PC).
+  if ((kind === "lust" || kind === "lust-app") && (await invoke("tool_info", { name: settings.lust || "lust" }).catch(() => null))) {
+    const at = join(dir, name);
+    startSteps([{ label: "lust new", program: settings.lust || "lust", args: ["new", name, ...(kind === "lust-app" ? ["app"] : [])], cwd: dir }],
+      () => openNewProject(at, "main.lst", null));
+    return;
+  }
+  const MAIN = { lust: "main.lst", "lust-app": "main.lst", lustscript: "main.lsc", rust: "src/main.rs", "rust-lib": "src/lib.rs", console: "Program.cs", classlib: "Class1.cs", web: "index.html", node: "index.js", lua: "main.lua" };
   const plain = !["rust", "rust-lib", "console", "classlib"].includes(kind); // no language server to start
   try {
     const p = norm(await invoke("new_project", { parent: dir, name, kind }));
