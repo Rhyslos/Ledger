@@ -97,6 +97,7 @@ export class Lsp {
 
   /** spec: { exe, args, initOptions, missing } */
   async start(root, spec) {
+    this.settings = spec.settings || {};
     const gen = ++this.gen;
     this.root = root;
     this.alive = false;
@@ -241,7 +242,9 @@ export class Lsp {
       return Promise.resolve(this.on.applyEdit?.(m.params.edit)).then((ok) => this.send({ id: m.id, result: { applied: ok !== false } }));
     }
     if (m.method === "workspace/inlayHint/refresh") this.on.refreshHints?.(this);
-    const result = m.method === "workspace/configuration" ? (m.params?.items || []).map(() => null) : null;
+    // Settings the server asks for by section ("css", "html.format"…), from the spec's `settings`.
+    const pick = (section) => (section ? section.split(".").reduce((o, k) => (o == null ? o : o[k]), this.settings) : this.settings) ?? null;
+    const result = m.method === "workspace/configuration" ? (m.params?.items || []).map((it) => pick(it.section)) : null;
     this.send({ id: m.id, result });
   }
 

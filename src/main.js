@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { on as listen, winLabel } from "./win.js";
 import { initUpdate } from "./update.js";
+import { initDb, DB_EXT } from "./db.js";
 import { VITE, createSteps, withTailwindPlugin, CSS_FILES, FIRST_FILES } from "./scaffold.js";
 import { initTailwind, tailwindSource, tailwindChanged, inClassList } from "./tailwind.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -268,6 +269,8 @@ const lspHandlers = {
 servers.rust = new Lsp("rust", "rust-analyzer", lspHandlers);
 servers.csharp = new Lsp("csharp", "C#", lspHandlers);
 servers.web = new Lsp("web", "TypeScript", lspHandlers);
+servers.css = new Lsp("css", "CSS", lspHandlers);
+servers.html = new Lsp("html", "HTML", lspHandlers);
 
 // The completions a language brings itself (HTML tags and attributes, CSS
 // properties, JS keywords and local names), used when no server is running.
@@ -298,6 +301,16 @@ function serverSpec(id) {
     },
     missing: "rust-analyzer isn't installed. Open Settings (Ctrl+P) and use the install button, or run: rustup component add rust-analyzer rust-src",
   };
+  }
+  if (id === "css" || id === "html") {
+    // Tailwind's @theme, @apply, @tailwind… aren't plain CSS; the server shouldn't call them mistakes.
+    const lint = { unknownAtRules: "ignore" };
+    return {
+      exe: `vscode-${id}-language-server`, args: ["--stdio"],
+      initOptions: { provideFormatter: true, embeddedLanguages: { css: true, javascript: true } },
+      settings: { css: { lint }, scss: { lint }, less: { lint }, html: { suggest: { html5: true }, validate: { scripts: true, styles: true } } },
+      missing: "The HTML and CSS language servers aren't installed. Open Settings (Ctrl+P) › Languages and install them.",
+    };
   }
   if (id === "web") return {
     exe: "typescript-language-server", args: ["--stdio"],
@@ -737,6 +750,8 @@ function makeBuffer(path, text, opts = {}) {
 
 /** at: {line, character} (0-based) or {offset}. opts: quiet, background, noNav, keepFocus, uri, server */
 async function openFile(path, at, opts = {}) {
+  // Databases open in their own tab (src/db.js); "@db:" is how a restored session names them.
+  if (app.openDb && (DB_EXT.test(path) || String(path).startsWith("@db:"))) return app.openDb(String(path).replace(/^@db:/, ""), opts);
   path = norm(path);
   if (opts.uri && /^csharp:/i.test(opts.uri)) return openMetadata(opts.uri, at, opts.server);
   if (!S.bufs.has(path)) {
@@ -2874,6 +2889,7 @@ async function boot() {
   initDeps(app);
   snippets = initSnippets(app, () => settingsFile);
   initGit(app);
+  initDb(app);
   debug = app.debug = initDebugger(app);
   view = panes[0].view = new EditorView({ parent: $("editor") });
   panes[0].el.classList.add("focused");
