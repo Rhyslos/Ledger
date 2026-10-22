@@ -43,17 +43,36 @@
       }
     },
     "resources": {
-      "icons/lust.ico": "lust.ico"
+      "icons/lst.ico": "lst.ico",
+      "icons/lsc.ico": "lsc.ico",
+      "icons/lql.ico": "lql.ico"
     },
     "fileAssociations": [
       {
         "ext": [
           "lst",
-          "lsc",
           "lust"
         ],
-        "name": "Lust.Source",
-        "description": "Lust source file",
+        "name": "Lust.Program",
+        "description": "Lust program",
+        "role": "Editor",
+        "mimeType": "text/plain"
+      },
+      {
+        "ext": [
+          "lsc"
+        ],
+        "name": "Lust.Script",
+        "description": "LustScript file",
+        "role": "Editor",
+        "mimeType": "text/plain"
+      },
+      {
+        "ext": [
+          "lql"
+        ],
+        "name": "Lust.Query",
+        "description": "LustQL file",
         "role": "Editor",
         "mimeType": "text/plain"
       }

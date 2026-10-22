@@ -1,9 +1,9 @@
 ; Ledger installer hooks (Tauri runs these from the NSIS installer).
 ;
-; Tauri's file association for .lust (see bundle.fileAssociations in
-; tauri.conf.json) gives Lust files Ledger's own icon. This swaps in the L#
-; icon, which is installed next to Ledger.exe as lust.ico, then tells Explorer
-; to refresh its icons.
+; Tauri's file associations (bundle.fileAssociations in tauri.conf.json) give
+; Lust files Ledger's own icon. This swaps in each kind's own: Lt for programs
+; (.lst, and Lust 1's .lust), Ls for LustScript (.lsc), Lq for LustQL (.lql).
+; They're installed next to Ledger.exe. Then Explorer is told to refresh its icons.
 
 ; "Open with Ledger" in Explorer's right-click menu: on files, on folders, and on the empty
 ; space inside a folder. Skipped when it was turned off in Settings (Software\Ledger NoShellMenu),
@@ -17,7 +17,11 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  WriteRegStr SHCTX "Software\Classes\Lust.Source\DefaultIcon" "" "$INSTDIR\lust.ico"
+  WriteRegStr SHCTX "Software\Classes\Lust.Program\DefaultIcon" "" "$INSTDIR\lst.ico"
+  WriteRegStr SHCTX "Software\Classes\Lust.Script\DefaultIcon" "" "$INSTDIR\lsc.ico"
+  WriteRegStr SHCTX "Software\Classes\Lust.Query\DefaultIcon" "" "$INSTDIR\lql.ico"
+  ; Older Ledgers put every Lust file under one kind, with the L# icon.
+  DeleteRegKey SHCTX "Software\Classes\Lust.Source"
   ReadRegStr $0 HKCU "Software\Ledger" "NoShellMenu"
   ${If} $0 != "1"
     !insertmacro LEDGER_MENU "*" "%1"
