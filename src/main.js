@@ -584,7 +584,13 @@ async function applyWorkspaceEdit(we) {
   const byFile = new Map();
   for (const [uri, edits] of Object.entries(we.changes || {})) byFile.set(norm(uriToPath(uri)), edits);
   for (const dc of we.documentChanges || []) {
-    if (dc.kind === "rename") { try { await invoke("rename_path", { from: uriToPath(dc.oldUri), to: uriToPath(dc.newUri) }); } catch (e) { toast(String(e)); } continue; }
+    if (dc.kind === "rename") {
+      // Rust-analyzer renaming a module, say: the file moves, and so does its tab.
+      const from = norm(uriToPath(dc.oldUri)), to = norm(uriToPath(dc.newUri));
+      if (!(await closePagesUnder(from))) continue;
+      try { await invoke("rename_path", { from, to }); await movedOnDisk(from, to); } catch (e) { toast(String(e)); }
+      continue;
+    }
     if (dc.kind) continue;
     byFile.set(norm(uriToPath(dc.textDocument.uri)), dc.edits);
   }
@@ -595,14 +601,14 @@ async function applyWorkspaceEdit(we) {
       dispatchBuf(path, { changes: edits.map((e) => ({ from: toOffset(doc, e.range.start), to: toOffset(doc, e.range.end), insert: e.newText })) });
     } else {
       try {
-        let raw = await invoke("read_file", { path });
+        let { text: raw, encoding } = await invoke("read_text", { path });
         const bom = raw.startsWith("\uFEFF");
         if (bom) raw = raw.slice(1);
         const doc = Text.of(raw.split(/\r?\n/));
         const cs = ChangeSet.of(edits.map((e) => ({ from: toOffset(doc, e.range.start), to: toOffset(doc, e.range.end), insert: e.newText })), doc.length);
         let out = cs.apply(doc).toString();
         if (raw.includes("\r\n")) out = out.replace(/\n/g, "\r\n");
-        await invoke("write_file", { path, contents: (bom ? "\uFEFF" : "") + out });
+        await invoke("write_file", { path, contents: (bom ? "\uFEFF" : "") + out, encoding });
       } catch (e) { toast(`Couldn't edit ${base(path)}: ${e}`); }
     }
   }
@@ -812,10 +818,10 @@ async function openFile(path, at, opts = {}) {
   path = norm(path);
   if (opts.uri && /^csharp:/i.test(opts.uri)) return openMetadata(opts.uri, at, opts.server);
   if (!S.bufs.has(path)) {
-    let text;
-    try { text = await invoke("read_file", { path }); }
+    let file;
+    try { file = await invoke("read_text", { path }); }
     catch (e) { if (!opts.quiet) toast(`Can't open ${base(path)}: ${e}`); return false; }
-    if (!S.bufs.has(path)) { const b = makeBuffer(path, text); statOf(path).then((m) => { b.mtime = m; }); }
+    if (!S.bufs.has(path)) { const b = makeBuffer(path, file.text); b.enc = file.encoding; statOf(path).then((m) => { b.mtime = m; }); }
   }
   const wasOpen = S.tabs.includes(path); // asked before addTab, which puts it in S.tabs
   addTab(path);
@@ -1037,8 +1043,8 @@ async function save(path = S.active) {
   let text = doc.toString();
   if (b.eol === "\r\n") text = text.replace(/\n/g, "\r\n");
   if (b.bom) text = "\uFEFF" + text;
-  try { await invoke("write_file", { path, contents: text }); }
-  catch (e) { toast(`Couldn't save ${base(path)}: ${e}`); return false; }
+  try { await invoke("write_file", { path, contents: text, encoding: b.enc || "utf8" }); }
+  catch (e) { toast(`Couldn't save ${base(path)}: ${e}`, 7000); return false; }
   b.saved = doc;
   b.dirty = !b.state.doc.eq(doc);
   b.diskChanged = null;
@@ -1285,10 +1291,11 @@ async function reloadClean() {
   } finally { reloading = false; if (changed) { scheduleUi(); renderDiskBars(); } }
 }
 async function reloadFromDisk(path) {
-  let text;
-  try { text = await invoke("read_file", { path }); } catch { return; }
+  let text, enc;
+  try { ({ text, encoding: enc } = await invoke("read_text", { path })); } catch { return; }
   const cur = S.bufs.get(path);
   if (!cur) return;
+  cur.enc = enc;
   cur.mtime = await statOf(path);
   const bom = text.startsWith("\uFEFF");
   if (bom) text = text.slice(1);
@@ -1631,14 +1638,9 @@ async function closePagesUnder(p) {
   }
   return true;
 }
-async function renamePath(p, newName) {
-  if (!p) return;
-  const name = newName ?? (await promptText(`Rename ${base(p)}`, base(p)))?.trim();
-  if (!name || name === base(p)) return;
-  if (!validName(name) || name.includes("/")) { toast("That isn't a usable name."); return; }
-  const to = join(parent(p), name);
-  if (!(await closePagesUnder(p))) return;
-  try { await invoke("rename_path", { from: p, to }); } catch (e) { toast(String(e)); return; }
+/** After a file or folder moved on disk (Ledger's rename, or a language server's): open tabs,
+ *  pins, the preview tab, problems and the explorer follow it to its new path. */
+async function movedOnDisk(p, to) {
   const remap = (x) => (x === p ? to : x.startsWith(p + "/") ? to + x.slice(p.length) : x);
   for (const [k, b] of [...S.bufs]) {
     const nk = remap(k);
@@ -1666,6 +1668,16 @@ async function renamePath(p, newName) {
   if (act) { S.active = null; activate(act, null, { noNav: true, keepFocus: keep }); }
   await refreshTree();
   if (keep) focusTree();
+}
+async function renamePath(p, newName) {
+  if (!p) return;
+  const name = newName ?? (await promptText(`Rename ${base(p)}`, base(p)))?.trim();
+  if (!name || name === base(p)) return;
+  if (!validName(name) || name.includes("/")) { toast("That isn't a usable name."); return; }
+  const to = join(parent(p), name);
+  if (!(await closePagesUnder(p))) return;
+  try { await invoke("rename_path", { from: p, to }); } catch (e) { toast(String(e)); return; }
+  await movedOnDisk(p, to);
 }
 async function deletePath(p) {
   if (!p) return;
@@ -1834,7 +1846,7 @@ function renderPos() {
   const line = view.state.doc.lineAt(sel.head);
   const n = Math.abs(sel.to - sel.from);
   $("stPos").textContent = `Ln ${line.number}, Col ${sel.head - line.from + 1}${n ? ` (${n} selected)` : ""}`;
-  $("stLang").textContent = LANGS[b.lang].name + (b.eol === "\r\n" ? " · CRLF" : "") + (b.bom ? " · BOM" : "");
+  $("stLang").textContent = LANGS[b.lang].name + (b.eol === "\r\n" ? " · CRLF" : "") + (b.bom ? " · BOM" : "") + ({ utf16le: " · UTF-16 LE", utf16be: " · UTF-16 BE", cp1252: " · Windows-1252" }[b.enc] || "");
   renderServer();
 }
 function renderServer() {
@@ -2654,6 +2666,19 @@ C("trust.toggle", "Trust this folder's code, or stop trusting it (Tailwind compl
   const yes = !trusted();
   setTrust(S.root, yes);
   toast(yes ? `${base(S.root)} is trusted: Tailwind completion and Rust build scripts are on.` : `${base(S.root)} isn't trusted: its code won't run in the background.`, 5000);
+});
+C("file.toUtf8", "Convert this file to UTF-8 (from UTF-16 or Windows-1252)", [], async () => {
+  const b = S.bufs.get(S.active);
+  if (!b || b.virtual) return;
+  if (!b.enc || b.enc === "utf8") { toast("This file is UTF-8 already."); return; }
+  const was = b.enc;
+  b.enc = "utf8";
+  let text = b.state.doc.toString();
+  if (b.eol === "\r\n") text = text.replace(/\n/g, "\r\n");
+  try { await invoke("write_file", { path: S.active, contents: (b.bom ? "\uFEFF" : "") + text, encoding: "utf8" }); b.mtime = await statOf(S.active); b.saved = b.state.doc; b.dirty = false; scheduleUi(); }
+  catch (e) { b.enc = was; toast(`Couldn't convert it: ${e}`); return; }
+  renderPos();
+  toast(`${base(S.active)} is UTF-8 now (saved, with any edits you had).`);
 });
 C("live.toggle", "Live Server: start or stop", [], () => (live.port ? stopLive() : startLive()));
 C("live.open", "Live Server: open this page in the browser", [], openLive);

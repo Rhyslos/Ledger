@@ -8,11 +8,13 @@
 //         it should report); runs lust test.
 import { gutter, GutterMarker } from "@codemirror/view";
 import { StateField, StateEffect, RangeSet } from "@codemirror/state";
+import { on } from "./win.js";
 
 export function initTests(app) {
   const { S, invoke, esc, toast, choose, norm, join, base, parent, isUnder } = app;
   const tests = new Map(); // id -> { id, kind, root, file, line, name, label, status, message, at, ms }
-  let running = false, note = "", ran = false;
+  let running = false, note = "", ran = false, stopped = false;
+  let log = []; // the output of the run in progress, newest last (only the tail is kept)
   const el = document.getElementById("tests");
 
   // ---------- finding tests ----------
@@ -117,7 +119,32 @@ export function initTests(app) {
   }
 
   // ---------- running ----------
-  const capture = (cwd, program, args) => invoke("run_capture", { cwd, program, args });
+  // Streams each line to "test-out" while it runs, and can be ended with test_stop.
+  const capture = async (cwd, program, args) => {
+    if (stopped) throw new Error("stopped");
+    const r = await invoke("run_test", { cwd, program, args });
+    if (stopped) throw new Error("stopped");
+    return r;
+  };
+  let logTimer = 0;
+  on("test-out", (e) => {
+    if (!running) return;
+    log.push(e.payload);
+    if (log.length > 300) log = log.slice(-200);
+    if (!logTimer) logTimer = setTimeout(() => { logTimer = 0; showLog(); }, 80);
+  });
+  function showLog() {
+    const pre = el?.querySelector(".tlog");
+    if (!pre) return;
+    const end = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
+    pre.textContent = log.join("\n");
+    if (end) pre.scrollTop = pre.scrollHeight;
+  }
+  function stop() {
+    if (!running) return;
+    stopped = true;
+    invoke("test_stop").catch(() => {});
+  }
   const set = (t, status, more = {}) => Object.assign(t, { status, message: "", at: null, ms: null }, more);
 
   async function runRust(root, list) {
@@ -210,7 +237,7 @@ export function initTests(app) {
   async function run(list) {
     if (running) { toast("Tests are already running."); return; }
     if (!list.length) { toast(tests.size ? "No tests to run there." : "No Rust, C# or Lust tests found in this folder."); return; }
-    running = true; note = ""; ran = true;
+    running = true; stopped = false; note = ""; ran = true; log = [];
     await app.saveAll();
     for (const t of list) t.status = "running";
     app.showPanel("tests");
@@ -224,11 +251,16 @@ export function initTests(app) {
           if (kind === "rust") await runRust(g[0].root, g);
           else if (kind === "cs") await runCs(g[0].root, g);
           else await runLust(g);
-        } catch (e) { note = `Couldn't run the ${kind === "cs" ? "C#" : kind === "rust" ? "Rust" : "Lust"} tests: ${e}`; }
+        } catch (e) {
+          if (stopped) break;
+          note = `Couldn't run the ${kind === "cs" ? "C#" : kind === "rust" ? "Rust" : "Lust"} tests: ${e}`;
+        }
+        if (stopped) break;
       }
     } finally {
       for (const t of list) if (t.status === "running") t.status = "idle";
-      running = false;
+      if (stopped) note = "Stopped. Tests that hadn't finished are back to not run.";
+      running = false; stopped = false;
       render(); marksAll();
     }
   }
@@ -254,10 +286,12 @@ export function initTests(app) {
         <button class="btn" data-ta="failed" ${running || !n("fail") ? "disabled" : ""}>Run failed</button>
         <button class="btn" data-ta="file" ${running ? "disabled" : ""}>Run this file</button>
         <button class="btn" data-ta="find" ${running ? "disabled" : ""}>Find tests</button>
+        ${running ? `<button class="btn" data-ta="stop" title="End the run and everything it started">Stop</button>` : ""}
         <span class="sp"></span>
         <span class="tsum">${running ? "Running…" : ran ? `<span class="t-pass">${n("pass")} passed</span> · <span class="t-fail">${n("fail")} failed</span>${n("skip") ? ` · ${n("skip")} skipped` : ""}` : `${list.length} test${list.length === 1 ? "" : "s"}`}</span>
       </div>
       ${note ? `<pre class="tnote">${esc(note)}</pre>` : ""}
+      ${running ? `<pre class="tlog">${esc(log.join("\n"))}</pre>` : ""}
       ${list.length ? [...groups].map(([file, ts]) => `<div class="tfile" title="${esc(file)}">${app.fileIcon(file)}<span>${esc(app.rel(file))}</span></div>
         ${ts.map((t) => `<div class="trow t-${t.status}" data-tid="${esc(t.id)}" tabindex="-1" title="${esc(t.name)}"><span class="tico">${ICON[t.status]}</span><span class="tname">${esc(t.label)}</span>${t.ms != null ? `<span class="tms">${t.ms} ms</span>` : ""}<button class="ibtn" data-trun="${esc(t.id)}" title="Run this test" aria-label="Run ${esc(t.label)}">▶</button></div>
           ${t.status === "fail" && t.message ? `<pre class="tmsg" data-tid="${esc(t.id)}">${esc(t.message)}${t.at ? `\n<a data-at="${esc(t.id)}">${esc(app.rel(t.at.file))}:${t.at.line + 1}</a>` : ""}</pre>` : ""}`).join("")}`).join("")
@@ -269,6 +303,7 @@ export function initTests(app) {
     if (a === "failed") return runFailed();
     if (a === "file") return runFile(S.active);
     if (a === "find") return discover();
+    if (a === "stop") return stop();
     const r = ev.target.closest("[data-trun]");
     if (r) return run([tests.get(r.dataset.trun)].filter(Boolean));
     const at = ev.target.closest("[data-at]");
@@ -411,8 +446,9 @@ export function initTests(app) {
 
   app.command("tests.all", "Tests: run all", [], runAll);
   app.command("tests.failed", "Tests: run the failed ones again", [], runFailed);
+  app.command("tests.stop", "Tests: stop the run", [], stop);
   app.command("tests.file", "Tests: run the tests in this file", [], () => runFile());
   app.command("tests.create", "Tests: create a test for this file", [], () => createTest());
   app.command("tests.show", "Tests: show the Tests panel", [], () => app.showPanel("tests"));
-  return { tests, discover, run, runAll, createTest }; // for scripts that check it
+  return { tests, discover, run, runAll, stop, createTest }; // for scripts that check it
 }

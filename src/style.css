@@ -585,6 +585,7 @@ th.db-n { z-index: 2; background: var(--side); }
 .tsum { color: var(--muted); white-space: nowrap; }
 .tsum .t-pass { color: var(--good); } .tsum .t-fail { color: var(--seal); }
 .tnote { margin: 8px 10px; padding: 8px 10px; border-left: 3px solid var(--seal); background: var(--side); white-space: pre-wrap; font-family: var(--code-font); font-size: 12px; }
+.tlog { margin: 8px 10px; padding: 8px 10px; max-height: 180px; overflow: auto; background: var(--side); white-space: pre-wrap; font-family: var(--code-font); font-size: 12px; opacity: .85; }
 .tfile { display: flex; align-items: center; gap: 6px; padding: 6px 10px 2px; color: var(--muted); font-weight: 500; }
 .trow { display: flex; align-items: center; gap: 8px; padding: 2px 10px 2px 28px; cursor: pointer; border-radius: var(--r); }
 .trow:hover { background: var(--hover); }
