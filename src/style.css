@@ -572,3 +572,8 @@ th.db-n { z-index: 2; background: var(--side); }
 .tab .fi { width: 15px; height: 15px; }
 .li .fi { margin: 2px 0 0 1px; }
 .phead .fi { width: 14px; height: 14px; }
+
+/* Preview tab (replaced by the next file clicked in the explorer) and pinned tabs */
+.tab.preview .tl { font-style: italic; }
+.tab.pinned { box-shadow: inset 0 2px 0 var(--muted); }
+.tab.pinned .tl::before { content: "📌"; font-size: 10px; margin-right: 4px; filter: grayscale(1); opacity: .75; }
