@@ -343,19 +343,94 @@ async fn read_bytes(path: String) -> Result<tauri::ipc::Response, String> {
     std::fs::read(&path).map(tauri::ipc::Response::new).map_err(err)
 }
 
-#[tauri::command]
-fn read_file(path: String) -> Res<String> {
-    let meta = std::fs::metadata(&path).map_err(err)?;
+// ---------- text encodings ----------
+// Ledger edits UTF-8. UTF-16 files with a byte-order mark (PowerShell 5's `>` and Out-File, .reg
+// exports) and old Windows-1252 ("ANSI") files are read too, and saved back the way they were.
+
+/// Windows-1252's characters for bytes 0x80 to 0x9F (the rest match Latin-1).
+const CP1252: [u16; 32] = [
+    0x20AC, 0x81, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x8D, 0x017D, 0x8F,
+    0x90, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x9D, 0x017E, 0x0178,
+];
+
+/// The text in a file, and its encoding: "utf8", "utf16le", "utf16be" or "cp1252".
+fn decode_text(bytes: Vec<u8>) -> Res<(String, &'static str)> {
+    let utf16 = |rest: &[u8], le: bool| {
+        let units: Vec<u16> = rest.chunks_exact(2).map(|c| if le { u16::from_le_bytes([c[0], c[1]]) } else { u16::from_be_bytes([c[0], c[1]]) }).collect();
+        String::from_utf16(&units).map_err(|_| "This UTF-16 file has broken characters in it.".to_string())
+    };
+    if bytes.starts_with(&[0xFF, 0xFE]) {
+        return Ok((utf16(&bytes[2..], true)?, "utf16le"));
+    }
+    if bytes.starts_with(&[0xFE, 0xFF]) {
+        return Ok((utf16(&bytes[2..], false)?, "utf16be"));
+    }
+    match String::from_utf8(bytes) {
+        Ok(t) => Ok((t, "utf8")),
+        Err(e) => {
+            let bytes = e.into_bytes();
+            if bytes.contains(&0) {
+                return Err("This looks like a binary file.".into());
+            }
+            let t = bytes.iter().map(|&b| if (0x80..0xA0).contains(&b) { char::from_u32(CP1252[(b - 0x80) as usize] as u32).unwrap_or('?') } else { b as char }).collect();
+            Ok((t, "cp1252"))
+        }
+    }
+}
+
+fn encode_text(text: &str, encoding: &str) -> Res<Vec<u8>> {
+    let text = text.strip_prefix('\u{FEFF}').filter(|_| encoding.starts_with("utf16")).unwrap_or(text);
+    Ok(match encoding {
+        "utf16le" => [0xFF, 0xFE].into_iter().chain(text.encode_utf16().flat_map(|u| u.to_le_bytes())).collect(),
+        "utf16be" => [0xFE, 0xFF].into_iter().chain(text.encode_utf16().flat_map(|u| u.to_be_bytes())).collect(),
+        "cp1252" => {
+            let mut out = Vec::with_capacity(text.len());
+            for ch in text.chars() {
+                let c = ch as u32;
+                let byte = if c < 0x80 || (0xA0..0x100).contains(&c) {
+                    Some(c as u8)
+                } else {
+                    CP1252.iter().position(|&u| u as u32 == c).map(|i| 0x80 + i as u8)
+                };
+                match byte {
+                    Some(b) => out.push(b),
+                    None => return Err(format!("This file is in Windows-1252, which can't store “{ch}”. Run “Convert this file to UTF-8” (Ctrl Shift P), then save.")),
+                }
+            }
+            out
+        }
+        _ => text.as_bytes().to_vec(),
+    })
+}
+
+fn read_bytes_checked(path: &str) -> Res<Vec<u8>> {
+    let meta = std::fs::metadata(path).map_err(err)?;
     if meta.len() > 8 * 1024 * 1024 {
         return Err("File is larger than 8 MB.".into());
     }
-    let bytes = std::fs::read(&path).map_err(err)?;
-    String::from_utf8(bytes).map_err(|_| "This looks like a binary file.".into())
+    std::fs::read(path).map_err(err)
 }
 
 #[tauri::command]
-fn write_file(path: String, contents: String) -> Res<()> {
-    std::fs::write(&path, contents).map_err(err)
+fn read_file(path: String) -> Res<String> {
+    decode_text(read_bytes_checked(&path)?).map(|(t, _)| t)
+}
+
+#[derive(Serialize)]
+struct TextFile {
+    text: String,
+    encoding: &'static str,
+}
+
+/// A file's text and how it was stored, for the editor (which saves it back the same way).
+#[tauri::command]
+fn read_text(path: String) -> Res<TextFile> {
+    decode_text(read_bytes_checked(&path)?).map(|(text, encoding)| TextFile { text, encoding })
+}
+
+#[tauri::command]
+fn write_file(path: String, contents: String, encoding: Option<String>) -> Res<()> {
+    std::fs::write(&path, encode_text(&contents, encoding.as_deref().unwrap_or("utf8"))?).map_err(err)
 }
 
 #[tauri::command]
@@ -766,9 +841,71 @@ fn kill_tree(child: &mut Child) {
     }
     #[cfg(unix)]
     {
-        let _ = Command::new("kill").args(["-KILL", &format!("-{pid}")]).status();
+        let _ = Command::new("kill").args(["-s", "KILL", "--", &format!("-{pid}")]).status();
     }
     let _ = child.kill();
+}
+
+// ---------- test runs (the Tests panel) ----------
+// Output streams to the window line by line ("test-out") while the tests run, all of it comes back
+// at the end for reading the results, and test_stop ends the run with every process it started
+// (the test program cargo launches, say, stuck in an endless loop).
+static TEST_PIDS: std::sync::LazyLock<Mutex<HashMap<String, u32>>> = std::sync::LazyLock::new(Default::default);
+
+#[tauri::command]
+async fn run_test(window: tauri::WebviewWindow, cwd: String, program: String, args: Vec<String>) -> Res<Captured> {
+    let label = window.label().to_string();
+    let app = window.app_handle().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let exe = if is_bare(&program) { find_tool(&program) } else { PathBuf::from(&program) };
+        let mut cmd = command_at(&exe);
+        cmd.args(&args).current_dir(&cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0); // so test_stop can end the whole group
+        }
+        let mut child = cmd.spawn().map_err(|e| format!("Couldn't run {program} ({e})."))?;
+        TEST_PIDS.lock().unwrap_or_else(|e| e.into_inner()).insert(label.clone(), child.id());
+        let pump = |r: Box<dyn Read + Send>| {
+            let (app, label) = (app.clone(), label.clone());
+            thread::spawn(move || {
+                let mut all = String::new();
+                // Bytes, not lines(): one stray non-UTF-8 byte mustn't end the output there.
+                for raw in BufReader::new(r).split(b'\n').map_while(Result::ok) {
+                    let line = String::from_utf8_lossy(&raw).trim_end_matches('\r').to_string();
+                    let _ = app.emit_to(label.as_str(), "test-out", &line);
+                    all.push_str(&line);
+                    all.push('\n');
+                }
+                all
+            })
+        };
+        let out = pump(Box::new(child.stdout.take().unwrap()));
+        let err = pump(Box::new(child.stderr.take().unwrap()));
+        let status = child.wait();
+        TEST_PIDS.lock().unwrap_or_else(|e| e.into_inner()).remove(&label);
+        Ok(Captured {
+            code: status.ok().and_then(|s| s.code()).unwrap_or(-1),
+            out: out.join().unwrap_or_default(),
+            err: err.join().unwrap_or_default(),
+        })
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+fn test_stop(window: tauri::WebviewWindow) {
+    let Some(pid) = TEST_PIDS.lock().unwrap_or_else(|e| e.into_inner()).remove(window.label()) else { return };
+    #[cfg(windows)]
+    {
+        let _ = command_at(Path::new("taskkill")).args(["/T", "/F", "/PID", &pid.to_string()]).status();
+    }
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill").args(["-s", "KILL", "--", &format!("-{pid}")]).status();
+    }
 }
 
 fn stop_task(procs: &Procs, label: &str) {
@@ -1535,6 +1672,7 @@ pub fn run() {
             settings_path,
             list_dir,
             read_file,
+            read_text,
             write_file,
             create_file,
             create_dir,
@@ -1558,6 +1696,8 @@ pub fn run() {
             term_close,
             git,
             run_capture,
+            run_test,
+            test_stop,
             http_get,
             debugger_path,
             install_debugger,
