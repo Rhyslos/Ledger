@@ -191,7 +191,7 @@ export function settingsHtml() {
 
     <section aria-labelledby="sEdit"><h2 id="sEdit">Editing</h2>
       ${row("Tab size", select("sTab", "tabSize", [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]]), "", "sTab")}
-      ${row("Wrapping", check("sWrap", "wordWrap", "Wrap long lines"))}
+      ${row("Wrapping", check("sWrap", "wordWrap", "Wrap long lines"), "Alt+Z turns it on and off from anywhere.")}
       ${row("Type hints", check("sHints", "inlayHints", "Show the types and parameter names the language server works out, in grey"), "They aren't part of your file. Rust and C# only.")}
       ${row("Formatting", check("sFmt", "formatOnSave", "Format Rust and C# files when saving"))}
       ${row("Preview tabs", check("sPreview", "previewTabs", "Clicking through files in the explorer reuses one tab"), "The file shows in a tab in italics, and the next file you click takes its place. Editing, saving, double-clicking or pinning it (right-click the tab) keeps it open.")}
