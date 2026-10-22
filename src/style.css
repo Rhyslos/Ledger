@@ -572,3 +572,31 @@ th.db-n { z-index: 2; background: var(--side); }
 .tab .fi { width: 15px; height: 15px; }
 .li .fi { margin: 2px 0 0 1px; }
 .phead .fi { width: 14px; height: 14px; }
+
+/* Preview tab (replaced by the next file clicked in the explorer) and pinned tabs */
+.tab.preview .tl { font-style: italic; }
+.tab.pinned { box-shadow: inset 0 2px 0 var(--muted); }
+.tab.pinned .tl::before { content: "📌"; font-size: 10px; margin-right: 4px; filter: grayscale(1); opacity: .75; }
+
+/* Tests panel (src/tests.js) */
+.tests { overflow: auto; flex: 1; min-height: 0; font-size: 13px; }
+.tbar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 1; }
+.tbar .sp { flex: 1; }
+.tsum { color: var(--muted); white-space: nowrap; }
+.tsum .t-pass { color: var(--good); } .tsum .t-fail { color: var(--seal); }
+.tnote { margin: 8px 10px; padding: 8px 10px; border-left: 3px solid var(--seal); background: var(--side); white-space: pre-wrap; font-family: var(--code-font); font-size: 12px; }
+.tfile { display: flex; align-items: center; gap: 6px; padding: 6px 10px 2px; color: var(--muted); font-weight: 500; }
+.trow { display: flex; align-items: center; gap: 8px; padding: 2px 10px 2px 28px; cursor: pointer; border-radius: var(--r); }
+.trow:hover { background: var(--hover); }
+.trow .tname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--code-font); font-size: 12.5px; }
+.trow .tms { color: var(--faint); font-size: 12px; }
+.trow .ibtn { opacity: 0; font-size: 10px; }
+.trow:hover .ibtn, .trow:focus .ibtn { opacity: 1; }
+.tico { width: 14px; text-align: center; font-weight: 700; color: var(--faint); }
+.trow.t-pass .tico { color: var(--good); } .trow.t-fail .tico { color: var(--seal); } .trow.t-running .tico { color: var(--accent); animation: spin 1s linear infinite; }
+.tmsg { margin: 2px 10px 6px 50px; padding: 6px 10px; background: var(--side); border-left: 3px solid var(--seal); white-space: pre-wrap; font-family: var(--code-font); font-size: 12px; color: var(--ink); }
+.tmsg a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+.cm-tests .cm-gutterElement { padding: 0 2px; cursor: pointer; }
+.tmark { font-size: 12px; font-weight: 700; color: var(--faint); }
+.tmark.t-pass { color: var(--good); } .tmark.t-fail { color: var(--seal); } .tmark.t-running { color: var(--accent); }
+.tmark.t-idle { opacity: .55; font-weight: 400; }
