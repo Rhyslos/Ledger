@@ -29,6 +29,9 @@ for (const id of used) {
   n++;
 }
 copyFileSync(join(pkg, "LICENSE"), join(dir, "LICENSE.txt"));
-copyFileSync("src/assets/lust.svg", join(dir, "lust.svg"));
+// Lust's own icons: Lt (programs), Ls (LustScript), Lq (LustQL).
+copyFileSync("src/assets/lust-lst.svg", join(dir, "lust.svg"));
+copyFileSync("src/assets/lust-lsc.svg", join(dir, "lust-script.svg"));
+copyFileSync("src/assets/lust-lql.svg", join(dir, "lust-query.svg"));
 writeFileSync("src/fileicons.json", JSON.stringify(out));
 console.log(`${n} icons in ${dir}, map in src/fileicons.json`);

@@ -7,7 +7,10 @@ import { langOf, LANGS } from "./langs.js";
 export function iconFor(path, dir = false, open = false) {
   const name = String(path).split(/[\\/]/).pop().toLowerCase();
   if (dir) return (open ? MAP.folderOpen : MAP.folder)[name] || (open ? "folder-open" : "folder");
-  if (/\.(lst|lsc|lust)$/.test(name)) return "lust";
+  // Lust's own: Lt for programs (.lst, and Lust 1's .lust), Ls for LustScript, Lq for LustQL.
+  if (/\.(lst|lust)$/.test(name)) return "lust";
+  if (/\.lsc$/.test(name)) return "lust-script";
+  if (/\.lql$/.test(name)) return "lust-query";
   if (MAP.name[name]) return MAP.name[name];
   for (let i = name.indexOf("."); i >= 0; i = name.indexOf(".", i + 1)) {
     const e = MAP.ext[name.slice(i + 1)];
