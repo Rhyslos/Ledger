@@ -7,6 +7,7 @@ import { initUpdate } from "./update.js";
 import { initDb, DB_EXT } from "./db.js";
 import { initImages, IMG_EXT } from "./image.js";
 import { initMarkdown } from "./md.js";
+import { initTests } from "./tests.js";
 import { iconHtml } from "./icons.js";
 import { VITE, createSteps, withTailwindPlugin, CSS_FILES, FIRST_FILES } from "./scaffold.js";
 import { initTailwind, tailwindSource, tailwindChanged, tailwindWarm, inClassList } from "./tailwind.js";
@@ -3012,7 +3013,7 @@ const app = {
   showPanel, focusPanel, focusZone, currentZone, showSideView, sideViews, get sideView() { return sideView; },
   openFile, activate, addTab, save, saveAll, startSteps, appendOut, renderTabs, renderMain, renderStatus, scheduleUi,
   dispatchBuf, serverOf, needServer, syncDoc, renderMd, hl, norm, rel, base, parent, join, isUnder, isAbs, esc, splitArgs,
-  highlightInto, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [],
+  highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [],
   cwd: () => S.ctx?.dir || S.root || "",
   updateCtx, taskKind, projectFor, projectDirs, invoke, keyString, openFolder, closeFolder,
   run: (id) => keymap.cmds.get(id)?.run(),
@@ -3081,6 +3082,7 @@ async function boot() {
   initDb(app);
   initImages(app);
   initMarkdown(app);
+  initTests(app);
   debug = app.debug = initDebugger(app);
   view = panes[0].view = new EditorView({ parent: $("editor") });
   panes[0].el.classList.add("focused");
