@@ -14,15 +14,33 @@ on:
 permissions:
   contents: write
 
-# When several merges land close together, only the newest build publishes: an older one finishing
-# last would otherwise become the "latest" release and the updater would offer a version that's missing
-# the newer changes.
-concurrency:
-  group: windows-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
-
+# When several merges land close together, only the build of the newest commit publishes; the
+# others are skipped instead of cancelled, so nothing is stopped half-way. (An older build finishing
+# last would otherwise become the "latest" release, missing the newer changes.) A pull request's
+# build is skipped once the pull request is merged or closed, since main builds it then.
 jobs:
+  newest:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          go=true
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            head=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF_NAME" --jq .sha)
+            [ "$head" = "$GITHUB_SHA" ] || { go=false; echo "::notice::A newer commit is on $GITHUB_REF_NAME; its build publishes instead."; }
+          elif [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            state=$(gh api "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}" --jq .state)
+            [ "$state" = open ] || { go=false; echo "::notice::The pull request is $state; the build of main covers it."; }
+          fi
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: newest
+    if: needs.newest.outputs.go == 'true'
     runs-on: windows-latest
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -97,6 +115,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $v = $env:LEDGER_VERSION
+          # Still the newest? A merge that landed while this built publishes instead.
+          $head = gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:GITHUB_REF_NAME" --jq .sha
+          if ($head -ne $env:GITHUB_SHA) { Write-Host "::notice::A newer commit is on $env:GITHUB_REF_NAME; not publishing $v."; exit 0 }
           gh release create "v$v" (Get-ChildItem release -File).FullName --title "Ledger $v" --notes "$(git log -1 --pretty=%B)" --target $env:GITHUB_SHA
 
       - uses: actions/upload-artifact@v4
