@@ -7,6 +7,7 @@ import { initUpdate } from "./update.js";
 import { initDb, DB_EXT } from "./db.js";
 import { initImages, IMG_EXT } from "./image.js";
 import { initMarkdown } from "./md.js";
+import { iconHtml } from "./icons.js";
 import { VITE, createSteps, withTailwindPlugin, CSS_FILES, FIRST_FILES } from "./scaffold.js";
 import { initTailwind, tailwindSource, tailwindChanged, inClassList } from "./tailwind.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -85,6 +86,9 @@ const nav = { back: [], fwd: [] };
 const $ = (id) => document.getElementById(id);
 let view = null;
 const isPage = (k) => typeof k === "string" && k.startsWith("@");
+// File icons by type (Settings › Appearance › File icons), or the coloured dots.
+const fileIcons = () => settings.fileIcons !== false;
+const mark = (path) => (fileIcons() && path ? iconHtml(path) : '<span class="dot"></span>');
 const isVirtual = (p) => /^[a-z]+:/i.test(p) && !/^[A-Za-z]:\//.test(p); // csharp:/metadata/…
 
 // ---------- paths ----------
@@ -957,7 +961,7 @@ function renderPaneHeads() {
     if (!split) return;
     const k = P.key;
     const b = S.bufs.get(k);
-    h.innerHTML = `<span class="dot" style="--tc:var(--t-${k ? (isPage(k) ? "cfg" : dotOf(k)) : "other"})"></span><span>${k ? esc(tabLabel(k)) : ""}${b?.dirty ? " ●" : ""}</span>${i === 1 ? `<button class="ibtn" data-unsplit title="Close split (${esc(keymap.label("editor.unsplit"))})" aria-label="Close split"><svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>` : ""}`;
+    h.innerHTML = `${k && !isPage(k) && !isVirtual(k) && fileIcons() ? iconHtml(k) : `<span class="dot" style="--tc:var(--t-${k ? (isPage(k) ? "cfg" : dotOf(k)) : "other"})"></span>`}<span>${k ? esc(tabLabel(k)) : ""}${b?.dirty ? " ●" : ""}</span>${i === 1 ? `<button class="ibtn" data-unsplit title="Close split (${esc(keymap.label("editor.unsplit"))})" aria-label="Close split"><svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>` : ""}`;
   });
 }
 $("pane1").addEventListener("click", (ev) => { if (ev.target.closest("[data-unsplit]")) closeSplit(); });
@@ -1346,7 +1350,7 @@ function nodeHtml(n, depth) {
     const open = S.open.has(n.path);
     const c = dirCounts(n.path);
     const gd = app.treeDecor?.(n.path, true);
-    let h = `<button class="node folder${DIMMED.has(n.name) ? " dim" : ""}${c.e ? " err" : c.w ? " warn" : ""}${cur ? " sel" : ""}${gd && !c.e && !c.w ? " " + gd.cls : ""}" ${common} style="padding-left:${pad}px" data-dir="${esc(n.path)}" aria-expanded="${open}"><span class="chev${open ? " open" : ""}">${CHEV}</span><span class="ico">${ICON_FOLDER}</span><span class="lbl">${esc(n.name)}</span>${open ? "" : cntHtml(c)}</button>`;
+    let h = `<button class="node folder${DIMMED.has(n.name) ? " dim" : ""}${c.e ? " err" : c.w ? " warn" : ""}${cur ? " sel" : ""}${gd && !c.e && !c.w ? " " + gd.cls : ""}" ${common} style="padding-left:${pad}px" data-dir="${esc(n.path)}" aria-expanded="${open}"><span class="chev${open ? " open" : ""}">${CHEV}</span>${fileIcons() ? iconHtml(n.path, true, open) : `<span class="ico">${ICON_FOLDER}</span>`}<span class="lbl">${esc(n.name)}</span>${open ? "" : cntHtml(c)}</button>`;
     if (open) {
       const kids = S.kids.get(n.path);
       h += `<div role="group">` + (kids ? (kids.length ? kids.map((k) => nodeHtml(k, depth + 1)).join("") : `<div class="hint" style="padding:2px 0 4px ${pad + 32}px">Empty</div>`) : `<div class="hint" style="padding:2px 0 4px ${pad + 32}px">Loading…</div>`) + `</div>`;
@@ -1355,7 +1359,7 @@ function nodeHtml(n, depth) {
   }
   const c = counts(S.diags.get(n.path));
   const gd = app.treeDecor?.(n.path, false);
-  return `<button class="node${S.active === n.path ? " active" : ""}${c.e ? " err" : c.w ? " warn" : ""}${cur ? " sel" : ""}${gd && !c.e && !c.w ? " " + gd.cls : ""}" ${common} style="padding-left:${pad + 16}px;--tc:var(--t-${dotOf(n.path)})" data-file="${esc(n.path)}" title="${esc(rel(n.path))}"><span class="dot"></span><span class="lbl">${esc(n.name)}</span>${cntHtml(c, S.bufs.get(n.path)?.dirty)}${gd?.badge || ""}</button>`;
+  return `<button class="node${S.active === n.path ? " active" : ""}${c.e ? " err" : c.w ? " warn" : ""}${cur ? " sel" : ""}${gd && !c.e && !c.w ? " " + gd.cls : ""}" ${common} style="padding-left:${pad + 16}px;--tc:var(--t-${dotOf(n.path)})" data-file="${esc(n.path)}" title="${esc(rel(n.path))}">${mark(n.path)}<span class="lbl">${esc(n.name)}</span>${cntHtml(c, S.bufs.get(n.path)?.dirty)}${gd?.badge || ""}</button>`;
 }
 
 function renderTree() {
@@ -1373,7 +1377,7 @@ function renderTree() {
     if (!hits.includes(S.sel)) S.sel = hits[0] || null;
     tree.innerHTML = hits.map((p) => {
       const r = rel(p), dir = r.includes("/") ? r.slice(0, r.lastIndexOf("/")) : "";
-      return `<button class="node${S.active === p ? " active" : ""}${S.sel === p ? " sel" : ""}" role="treeitem" aria-level="1" tabindex="${S.sel === p ? 0 : -1}" style="padding-left:4px;--tc:var(--t-${dotOf(p)})" data-file="${esc(p)}" title="${esc(r)}"><span class="dot"></span><span class="lbl" style="flex:0 1 auto">${esc(base(p))}</span><span class="sub">${esc(dir)}</span></button>`;
+      return `<button class="node${S.active === p ? " active" : ""}${S.sel === p ? " sel" : ""}" role="treeitem" aria-level="1" tabindex="${S.sel === p ? 0 : -1}" style="padding-left:4px;--tc:var(--t-${dotOf(p)})" data-file="${esc(p)}" title="${esc(r)}">${mark(p)}<span class="lbl" style="flex:0 1 auto">${esc(base(p))}</span><span class="sub">${esc(dir)}</span></button>`;
     }).join("") || '<p class="hint" style="padding:6px 8px">No files match.</p>';
   } else {
     const kids = S.kids.get(S.root);
@@ -1612,7 +1616,7 @@ function renderTabs() {
     const b = S.bufs.get(p), c = counts(S.diags.get(p)), on = p === S.active;
     const dot = p === SETTINGS_TAB ? "cfg" : b?.virtual ? "cs" : pageOf(p) ? pageOf(p).dot : dotOf(p);
     const there = split && otherPane().key === p;
-    return `<div class="tab${on ? " on" : ""}${there ? " there" : ""}${b?.dirty ? " dirty" : ""}" role="tab" aria-selected="${on}" style="--tc:var(--t-${dot})" data-tab="${esc(p)}" title="${esc(isPage(p) || b?.virtual ? tabLabel(p) : rel(p))}${there ? "  ·  open in the other pane" : ""}${i < 8 ? `  ·  Ctrl ${i + 1}` : ""}" tabindex="${on ? 0 : -1}"><span class="dot"></span><span class="tl${c.e ? " e" : c.w ? " w" : ""}">${esc(tabLabel(p))}</span>${b?.ro ? '<span class="ro">read-only</span>' : ""}<span class="x" data-close="${esc(p)}" role="button" aria-label="Close ${esc(tabLabel(p))}"><span>×</span></span></div>`;
+    return `<div class="tab${on ? " on" : ""}${there ? " there" : ""}${b?.dirty ? " dirty" : ""}" role="tab" aria-selected="${on}" style="--tc:var(--t-${dot})" data-tab="${esc(p)}" title="${esc(isPage(p) || b?.virtual ? tabLabel(p) : rel(p))}${there ? "  ·  open in the other pane" : ""}${i < 8 ? `  ·  Ctrl ${i + 1}` : ""}" tabindex="${on ? 0 : -1}">${isPage(p) || b?.virtual ? '<span class="dot"></span>' : mark(p)}<span class="tl${c.e ? " e" : c.w ? " w" : ""}">${esc(tabLabel(p))}</span>${b?.ro ? '<span class="ro">read-only</span>' : ""}<span class="x" data-close="${esc(p)}" role="button" aria-label="Close ${esc(tabLabel(p))}"><span>×</span></span></div>`;
   }).join("");
   $("tabs").querySelector(".tab.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   if (hadFocus) $("tabs").querySelector(`[data-tab="${CSS.escape(hadFocus)}"]`)?.focus();
@@ -1660,7 +1664,7 @@ function renderWelcome() {
       ? `<button class="btn primary" data-w="find">Go to file <kbd>${k("file.goto")}</kbd></button>${taskKind() ? `<button class="btn" data-w="run">${esc(taskLabel("run"))} <kbd>${k("task.run")}</kbd></button>` : ""}<button class="btn" data-w="open">Open another folder</button>`
       : `<button class="btn primary" data-w="open">Open folder <kbd>${k("folder.open")}</kbd></button><button class="btn" data-w="new">New project</button>`}
       <button class="btn" data-w="settings">Settings <kbd>${k("settings.open")}</kbd></button></div>
-    ${recent.length ? `<section><h2>Recent <span class="hint" style="font-weight:400">· Ctrl Enter opens in a new window</span></h2><div class="list" role="list">${recent.map((r, i) => `<div class="li" role="button" tabindex="${i ? -1 : 0}" data-recent="${esc(r)}" style="--tc:var(--t-rs)"><span class="dot"></span><span class="t">${esc(base(r))}</span><span class="m">${esc(parent(r))}</span></div>`).join("")}</div></section>` : ""}
+    ${recent.length ? `<section><h2>Recent <span class="hint" style="font-weight:400">· Ctrl Enter opens in a new window</span></h2><div class="list" role="list">${recent.map((r, i) => `<div class="li" role="button" tabindex="${i ? -1 : 0}" data-recent="${esc(r)}" style="--tc:var(--t-rs)">${fileIcons() ? iconHtml(r, true) : '<span class="dot"></span>'}<span class="t">${esc(base(r))}</span><span class="m">${esc(parent(r))}</span></div>`).join("")}</div></section>` : ""}
     <section><h2>Getting around</h2><div class="keys">${[
       ["settings.open", "Settings"], ["file.goto", "Go to file"], ["palette", "All commands and their keys"], ["focus.next", "Move between explorer, editor, panel and status bar"],
       ["focus.explorer", "Explorer: arrows, Enter, F2 rename, Delete"], ["task.run", "Run, or Play in Godot projects"], ["task.build", "Build"], ["problems.next", "Next problem"],
@@ -2112,6 +2116,7 @@ function reconfigureAll() {
   for (const p of S.bufs.keys()) dispatchBuf(p, { effects: cfg.reconfigure(cfgExt()) });
 }
 function applySetting(key) {
+  if (key === "fileIcons") { renderTree(); renderTabs(); renderPaneHeads(); }
   if ((key === "luaVersion" || key === "luaServer") && started(servers.lua)) startServer("lua");
   if (key === "theme" || key === "codeColours" || key === "smoothCaret" || key === "cursorStyle") applyTheme();
   if (["fontSize", "fontFamily", "uiFont", "uiSize"].includes(key)) applyFonts();
@@ -2395,8 +2400,9 @@ function hlText(text, q) {
   const i = text.toLowerCase().indexOf(q.toLowerCase());
   return i < 0 ? esc(text) : esc(text.slice(0, i)) + "<mark>" + esc(text.slice(i, i + q.length)) + "</mark>" + esc(text.slice(i + q.length));
 }
+const fdot = (path) => ({ dot: dotOf(path), path }); // a palette row for a file: its icon
 const row = (i, dot, title, meta, extra, code) =>
-  `<div class="li" role="option" tabindex="-1" data-pi="${i}" aria-selected="${i === pal.sel}" style="--tc:var(--t-${dot})"><span class="dot"></span><span class="t">${title}</span><span class="m">${meta}</span>${extra ? `<span class="x${code ? " code" : ""}">${extra}</span>` : ""}</div>`;
+  `<div class="li" role="option" tabindex="-1" data-pi="${i}" aria-selected="${i === pal.sel}" style="--tc:var(--t-${dot.dot || dot})">${dot.path ? mark(dot.path) : '<span class="dot"></span>'}<span class="t">${title}</span><span class="m">${meta}</span>${extra ? `<span class="x${code ? " code" : ""}">${extra}</span>` : ""}</div>`;
 
 function drawPalette() {
   const v = $("palIn").value, res = $("palRes");
@@ -2422,7 +2428,7 @@ function drawPalette() {
         drawPalette();
       }, 160);
     }
-    html = pal.list.map((h, i) => row(i, dotOf(h.path), esc(rel(h.path)) + `<span style="color:var(--faint)">:${h.line + 1}</span>`, "", hlText(h.text.trim(), q.trim()), true)).join("")
+    html = pal.list.map((h, i) => row(i, fdot(h.path), esc(rel(h.path)) + `<span style="color:var(--faint)">:${h.line + 1}</span>`, "", hlText(h.text.trim(), q.trim()), true)).join("")
       || (q.trim().length > 1 ? `<p class="empty" style="padding:8px 10px">${pal.searchT ? "Searching…" : "No matches."}</p>` : "");
     if (pal.list.length >= 500) html += '<p class="empty" style="padding:6px 10px">Showing the first 500 matches.</p>';
   } else if (pal.mode === "files" && palModes.some((m) => v.startsWith(m.prefix))) {
@@ -2439,7 +2445,7 @@ function drawPalette() {
     const has = S.bufs.has(S.active);
     const total = has ? view.state.doc.lines : 0;
     pal.list = has && l > 0 ? [{ goto: { line: Math.min(l, total) - 1, character: (c || 1) - 1 } }] : [];
-    html = has ? (pal.list.length ? row(0, dotOf(S.active), `Go to line ${Math.min(l, total)}${c ? `, column ${c}` : ""}`, "", "") : `<p class="empty" style="padding:8px 10px">Type a line number, 1 to ${total}.</p>`) : '<p class="empty" style="padding:8px 10px">Open a file first.</p>';
+    html = has ? (pal.list.length ? row(0, fdot(S.active), `Go to line ${Math.min(l, total)}${c ? `, column ${c}` : ""}`, "", "") : `<p class="empty" style="padding:8px 10px">Type a line number, 1 to ${total}.</p>`) : '<p class="empty" style="padding:8px 10px">Open a file first.</p>';
   } else {
     const q = v.trim().toLowerCase().replace(/\\/g, "/");
     const files = S.files || [];
@@ -2452,7 +2458,7 @@ function drawPalette() {
       list = files.map((p) => [p, fuzzy(q, rel(p)) + (q.includes(" ") && base(p).toLowerCase().startsWith(last) ? 25 : 0)]).filter(([, s]) => s >= 0).sort((a, b) => b[1] - a[1]).slice(0, 80).map(([p]) => p);
     }
     pal.list = list.map((p) => ({ path: p }));
-    html = pal.list.map((f, i) => { const r = rel(f.path), d = r.includes("/") ? r.slice(0, r.lastIndexOf("/")) : ""; return row(i, dotOf(f.path), hlText(base(f.path), q.split(/\s+/).pop()), esc(d), ""); }).join("")
+    html = pal.list.map((f, i) => { const r = rel(f.path), d = r.includes("/") ? r.slice(0, r.lastIndexOf("/")) : ""; return row(i, fdot(f.path), hlText(base(f.path), q.split(/\s+/).pop()), esc(d), ""); }).join("")
       || `<p class="empty" style="padding:8px 10px">${S.root ? (S.files ? "No files match." : "Loading files…") : "Open a folder first."}</p>`;
   }
   pal.sel = Math.min(pal.sel, Math.max(0, pal.list.length - 1));
@@ -2902,7 +2908,7 @@ const app = {
   showPanel, focusPanel, focusZone, currentZone, showSideView, sideViews, get sideView() { return sideView; },
   openFile, activate, addTab, save, saveAll, startSteps, appendOut, renderTabs, renderMain, renderStatus, scheduleUi,
   dispatchBuf, serverOf, needServer, syncDoc, renderMd, hl, norm, rel, base, parent, join, isUnder, isAbs, esc, splitArgs,
-  highlightInto, pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [],
+  highlightInto, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [],
   cwd: () => S.ctx?.dir || S.root || "",
   updateCtx, taskKind, projectFor, projectDirs, invoke, keyString, openFolder, closeFolder,
   run: (id) => keymap.cmds.get(id)?.run(),

@@ -14,6 +14,7 @@ export const DEFAULTS = {
   uiSize: 14,
   statusBar: "bottom",
   codeColours: "quiet",
+  fileIcons: true,
   wordWrap: false,
   bracketColors: true,
   indentGuides: true,
@@ -183,6 +184,7 @@ export function settingsHtml() {
       ${row("Interface font", text("sUiFont", "uiFont", "IBM Plex Sans", "text", 'list="uiFonts"') + `<datalist id="uiFonts">${["Noto Sans", "Segoe UI", "Inter", "Arial"].map((f) => `<option value="${f}">`).join("")}</datalist>`, "The menus, tabs, side bar and settings. Pick one or type any installed font. Leave empty for the default.", "sUiFont")}
       ${row("Interface text size", text("sUi", "uiSize", "14", "number", 'min="11" max="20" step="0.5"'), "", "sUi")}
       ${row("Code colours", select("sCode", "codeColours", [["quiet", "Quiet, like Lust"], ["colourful", "Colourful"]]), "Quiet keeps code calm: keywords in red, classes in blue, types in a soft green, values in gold and constants in teal, with the rest plain. Lust files are always quiet.", "sCode")}
+      ${row("File icons", check("sFileIcons", "fileIcons", "An icon for each kind of file (JavaScript, C#, package.json…) in the explorer, tabs and lists"), "Icons from the Material Icon Theme. Off shows the coloured dots instead.")}
       ${row("Status bar", select("sStatus", "statusBar", [["bottom", "Along the bottom"], ["top", "Along the top"]]), "The bar with Run, Build, problems and the cursor position.", "sStatus")}
     </section>
 

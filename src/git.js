@@ -305,7 +305,7 @@ export function initGit(app) {
   function fileRow(path, st, kind, i) {
     const r = app.rel(path), dir = r.includes("/") ? r.slice(0, r.lastIndexOf("/")) : "";
     const l = kind === "staged" ? (st.x === "?" ? "U" : st.x) : letter(st);
-    return `<button class="node g-${l === "!" ? "D" : l}" role="treeitem" tabindex="${i === 0 ? 0 : -1}" data-gp="${esc(path)}" data-gk="${kind}" style="padding-left:12px;--tc:var(--t-${dotOf(path)})" title="${esc(r)} · ${esc(describe(st))}"><span class="dot"></span><span class="lbl" style="flex:0 1 auto">${esc(app.base(path))}</span><span class="sub" style="flex:1">${esc(dir)}</span><span class="gs ${l === "!" ? "D" : l}">${l}</span></button>`;
+    return `<button class="node g-${l === "!" ? "D" : l}" role="treeitem" tabindex="${i === 0 ? 0 : -1}" data-gp="${esc(path)}" data-gk="${kind}" style="padding-left:12px;--tc:var(--t-${dotOf(path)})" title="${esc(r)} · ${esc(describe(st))}">${app.fileIcon(path)}<span class="lbl" style="flex:0 1 auto">${esc(app.base(path))}</span><span class="sub" style="flex:1">${esc(dir)}</span><span class="gs ${l === "!" ? "D" : l}">${l}</span></button>`;
   }
   function renderView() {
     const box = $("git");

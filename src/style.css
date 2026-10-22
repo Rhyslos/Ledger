@@ -560,3 +560,10 @@ th.db-n { z-index: 2; background: var(--side); }
 .md hr { border: 0; border-top: 1px solid var(--line); margin: 1.6em 0; }
 .md ul, .md ol { padding-left: 1.6em; }
 .md li > input[type="checkbox"] { margin-right: .4em; }
+
+/* File icons (src/icons.js) in place of the coloured dots */
+.fi { width: 16px; height: 16px; flex: none; display: block; object-fit: contain; }
+.node .fi { margin: 0 2px 0 0; }
+.tab .fi { width: 15px; height: 15px; }
+.li .fi { margin: 2px 0 0 1px; }
+.phead .fi { width: 14px; height: 14px; }
