@@ -192,8 +192,8 @@ export function settingsHtml() {
     <section aria-labelledby="sEdit"><h2 id="sEdit">Editing</h2>
       ${row("Tab size", select("sTab", "tabSize", [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]]), "", "sTab")}
       ${row("Wrapping", check("sWrap", "wordWrap", "Wrap long lines"), "Alt+Z turns it on and off from anywhere.")}
-      ${row("Type hints", check("sHints", "inlayHints", "Show the types and parameter names the language server works out, in grey"), "They aren't part of your file. Rust and C# only.")}
-      ${row("Formatting", check("sFmt", "formatOnSave", "Format Rust and C# files when saving"))}
+      ${row("Type hints", check("sHints", "inlayHints", "Show the types and parameter names the language server works out, in grey"), "They aren't part of your file. Rust, C#, TypeScript and Lua send them.")}
+      ${row("Formatting", check("sFmt", "formatOnSave", "Format files when saving (with the language server, for languages whose server formats)"))}
       ${row("Preview tabs", check("sPreview", "previewTabs", "Clicking through files in the explorer reuses one tab"), "The file shows in a tab in italics, and the next file you click takes its place. Editing, saving, double-clicking or pinning it (right-click the tab) keeps it open.")}
       ${row("Auto save", select("sAuto", "autoSave", [["off", "Off"], ["delay", "A second after typing stops"], ["focus", "When switching tabs or apps"]]), "", "sAuto")}
       ${row("Brackets", check("sBr", "bracketColors", "Colour matching bracket pairs by depth"))}
@@ -213,7 +213,7 @@ export function settingsHtml() {
     </section>
 
     <section aria-labelledby="sInst"><h2 id="sInst">Languages</h2>
-      <p class="hint">Ledger installs these with winget, which comes with Windows. Run also offers to install whatever a project needs.</p>
+      <p class="hint">Ledger installs these with winget, which comes with Windows (the web language servers with npm, Lust with cargo). Run also offers to install whatever a project needs.</p>
       ${row("Web servers", `<div class="tool">JavaScript and TypeScript: ${found(tools.tsls, "")}</div><div class="tool">HTML, CSS and JSON: ${found(tools.htmlls, "")}</div><div class="bar"><button class="btn" data-act="tsls-install">${tools.tsls && tools.htmlls ? "Update" : "Install"} the web language servers</button><button class="btn" data-act="restart-web">Restart</button></div>`, "Completions, errors, hover help and go-to-definition for JavaScript, TypeScript, React, HTML, CSS and JSON (package.json, tsconfig and other config files are checked against their schemas). Installed with npm, so Node.js comes first. Tailwind classes complete on their own in any project that uses Tailwind.")}
       ${Object.entries(INSTALLS).map(([k, t]) => {
         // .NET: an older SDK counts as found, but the C# server needs 10, so say so and offer that one.
@@ -256,7 +256,7 @@ export function settingsHtml() {
     </section>
 
     <section aria-labelledby="sLust"><h2 id="sLust">Lust</h2>
-      ${row("lust", text("sLustPath", "lust", "lust") + `<div class="tool">${tools.lustVersion ? esc(tools.lustVersion) + " · " : ""}${found(tools.lust, 'Download <b>lust-windows</b> from the Actions tab of the <a href="https://github.com/Rhyslos/Lust" target="_blank">Lust repo</a> (or run <code>cargo build --release</code> in it), then put the full path to lust.exe here.')}</div><div class="bar"><button class="btn" data-act="lust-install">${tools.lust ? "Update" : "Install"} Lust</button></div>`, "Install builds Lust from github.com/Rhyslos/Lust with Rust (installed first if needed), which takes a few minutes. Runs Lust files, .lst and .lsc (Run, Check, Build), and checks them for mistakes when you save. A name on PATH or a full path to lust.exe.", "sLustPath")}
+      ${row("lust", text("sLustPath", "lust", "lust") + `<div class="tool">${tools.lustVersion ? esc(tools.lustVersion) + " · " : ""}${found(tools.lust, 'Use <b>Install Lust</b> below, or put the full path to lust.exe here.')}</div><div class="bar"><button class="btn" data-act="lust-install">${tools.lust ? "Update" : "Install"} Lust</button></div>`, "Install builds Lust from github.com/Rhyslos/Lust with Rust (installed first if needed), which takes a few minutes. Runs Lust files, .lst and .lsc (Run, Check, Build), and checks them for mistakes when you save. A name on PATH or a full path to lust.exe.", "sLustPath")}
     </section>
 
     <section aria-labelledby="sLua"><h2 id="sLua">Lua</h2>
@@ -328,7 +328,7 @@ export function wireSettings(root, rerender) {
     if (act === "restart-web") ["web", "css", "html"].forEach((id) => ctx.restartServer(id));
     if (act === "tsls-install") {
       const ids = ["web", "css", "html"];
-      const go = () => { ids.forEach((id) => ctx.stopServer(id)); ctx.runTask("npm", ["install", "--global", "typescript", "typescript-language-server", "vscode-langservers-extracted"], "Installing the web language servers", () => { refreshTools().then(() => rerender(true)); ids.forEach((id) => ctx.restartServer(id)); }); };
+      const go = () => { ids.forEach((id) => ctx.stopServer(id)); ctx.runTask("npm", ["install", "--global", "typescript", "typescript-language-server", "vscode-langservers-extracted"], "Installing the web language servers", () => { refreshTools().then(() => rerender(true)); ids.forEach((id) => ctx.restartServer(id)); }, () => { refreshTools().then(() => rerender(true)); ids.forEach((id) => ctx.restartServer(id)); }); };
       if (tools.node) go(); else installTool("node", (ok) => ok && go());
       return;
     }
@@ -371,7 +371,9 @@ export function wireSettings(root, rerender) {
       return;
     }
     if (act === "ra-install") await ctx.stopServer("rust");
-    if (act === "ra-install") ctx.runTask("rustup", ["component", "add", "rust-analyzer", "rust-src"], "Installing rust-analyzer", () => { refreshTools().then(() => rerender(true)); ctx.restartServer("rust"); });
+    // The server comes back whether the install worked or not (it was stopped to replace its files).
+    const raBack = () => { refreshTools().then(() => rerender(true)); ctx.restartServer("rust"); };
+    if (act === "ra-install") ctx.runTask("rustup", ["component", "add", "rust-analyzer", "rust-src"], "Installing rust-analyzer", raBack, raBack);
     if (act === "restart-rust") ctx.restartServer("rust");
     if (act === "snippets") ctx.editSnippets?.();
     if (act === "dbg-install-rust" || act === "dbg-install-csharp") {

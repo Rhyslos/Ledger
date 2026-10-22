@@ -11,6 +11,7 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::Instant;
+use tauri::WebviewWindow;
 
 type Res<T> = Result<T, String>;
 
@@ -21,14 +22,24 @@ const MAX_QUERY_ROWS: usize = 5000;
 /// for all of them (SQLite turns them off in every new connection).
 static CONNS: LazyLock<Mutex<HashMap<String, Arc<Mutex<Connection>>>>> = LazyLock::new(Default::default);
 
-fn conn(path: &str) -> Res<Arc<Mutex<Connection>>> {
+/// Connections are per window too: closing a tab in one window leaves another window's transaction alone.
+fn key(win: &str, path: &str) -> String {
+    format!("{win}\u{1}{path}")
+}
+
+fn conn(win: &str, path: &str) -> Res<Arc<Mutex<Connection>>> {
     let mut all = CONNS.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(c) = all.get(path) {
+    if let Some(c) = all.get(&key(win, path)) {
         return Ok(c.clone());
     }
     let c = Arc::new(Mutex::new(open(path)?));
-    all.insert(path.to_string(), c.clone());
+    all.insert(key(win, path), c.clone());
     Ok(c)
+}
+
+/// When a window closes, its connections go (open transactions are rolled back).
+pub fn close_window(win: &str) {
+    CONNS.lock().unwrap_or_else(|e| e.into_inner()).retain(|k, _| !k.starts_with(&format!("{win}\u{1}")));
 }
 
 fn lock(c: &Arc<Mutex<Connection>>) -> MutexGuard<'_, Connection> {
@@ -37,8 +48,8 @@ fn lock(c: &Arc<Mutex<Connection>>) -> MutexGuard<'_, Connection> {
 
 /// Closes the tab's connection. A transaction left open is rolled back.
 #[tauri::command]
-pub fn db_close(path: String) {
-    CONNS.lock().unwrap_or_else(|e| e.into_inner()).remove(&path);
+pub fn db_close(window: WebviewWindow, path: String) {
+    CONNS.lock().unwrap_or_else(|e| e.into_inner()).remove(&key(window.label(), &path));
 }
 
 fn open(path: &str) -> Res<Connection> {
@@ -129,12 +140,13 @@ pub struct Table {
 }
 
 #[tauri::command]
-pub async fn db_schema(path: String) -> Res<Vec<Table>> {
-    blocking(move || schema(&path)).await
+pub async fn db_schema(window: WebviewWindow, path: String) -> Res<Vec<Table>> {
+    let win = window.label().to_string();
+    blocking(move || schema(&win, &path)).await
 }
 
-fn schema(path: &str) -> Res<Vec<Table>> {
-    let cc = conn(path)?;
+fn schema(win: &str, path: &str) -> Res<Vec<Table>> {
+    let cc = conn(win, path)?;
     let c = lock(&cc);
     let mut st = c
         .prepare("SELECT name, type, coalesce(sql, '') FROM sqlite_schema WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY type, name")
@@ -248,12 +260,13 @@ pub struct Rows {
 }
 
 #[tauri::command]
-pub async fn db_rows(path: String, view: View, offset: i64, limit: i64) -> Res<Rows> {
-    blocking(move || rows(&path, &view, offset, limit)).await
+pub async fn db_rows(window: WebviewWindow, path: String, view: View, offset: i64, limit: i64) -> Res<Rows> {
+    let win = window.label().to_string();
+    blocking(move || rows(&win, &path, &view, offset, limit)).await
 }
 
-fn rows(path: &str, v: &View, offset: i64, limit: i64) -> Res<Rows> {
-    let cc = conn(path)?;
+fn rows(win: &str, path: &str, v: &View, offset: i64, limit: i64) -> Res<Rows> {
+    let cc = conn(win, path)?;
     let c = lock(&cc);
     let (tail, ps) = clauses(&c, v)?;
     let t = ident(&v.table);
@@ -298,12 +311,13 @@ pub struct Query {
 
 /// Runs one or more statements; the last one that returns rows is shown.
 #[tauri::command]
-pub async fn db_query(path: String, sql: String) -> Res<Query> {
-    blocking(move || query(&path, &sql)).await
+pub async fn db_query(window: WebviewWindow, path: String, sql: String) -> Res<Query> {
+    let win = window.label().to_string();
+    blocking(move || query(&win, &path, &sql)).await
 }
 
-fn query(path: &str, sql: &str) -> Res<Query> {
-    let cc = conn(path)?;
+fn query(win: &str, path: &str, sql: &str) -> Res<Query> {
+    let cc = conn(win, path)?;
     let c = lock(&cc);
     let start = Instant::now();
     let mut res = Query { columns: vec![], rows: vec![], truncated: false, changed: 0, statements: 0, ms: 0, in_transaction: false };
@@ -349,12 +363,13 @@ pub enum Edit {
 
 /// Saves all edits to one table, or none of them if one fails.
 #[tauri::command]
-pub async fn db_apply(path: String, table: String, edits: Vec<Edit>) -> Res<usize> {
-    blocking(move || apply(&path, &table, edits)).await
+pub async fn db_apply(window: WebviewWindow, path: String, table: String, edits: Vec<Edit>) -> Res<usize> {
+    let win = window.label().to_string();
+    blocking(move || apply(&win, &path, &table, edits)).await
 }
 
-fn apply(path: &str, table: &str, edits: Vec<Edit>) -> Res<usize> {
-    let cc = conn(path)?;
+fn apply(win: &str, path: &str, table: &str, edits: Vec<Edit>) -> Res<usize> {
+    let cc = conn(win, path)?;
     let mut c = lock(&cc);
     // A savepoint works inside a transaction someone started with BEGIN, and on its own.
     let tx = c.savepoint().map_err(|e| e.to_string())?;
@@ -398,12 +413,13 @@ pub async fn db_create(path: String) -> Res<bool> {
 
 /// Writes a table (with the grid's filters and sort) to CSV or JSON. Returns the row count.
 #[tauri::command]
-pub async fn db_export(path: String, view: View, format: String, out: String) -> Res<usize> {
-    blocking(move || export(&path, &view, &format, &out)).await
+pub async fn db_export(window: WebviewWindow, path: String, view: View, format: String, out: String) -> Res<usize> {
+    let win = window.label().to_string();
+    blocking(move || export(&win, &path, &view, &format, &out)).await
 }
 
-fn export(path: &str, v: &View, format: &str, out: &str) -> Res<usize> {
-    let cc = conn(path)?;
+fn export(win: &str, path: &str, v: &View, format: &str, out: &str) -> Res<usize> {
+    let cc = conn(win, path)?;
     let c = lock(&cc);
     let (tail, ps) = clauses(&c, v)?;
     let mut st = c.prepare(&format!("SELECT * FROM {}{tail}", ident(&v.table))).map_err(|e| e.to_string())?;

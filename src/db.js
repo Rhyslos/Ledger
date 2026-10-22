@@ -382,7 +382,8 @@ export function initDb(app) {
   const stamps = new Map(); // path -> last seen times
   setInterval(async () => {
     const d = cur();
-    if (!d || el.hidden || document.hidden || d.mode === "sql" || pending(d) || el.querySelector(".db-input")) return;
+    const typing = el.contains(document.activeElement) && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if (!d || el.hidden || document.hidden || d.mode === "sql" || pending(d) || typing || el.querySelector(".db-input")) return;
     const t = (await invoke("file_stats", { paths: [d.path, d.path + "-wal"] }).catch(() => [])).join(",");
     const was = stamps.get(d.path);
     stamps.set(d.path, t);

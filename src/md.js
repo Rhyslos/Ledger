@@ -8,6 +8,23 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { EditorView } from "@codemirror/view";
 
+// The preview lives in Ledger's own page, so a README mustn't be able to restyle or cover the app:
+// no <style>, style attributes, forms or buttons, class names only for code-block languages, and
+// ids from the file are prefixed so they can't clash with Ledger's own.
+const PURIFY = {
+  ADD_ATTR: ["target"],
+  FORBID_TAGS: ["style", "form", "button", "textarea", "select", "option", "iframe", "object", "embed", "dialog"],
+  FORBID_ATTR: ["style"],
+  SANITIZE_NAMED_PROPS: true,
+};
+DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
+  if (data.attrName === "class" && !/^language-[\w#+-]+$/.test(data.attrValue)) data.keepAttr = false;
+});
+DOMPurify.addHook("uponSanitizeElement", (node, data) => {
+  // Task lists ([x] done) are the only inputs a preview needs: read-only checkboxes.
+  if (data.tagName === "input" && node.getAttribute?.("type") !== "checkbox") node.parentNode?.removeChild(node);
+});
+
 export function initMarkdown(app) {
   const { S, invoke } = app;
   const on = new Set(); // markdown files with the preview open
@@ -61,17 +78,19 @@ export function initMarkdown(app) {
     for (const s of parts) { if (s === "..") out.pop(); else if (s !== "." && s !== "") out.push(s); }
     return (/^[A-Za-z]:$/.test(out[0]) ? "" : "/") + out.join("/");
   }
+  const safeDecode = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
   const slug = (t) => t.toLowerCase().trim().replace(/[^\w\- ]+/g, "").replace(/\s/g, "-");
 
   function render(i, b, P) {
     const el = prevs[i];
-    const html = DOMPurify.sanitize(marked.parse(b.state.doc.toString(), { gfm: true, breaks: false }), { ADD_ATTR: ["target"] });
+    const html = DOMPurify.sanitize(marked.parse(b.state.doc.toString(), { gfm: true, breaks: false }), PURIFY);
     const top = el.scrollTop;
     el.innerHTML = html;
     el.dataset.path = P.key;
     const seen = new Map();
+    for (const cb of el.querySelectorAll("input[type=checkbox]")) cb.disabled = true;
     for (const h of el.querySelectorAll("h1, h2, h3, h4, h5, h6")) {
-      let id = slug(h.textContent);
+      let id = "md-" + slug(h.textContent);
       const n = seen.get(id) || 0;
       seen.set(id, n + 1);
       if (n) id += "-" + n;
@@ -82,7 +101,7 @@ export function initMarkdown(app) {
       if (lang) app.highlightInto?.(code, code.textContent.replace(/\n$/, ""), lang);
     }
     for (const img of el.querySelectorAll("img[src]")) {
-      const file = resolve(P.key, decodeURIComponent(img.getAttribute("src")));
+      const file = resolve(P.key, safeDecode(img.getAttribute("src")));
       if (!file) continue;
       img.removeAttribute("src");
       if (images.has(file)) { img.src = images.get(file); continue; }
@@ -117,8 +136,8 @@ export function initMarkdown(app) {
     const href = a.getAttribute("href");
     if (/^https?:/i.test(href)) return; // Ledger opens web links in the browser
     ev.preventDefault();
-    if (href.startsWith("#")) { el.querySelector(`[id="${CSS.escape(href.slice(1))}"]`)?.scrollIntoView({ block: "start" }); return; }
-    const file = resolve(el.dataset.path, decodeURIComponent(href.split("#")[0]));
+    if (href.startsWith("#")) { el.querySelector(`[id="md-${CSS.escape(href.slice(1))}"]`)?.scrollIntoView({ block: "start" }); return; }
+    const file = resolve(el.dataset.path, safeDecode(href.split("#")[0]));
     if (file) app.openFile(file);
   }));
 

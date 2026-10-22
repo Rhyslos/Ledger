@@ -6,7 +6,7 @@ Ideas that are planned but not built yet.
 
 SQLite is built in (open any `.db` or `.sqlite` file). Still to come:
 
-- **LQL**: to be confirmed what format this means.
+- **LustQL** (`.lql`): Lust's own query language, still being designed in Lust. `.lql` files already open in Ledger with their own icon; highlighting and checking come once the language exists.
 - DuckDB files, `.sql` dump files, and connections to PostgreSQL and MySQL servers.
 
 ## Smaller ideas
@@ -14,3 +14,9 @@ SQLite is built in (open any `.db` or `.sqlite` file). Still to come:
 - Live Server reloading when other programs change files, not only on save in Ledger.
 - Publishing Ledger on winget, so installing it shows no SmartScreen warning.
 - A default shortcut and a "+ New project" button in the explorer.
+
+## Known issues
+
+- Tests run until they finish: there's no Stop yet, and their output shows when they're done, not while they run.
+- Files saved as UTF-16 (PowerShell 5's `>` and `Out-File`, `.reg` exports) or in an old Windows code page don't open; Ledger reads UTF-8.
+- When a language server renames a file (say, rust-analyzer renaming a module), the file moves on disk but its open tab keeps the old name.

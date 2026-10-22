@@ -42,13 +42,14 @@ jobs:
     needs: newest
     if: needs.newest.outputs.go == 'true'
     runs-on: windows-latest
-    env:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+    # The update-signing key is only given to the one step that signs (below), never to npm ci or the
+    # build, where any dependency's install or build script could otherwise read it.
     steps:
       - name: Check the signing key is set
         if: github.event_name != 'pull_request'
         shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
             throw "Add the secret TAURI_SIGNING_PRIVATE_KEY (Settings > Secrets and variables > Actions). Updates can't be published without it."
@@ -79,10 +80,18 @@ jobs:
           Write-Host "Building Ledger $v"
 
       # Signed updater files only here: local build.ps1 builds without the key.
-      - if: github.event_name != 'pull_request'
-        run: npm run tauri build -- --config src-tauri/tauri.updater.conf.json
-      - if: github.event_name == 'pull_request'
-        run: npm run tauri build
+      - run: npm run tauri build
+
+      - name: Sign the installer for the updater
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          $setup = Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter "*-setup.exe" | Select-Object -First 1
+          npx tauri signer sign $setup.FullName
+          if (-not (Test-Path "$($setup.FullName).sig")) { throw "Signing didn't make $($setup.Name).sig" }
 
       - name: Collect the installer and the portable exe
         shell: pwsh
