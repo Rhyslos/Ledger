@@ -102,7 +102,7 @@ const godotResource = {
 // pieces are classes too, and the style words in [ ] are muted like types.
 const LUST_CONTROL = "is then or either loop stop skip return try error like keep";
 const LUST_DEFINE = "class object node assembly schema database route method hook has new create";
-const LUST_MODULE = "fetch get pass end save load saved lua view style";
+const LUST_MODULE = "fetch get pass end save load saved lua view style native";
 const LUST_TYPES = "int float string bool array cMap map";
 const LUST_BUILTINS = "print wait ask";
 const LUST_OBJECTS = "Maths Files Time Json Web Random";
@@ -298,6 +298,7 @@ const lustCompletions = completeFromList([
   snip("has {\n\t${int} ${name} = ${0};\n}", { label: "has", detail: "fields", type: "text" }),
   snip("method ${name}(${}) {\n\t${}\n}", { label: "method", detail: "does something", type: "function" }),
   snip("method ${int} ${name}(${}) {\n\treturn ${0};\n}", { label: "method …", detail: "gives something back", type: "function" }),
+  snip("method ${float} ${name}(${}) native;", { label: "method native", detail: "its body is in the program Lust is part of", type: "function" }),
   snip("hook ${int}(${int n}) ${name} = new hook {\n\t${}\n};", { label: "hook", detail: "a method kept in a variable", type: "function" }),
   snip("is ${value} == ${0}? then {\n\t${}\n}", { label: "is", detail: "question check", type: "text" }),
   snip("is ${value} == ${0}? then {\n\t${}\n} or {\n\t${}\n}", { label: "is … or", detail: "question check with fallback", type: "text" }),
