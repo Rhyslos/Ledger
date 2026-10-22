@@ -103,7 +103,7 @@ const godotResource = {
 const LUST_CONTROL = "is then or either loop stop skip return try error like keep";
 const LUST_DEFINE = "class object node assembly schema database route method hook has new create";
 const LUST_MODULE = "fetch get pass end save load saved lua view style";
-const LUST_TYPES = "int float string truth array cMap map";
+const LUST_TYPES = "int float string bool array cMap map";
 const LUST_BUILTINS = "print wait ask";
 const LUST_OBJECTS = "Maths Files Time Json Web Random";
 const LUST_PIECES = "column row stack scroll space text button input checkbox slider image every";
@@ -146,7 +146,7 @@ const LT = {
   structure: Tag.define(),  // class object node state has method hook new fetch get pass end …
   flow: Tag.define(),       // is then or either loop stop skip return try error not in ?
   name: Tag.define(),       // the name being declared: class Player, method hurt
-  type: Tag.define(),       // int float string truth array cMap map
+  type: Tag.define(),       // int float string bool array cMap map
   value: Tag.define(),      // "text", 42, true, nothing
   comment: Tag.define(),
   punct: Tag.define(),
@@ -327,7 +327,7 @@ const lustCompletions = completeFromList([
   snip("text ${\"Hello\"};", { label: "text", detail: "words on the screen", type: "keyword" }),
   snip("button \"${Start}\" [${blue}] {\n\t${}\n}", { label: "button", detail: "runs its block when clicked", type: "keyword" }),
   snip("input ${name} [placeholder \"${Your name}\"];", { label: "input", detail: "a text box bound to a field", type: "keyword" }),
-  snip("checkbox ${done};", { label: "checkbox", detail: "ticks a truth field", type: "keyword" }),
+  snip("checkbox ${done};", { label: "checkbox", detail: "ticks a bool field", type: "keyword" }),
   snip("slider ${volume} [from ${0}, to ${100}];", { label: "slider", detail: "drags a number field", type: "keyword" }),
   snip("image \"${picture.png}\" [width ${120}];", { label: "image", detail: "a PNG or JPEG", type: "keyword" }),
   snip("every ${1.0} {\n\t${}\n}", { label: "every", detail: "runs again and again while shown", type: "keyword" }),
