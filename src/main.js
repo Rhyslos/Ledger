@@ -1536,7 +1536,7 @@ $("tree").addEventListener("click", (ev) => {
     // a double-click moves into the editor.
     const p = f.dataset.file;
     S.sel = p; S.selDir = false;
-    openFile(p, null, { keepFocus: true }).then(() => { const n = $("tree").querySelector(`[data-file="${CSS.escape(p)}"]`); if (n) moveCursor(n); });
+    openFile(p, null, { keepFocus: true, preview: true }).then(() => { const n = $("tree").querySelector(`[data-file="${CSS.escape(p)}"]`); if (n) moveCursor(n); });
   }
 });
 $("tree").addEventListener("dblclick", (ev) => { if (ev.target.closest("[data-file]") && S.bufs.get(S.active)) { keepTab(S.active); view.focus(); } });

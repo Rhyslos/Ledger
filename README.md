@@ -1,6 +1,6 @@
 # Ledger
 
-A Windows code editor for Rust, C# and Godot, built with Tauri. It borrows the look of Meisner's Ledger: a side bar on the left, open files as tabs, the editor, and a thin status bar (along the bottom or the top, your choice). Everything can be done from the keyboard.
+A Windows code editor for Rust, C#, Godot, web projects (HTML, CSS, JavaScript, TypeScript, React, Tailwind), Lua and our own language Lust, built with Tauri. It borrows the look of Meisner's Ledger: a side bar on the left, open files as tabs, the editor, and a thin status bar (along the bottom or the top, your choice). Everything can be done from the keyboard.
 
 To change the name, see [Renaming](#renaming).
 
@@ -10,14 +10,27 @@ To change the name, see [Renaming](#renaming).
 - **C#**: build, run and test with dotnet; the same editor features through a C# language server (csharp-ls by default).
 - **Godot**: Play builds the C# project, then starts the game with its output in the panel. Play scene runs the open `.tscn`. Godot can open scripts in Ledger at the right line, and shaders (`.gdshader`) get highlighting and completion for Godot's shading language. Scene and resource files are highlighted too.
 - **Lust**: our own language, [Lust 2](https://github.com/Rhyslos/Lust). `.lst` programs and `.lsc` LustScript files get highlighting, completions, snippets and their own icons: **Lt** for programs, **Ls** for LustScript and **Lq** for LustQL (old `.lust` files get Lt too). Views are coloured too: the pieces of the screen (`column`, `text`, `button`…) in the classes' blue and the style words in `[ ]` muted, with snippets for each piece. **New project › Lust app (with a window)** starts a program that opens a window, with a piece of it in `ui/`. **Run** (F5) runs the open file with `lust run`, with the Input box for `ask`; **Check** and **Build** use `lust check` and `lust build`. Lust runs from the project's folder (the one with `main.lst`), so programs split over several files work, and clicking a mistake opens the right file. Every time you save, Ledger checks the file quietly and its mistakes show up in Problems and as squiggles. Ledger needs `lust.exe`: download **lust-windows** from the Lust repo's Actions tab (or build it with `cargo build --release`), then set its path in Settings › Lust. Building programs needs Rust. The installer makes `.lst`, `.lsc`, `.lql` and `.lust` files open in Ledger, each with its own icon in File Explorer.
+- **Web**: HTML, CSS (SCSS, Less), JavaScript and TypeScript with React, in Ledger's colours. Completions, errors and go to definition through the TypeScript, HTML, CSS and JSON language servers; Tailwind classes complete (with colour swatches) from the project's own Tailwind. `package.json` projects run their `dev`/`start` script with F5, Build, Test and Lint use their scripts, and **Scripts…** runs any of them. A single `.js` or `.ts` file runs with Node.
+- **Live Server**: **Go Live** in the status bar serves the folder and reloads the browser on save (CSS changes swap in without a reload). Settings › Web picks the browser and port.
+- **Lua**: highlighting, Run with F5, and the Lua language server (with a Lua version setting).
+- **New project**: website, Vite (React, Vue, Svelte, Preact, Solid, Lit, Qwik, vanilla) and Next.js through their own create commands, in TypeScript or JavaScript, with Tailwind if you want it; Node.js, Lua, Lust, LustScript, Rust and C# projects too.
+- **Database viewer**: `.db` and `.sqlite` files open in a tab: tables and views, a grid with sorting, search and filters, the structure of each table, a SQL tab with completion and history, editing with review before saving, export to CSV or JSON. It updates when another program writes to the file. New SQLite databases from the explorer's right-click menu.
+- **Images**: PNG, JPEG, GIF, WebP, SVG, AVIF, BMP and ICO open in a viewer with zoom, a transparency checkerboard and a pixel-art mode; SVGs can be edited as code.
+- **Markdown preview**: Ctrl Shift V shows the rendered file beside the editor while you type.
+- **Tests panel**: finds Rust, C# and Lust tests, runs all of them, the failed ones, a file or one test, shows each failure's message and line, and marks results next to each test in the editor. **Tests: create a test for this file** gets you started.
 - **Editor**: tabs, split editor (Ctrl \\), search and replace (Ctrl F), multiple cursors, folding, coloured bracket pairs, indent guides, sticky scroll (the line that opens the current function or block stays pinned at the top), problems list, clickable file:line links in build output, back and forward through your jumps, a warning when a file you're editing changes on disk.
 - **Getting around**: find all references (Shift F12), an Outline of the open file (Ctrl Shift O), symbol search (type @ or # in Ctrl E), parameter hints while you type a call.
 - **Debugging**: breakpoints (F9), start with Shift F9, step with F10, F11 and Shift F11, continue with F5. Variables, watches, call stack and a debug console. Rust uses codelldb, C# and Godot use netcoredbg; Ledger downloads them the first time you need them.
-- **Tests**: ▶ Run test and Debug links above each test and above `main`.
+- **Run and Debug links**: ▶ Run test and Debug above each Rust and C# test and above `main`.
 - **Terminal**: real PowerShell terminals in the bottom panel (Ctrl ` shows one, Ctrl T opens a new one).
 - **Git**: changed files are coloured in the explorer, changed lines are marked next to the line numbers, a side-by-side diff view, and a Source control view to stage, commit, pull and push (Ctrl Shift G).
 - **Dependencies**: in Cargo.toml and .csproj files, the newest version of each package shows at the end of its line; click it to update.
 - **Snippets**: your own, per language, in snippets.json (Settings › Editing › Edit snippets).
+- **Tabs**: clicking through files in the explorer reuses one preview tab (in italics) until you edit, save or pin it. Right-click a tab to pin it, or to close the saved tabs or all of them.
+- **File icons** for every kind of file and common folders (Material Icon Theme; Settings › Appearance turns them off).
+- **Installing languages**: Settings › Languages installs Node.js, Lua, Rust, the .NET SDK, Git, Lust and the language servers with one click.
+- **Explorer menu**: "Open with Ledger" when you right-click a file or folder in Windows (Settings › Windows turns it off).
+- **Updates**: Ledger checks for a new version on start, downloads it in the background and shows **Restart to update**.
 - **Settings** on Ctrl P: theme, fonts, status bar position, tab size, wrapping, format on save, auto save, editor extras, tool paths, terminal shell, debuggers, Godot setup, and every Ledger command's shortcut can be changed.
 
 Each window has one folder open. Ctrl Shift N opens another window (or Ctrl Enter on a recent folder on the start page), each with its own program, language servers, debugger and terminals. Open a project folder (with `Cargo.toml`, a `.sln`/`.csproj`, or `project.godot`), or a folder that holds several projects, like a course folder with one project per lesson. Run, Build and Test always use the project of the file you have open; its name shows at the left of the status bar. New project (in the command list) can create the project inside the open folder.
@@ -42,7 +55,7 @@ If it says something was installed but isn't on PATH yet, close the window and r
 ### On GitHub (nothing to install)
 
 1. Make a free GitHub account and a new repository, then upload this folder to it (GitHub Desktop is the easiest way).
-2. The **Windows build** workflow in `.github/workflows` runs on every push. Open the **Actions** tab, click the latest run, and download **windows-build** under Artifacts.
+2. The **Windows build** workflow in `.github/workflows` runs on every push to main and publishes a numbered release (`0.1.<run>`) under **Releases**, which installed copies of Ledger pick up as an update. Pull requests are built too, without publishing, so a broken build shows before merging. Publishing needs the repository secret `TAURI_SIGNING_PRIVATE_KEY` (the key that signs updates).
 
 You can also start it by hand from the Actions tab (**Run workflow**).
 
@@ -53,7 +66,7 @@ Building and running only need what you already use (Rust for Rust projects, the
 - **Rust**: `rustup component add rust-analyzer rust-src`
 - **C#**: install the [.NET 10 SDK](https://dotnet.microsoft.com/download) (csharp-ls runs on it; your projects can still target .NET 8), then `dotnet tool install --global csharp-ls`
 
-Settings has buttons for both, and shows which tools it found.
+Settings › Languages has install buttons for these and the rest (web servers, Lua, Lust), and shows which tools it found.
 
 - **Debugging**: nothing to install by hand. The first time you press Shift F9, Ledger offers to download codelldb (Rust, about 40 MB) or netcoredbg (C# and Godot, about 10 MB) from GitHub into its own folder. Settings › Debugging has the same buttons, and takes your own copies if you prefer.
 - **Git**: install [Git for Windows](https://git-scm.com/download/win) for the Git features. Pushing to GitHub signs in through Git's own window the first time.
@@ -85,7 +98,7 @@ Every command is in the command list (Ctrl Shift P or F1) with its shortcut. Cha
 | Ctrl Shift F | Search in files |
 | Ctrl G | Go to line |
 | F6 / Shift F6 | Move between explorer, editor, panel and status bar |
-| Ctrl Shift E | Explorer (arrows move, Right/Left open/close folders, Enter opens, Space opens but stays in the explorer, F2 renames, Delete recycles, Shift F10 menu, type to jump) |
+| Ctrl Shift E | Explorer (arrows move, Right/Left open/close folders, Enter opens, a click or Space shows the file in a preview tab and stays in the explorer, F2 renames, Delete recycles, Shift F10 menu, type to jump) |
 | Ctrl Shift R | Show the current file in the explorer |
 | Esc | Back to the editor from the explorer, panel or status bar |
 | F5 / Shift F5 | Run or Play (Continue while debugging) / stop |
@@ -125,6 +138,8 @@ Every command is in the command list (Ctrl Shift P or F1) with its shortcut. Cha
 | Ctrl Shift N / Ctrl Shift W | New window / close window |
 | Ctrl Shift M / Ctrl Shift U | Problems / output |
 | Ctrl B | Toggle explorer |
+| Alt Z | Wrap long lines on or off |
+| Ctrl Shift V | Markdown preview |
 | Ctrl + / Ctrl - / Ctrl 0 | Editor text size |
 
 In dialogs, arrow keys move and Enter picks; in choice dialogs the number keys pick directly.
@@ -177,12 +192,22 @@ src/win.js            per-window events
 src/settings.js       settings file and the settings page
 src/keys.js           shortcut parsing and the remappable keymap
 src/langs.js          file types, highlighting, Godot shader and scene support, Lust
+src/webcolours.js     HTML, CSS and JavaScript colours
+src/tailwind.js       Tailwind class completion
+src/db.js             the database tab (with src-tauri/src/db.rs)
+src/image.js          the image viewer
+src/md.js             Markdown preview
+src/tests.js          the Tests panel
+src/icons.js          file icons (public/fileicons, made by scripts/fileicons.mjs)
+src/scaffold.js       Vite and Next.js projects
+src/update.js         updates
 src/assets/lust-*.svg the Lust file icons (Lt, Ls, Lq)
-src/lsp.js            the language server client (rust-analyzer, csharp-ls)
+src/lsp.js            the language server client (rust-analyzer, csharp-ls, TypeScript, HTML, CSS, JSON, Lua)
 src/ansi.js           build output colours and clickable file:line links
 src/style.css         colours and layout; light and dark tokens are at the top
 src-tauri/src/lib.rs  files, running cargo/dotnet/Godot, language servers and debuggers, terminals, git, downloads, windows
-src-tauri/windows/hooks.nsh  installer step that gives Lust files their icons
+src-tauri/src/live.rs Live Server
+src-tauri/windows/hooks.nsh  installer steps: Lust file icons, "Open with Ledger"
 build.ps1, build.cmd  local Windows build
 scripts/              rename and collect helpers
 ```

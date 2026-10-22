@@ -8,13 +8,40 @@ use rusqlite::fallible_iterator::FallibleIterator;
 use rusqlite::{params_from_iter, Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::Instant;
 
 type Res<T> = Result<T, String>;
 
 const MAX_QUERY_ROWS: usize = 5000;
 
-fn open(path: &str, write: bool) -> Res<Connection> {
+/// One connection per open database tab, kept until the tab closes (db_close). Every run in the
+/// tab shares it, so a BEGIN in one run and a COMMIT in a later one work, and foreign keys are on
+/// for all of them (SQLite turns them off in every new connection).
+static CONNS: LazyLock<Mutex<HashMap<String, Arc<Mutex<Connection>>>>> = LazyLock::new(Default::default);
+
+fn conn(path: &str) -> Res<Arc<Mutex<Connection>>> {
+    let mut all = CONNS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(c) = all.get(path) {
+        return Ok(c.clone());
+    }
+    let c = Arc::new(Mutex::new(open(path)?));
+    all.insert(path.to_string(), c.clone());
+    Ok(c)
+}
+
+fn lock(c: &Arc<Mutex<Connection>>) -> MutexGuard<'_, Connection> {
+    c.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Closes the tab's connection. A transaction left open is rolled back.
+#[tauri::command]
+pub fn db_close(path: String) {
+    CONNS.lock().unwrap_or_else(|e| e.into_inner()).remove(&path);
+}
+
+fn open(path: &str) -> Res<Connection> {
     let mut head = [0u8; 16];
     use std::io::Read;
     std::fs::File::open(path).map_err(|e| format!("Couldn't open the file ({e})."))?.read(&mut head).ok();
@@ -23,9 +50,13 @@ fn open(path: &str, write: bool) -> Res<Connection> {
     if !empty && &head != b"SQLite format 3\0" {
         return Err("This isn't a SQLite database.".into());
     }
-    let flags = if write { OpenFlags::SQLITE_OPEN_READ_WRITE } else { OpenFlags::SQLITE_OPEN_READ_ONLY } | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let c = Connection::open_with_flags(path, flags).map_err(|e| e.to_string())?;
+    let flags = OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    // Read-write when the file allows it, read-only otherwise (a write then says why it failed).
+    let c = Connection::open_with_flags(path, flags | OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .or_else(|_| Connection::open_with_flags(path, flags | OpenFlags::SQLITE_OPEN_READ_ONLY))
+        .map_err(|e| e.to_string())?;
     c.busy_timeout(std::time::Duration::from_secs(3)).ok();
+    c.execute_batch("PRAGMA foreign_keys = ON;").ok();
     Ok(c)
 }
 
@@ -103,7 +134,8 @@ pub async fn db_schema(path: String) -> Res<Vec<Table>> {
 }
 
 fn schema(path: &str) -> Res<Vec<Table>> {
-    let c = open(path, false)?;
+    let cc = conn(path)?;
+    let c = lock(&cc);
     let mut st = c
         .prepare("SELECT name, type, coalesce(sql, '') FROM sqlite_schema WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY type, name")
         .map_err(|e| e.to_string())?;
@@ -212,6 +244,7 @@ pub struct Rows {
     /// rowid of each row, when the table can be edited.
     rowids: Option<Vec<i64>>,
     total: i64,
+    in_transaction: bool,
 }
 
 #[tauri::command]
@@ -220,7 +253,8 @@ pub async fn db_rows(path: String, view: View, offset: i64, limit: i64) -> Res<R
 }
 
 fn rows(path: &str, v: &View, offset: i64, limit: i64) -> Res<Rows> {
-    let c = open(path, false)?;
+    let cc = conn(path)?;
+    let c = lock(&cc);
     let (tail, ps) = clauses(&c, v)?;
     let t = ident(&v.table);
     let total: i64 = c.query_row(&format!("SELECT count(*) FROM {t}{}", tail.split(" ORDER BY ").next().unwrap_or("")), params_from_iter(ps.iter()), |r| r.get(0)).map_err(|e| e.to_string())?;
@@ -241,7 +275,10 @@ fn rows(path: &str, v: &View, offset: i64, limit: i64) -> Res<Rows> {
         }
         out.push((0..n).map(|i| r.get_ref(i + skip).map(to_json).unwrap_or(Value::Null)).collect());
     }
-    Ok(Rows { columns, rows: out, rowids: has_id.then_some(ids), total })
+    let in_transaction = !c.is_autocommit();
+    drop(q);
+    drop(st);
+    Ok(Rows { columns, rows: out, rowids: has_id.then_some(ids), total, in_transaction })
 }
 
 // ---------- queries ----------
@@ -255,6 +292,8 @@ pub struct Query {
     changed: u64,
     statements: usize,
     ms: u128,
+    /// A BEGIN without its COMMIT or ROLLBACK yet.
+    in_transaction: bool,
 }
 
 /// Runs one or more statements; the last one that returns rows is shown.
@@ -264,9 +303,10 @@ pub async fn db_query(path: String, sql: String) -> Res<Query> {
 }
 
 fn query(path: &str, sql: &str) -> Res<Query> {
-    let c = open(path, true)?;
+    let cc = conn(path)?;
+    let c = lock(&cc);
     let start = Instant::now();
-    let mut res = Query { columns: vec![], rows: vec![], truncated: false, changed: 0, statements: 0, ms: 0 };
+    let mut res = Query { columns: vec![], rows: vec![], truncated: false, changed: 0, statements: 0, ms: 0, in_transaction: false };
     let mut batch = rusqlite::Batch::new(&c, sql);
     while let Some(mut st) = batch.next().map_err(|e| e.to_string())? {
         res.statements += 1;
@@ -293,6 +333,7 @@ fn query(path: &str, sql: &str) -> Res<Query> {
         }
     }
     res.ms = start.elapsed().as_millis();
+    res.in_transaction = !c.is_autocommit();
     Ok(res)
 }
 
@@ -313,8 +354,10 @@ pub async fn db_apply(path: String, table: String, edits: Vec<Edit>) -> Res<usiz
 }
 
 fn apply(path: &str, table: &str, edits: Vec<Edit>) -> Res<usize> {
-    let mut c = open(path, true)?;
-    let tx = c.transaction().map_err(|e| e.to_string())?;
+    let cc = conn(path)?;
+    let mut c = lock(&cc);
+    // A savepoint works inside a transaction someone started with BEGIN, and on its own.
+    let tx = c.savepoint().map_err(|e| e.to_string())?;
     let t = ident(table);
     let mut n = 0;
     for e in &edits {
@@ -360,7 +403,8 @@ pub async fn db_export(path: String, view: View, format: String, out: String) ->
 }
 
 fn export(path: &str, v: &View, format: &str, out: &str) -> Res<usize> {
-    let c = open(path, false)?;
+    let cc = conn(path)?;
+    let c = lock(&cc);
     let (tail, ps) = clauses(&c, v)?;
     let mut st = c.prepare(&format!("SELECT * FROM {}{tail}", ident(&v.table))).map_err(|e| e.to_string())?;
     let cols: Vec<String> = st.column_names().into_iter().map(String::from).collect();
