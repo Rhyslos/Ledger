@@ -2541,6 +2541,7 @@ C("app.update", "Check for updates", [], () => updater?.check());
 C("panel.dock", "Move the panel (terminal, output) to the right or the bottom", [], togglePanelDock);
 C("lust.lua", "Lust: show the Lua this file turns into", [], () => runAction("lua"));
 C("lust.rust", "Lust: show the Rust this file turns into (.lst)", [], () => runAction("rust"));
+C("view.wrap", "Toggle word wrap (long lines wrap onto the next line)", "Alt+Z", () => { setSetting("wordWrap", !settings.wordWrap); toast(settings.wordWrap ? "Long lines wrap." : "Long lines run on; scroll sideways to see them."); });
 C("live.toggle", "Live Server: start or stop", [], () => (live.port ? stopLive() : startLive()));
 C("live.open", "Live Server: open this page in the browser", [], openLive);
 C("task.scripts", "Run a package.json script…", [], () => runAction("scripts"));
