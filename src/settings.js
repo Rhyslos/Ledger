@@ -15,6 +15,7 @@ export const DEFAULTS = {
   statusBar: "bottom",
   codeColours: "quiet",
   fileIcons: true,
+  previewTabs: true,
   wordWrap: false,
   bracketColors: true,
   indentGuides: true,
@@ -193,6 +194,7 @@ export function settingsHtml() {
       ${row("Wrapping", check("sWrap", "wordWrap", "Wrap long lines"))}
       ${row("Type hints", check("sHints", "inlayHints", "Show the types and parameter names the language server works out, in grey"), "They aren't part of your file. Rust and C# only.")}
       ${row("Formatting", check("sFmt", "formatOnSave", "Format Rust and C# files when saving"))}
+      ${row("Preview tabs", check("sPreview", "previewTabs", "Clicking through files in the explorer reuses one tab"), "The file shows in a tab in italics, and the next file you click takes its place. Editing, saving, double-clicking or pinning it (right-click the tab) keeps it open.")}
       ${row("Auto save", select("sAuto", "autoSave", [["off", "Off"], ["delay", "A second after typing stops"], ["focus", "When switching tabs or apps"]]), "", "sAuto")}
       ${row("Brackets", check("sBr", "bracketColors", "Colour matching bracket pairs by depth"))}
       ${row("Indentation", check("sIg", "indentGuides", "Show indent guides"))}

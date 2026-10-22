@@ -72,6 +72,7 @@ const savePrefs = () => {
 const SETTINGS_TAB = "@settings";
 const S = {
   root: null,
+  preview: null, pinned: new Set(), // the explorer's preview tab, and pinned tabs
   proj: { rust: false, dotnet: false, godot: false, sln: null, csproj: null },
   kids: new Map(), open: new Set(),
   sel: null, selDir: false, // explorer cursor
@@ -113,7 +114,7 @@ function saveSession() {
   clearTimeout(sessT);
   sessT = setTimeout(() => {
     if (!S.root) return;
-    prefs.sessions[S.root] = { tabs: S.tabs.filter((k) => !isVirtual(k)), active: S.active, open: [...S.open] };
+    prefs.sessions[S.root] = { tabs: S.tabs.filter((k) => !isVirtual(k)), active: S.active, open: [...S.open], pinned: [...S.pinned].filter((k) => S.tabs.includes(k)) };
     for (const k of Object.keys(prefs.sessions)) if (!prefs.recent.includes(k)) delete prefs.sessions[k];
     savePrefs();
   }, 300);
@@ -734,6 +735,7 @@ function onUpdate(path, u) {
   if (u.docChanged) {
     const was = b.dirty;
     b.dirty = !u.state.doc.eq(b.saved);
+    if (b.dirty && S.preview === path) keepTab(path);
     if (was !== b.dirty) scheduleUi();
     if (serverOf(b)) { clearTimeout(b.ct); b.ct = setTimeout(() => syncDoc(path), 150); scheduleHints(path, 700); }
     if (settings.autoSave === "delay" && b.dirty) { clearTimeout(b.at); b.at = setTimeout(() => save(path), 1000); }
@@ -790,7 +792,18 @@ async function openFile(path, at, opts = {}) {
   // Databases open in their own tab (src/db.js); "@db:" is how a restored session names them.
   if (app.openDb && (DB_EXT.test(path) || String(path).startsWith("@db:"))) return app.openDb(String(path).replace(/^@db:/, ""), opts);
   // Images open in a viewer tab (src/image.js); "Edit code" on an SVG passes asText to get the text editor.
-  if (app.openImage && !opts.asText && (IMG_EXT.test(path) || String(path).startsWith("@img:"))) return app.openImage(String(path).replace(/^@img:/, ""), opts);
+  if (app.openImage && !opts.asText && (IMG_EXT.test(path) || String(path).startsWith("@img:"))) {
+    // Images take part in preview tabs too, so clicking through a folder of sprites reuses one tab.
+    const img = String(path).replace(/^@img:/, ""), key = "@img:" + norm(img), prev = S.preview;
+    const asPreview = opts.preview && settings.previewTabs !== false && !S.tabs.includes(key);
+    const r = await app.openImage(img, opts);
+    if (asPreview && S.tabs.includes(key)) {
+      S.preview = key;
+      if (prev && prev !== key && S.tabs.includes(prev) && !S.bufs.get(prev)?.dirty && !S.pinned.has(prev) && !pageOf(prev)?.confirmClose) await closeTab(prev, true);
+      renderTabs();
+    }
+    return r;
+  }
   path = norm(path);
   if (opts.uri && /^csharp:/i.test(opts.uri)) return openMetadata(opts.uri, at, opts.server);
   if (!S.bufs.has(path)) {
@@ -800,7 +813,15 @@ async function openFile(path, at, opts = {}) {
     if (!S.bufs.has(path)) { const b = makeBuffer(path, text); statOf(path).then((m) => { b.mtime = m; }); }
   }
   addTab(path);
+  const prevPreview = S.preview;
+  const asPreview = opts.preview && settings.previewTabs !== false && !S.tabs.includes(path);
   if (!opts.background) activate(path, at, opts);
+  if (asPreview && S.tabs.includes(path)) {
+    S.preview = path;
+    // The file clicked before goes, unless it was edited, kept or pinned since.
+    if (prevPreview && prevPreview !== path && S.tabs.includes(prevPreview) && !S.bufs.get(prevPreview)?.dirty && !S.pinned.has(prevPreview) && !pageOf(prevPreview)?.confirmClose) await closeTab(prevPreview, true);
+    renderTabs();
+  }
   else renderTabs();
   return true;
 }
@@ -1134,6 +1155,8 @@ async function closeTab(key, force) {
   }
   const i = S.tabs.indexOf(key);
   if (i >= 0) S.tabs.splice(i, 1);
+  if (S.preview === key) S.preview = null;
+  S.pinned.delete(key);
   if (!isPage(key) && !isVirtual(key)) { S.closed.push(key); if (S.closed.length > 30) S.closed.shift(); }
   pageOf(key)?.close?.(key);
   const next = S.tabs[Math.min(i, S.tabs.length - 1)];
@@ -1158,6 +1181,43 @@ async function closeTab(key, force) {
   saveSession();
   return true;
 }
+// ---------- preview and pinned tabs ----------
+// A file clicked in the explorer opens in a preview tab (in italics) that the next click replaces,
+// until it's edited, saved, double-clicked or pinned. Pinned tabs sit first and stay put.
+function keepTab(key) {
+  if (S.preview !== key) return;
+  S.preview = null;
+  renderTabs();
+}
+function togglePin(key = S.active) {
+  if (!key || !S.tabs.includes(key)) return;
+  keepTab(key);
+  if (S.pinned.has(key)) S.pinned.delete(key);
+  else {
+    S.pinned.add(key);
+    // Pinned tabs go first, in the order they were pinned.
+    S.tabs.splice(S.tabs.indexOf(key), 1);
+    S.tabs.splice(S.tabs.filter((k) => S.pinned.has(k)).length, 0, key);
+  }
+  saveSession();
+  renderTabs();
+}
+/** Every tab with nothing unsaved goes; unsaved and pinned ones stay. */
+async function closeSavedTabs() {
+  for (const k of [...S.tabs]) {
+    if (S.pinned.has(k) || S.bufs.get(k)?.dirty) continue;
+    if (pageOf(k)?.confirmClose) { await closeTab(k); continue; } // asks if it has unsaved changes
+    await closeTab(k, true);
+  }
+}
+/** All tabs, pinned too; unsaved work is asked about first. */
+async function closeAllTabs() {
+  if (await closeAll()) { S.pinned.clear(); S.preview = null; saveSession(); renderTabs(); }
+}
+async function closeOthers(key) {
+  for (const k of [...S.tabs]) if (k !== key && !S.pinned.has(k) && !(await closeTab(k))) return;
+}
+
 async function closeAll() {
   const d = dirtyPaths();
   if (d.length) {
@@ -1237,6 +1297,7 @@ async function reloadFromDisk(path) {
   }
   cur.saved = cur.state.doc;
   cur.dirty = false;
+  if (S.preview === path) keepTab(path);
   syncDoc(path);
   renderDiskBars();
   scheduleUi();
@@ -1441,8 +1502,8 @@ $("tree").addEventListener("keydown", (ev) => {
     if (isDir && S.open.has(p)) toggleDir(p, false);
     else { const up = nodes.find((n) => n.dataset.dir === parent(p)); if (up) moveCursor(up); }
   }
-  else if (k === "Enter") { if (isDir) toggleDir(p); else openFile(p); }
-  else if (k === "Space") { if (isDir) toggleDir(p); else openFile(p, null, { keepFocus: true }); }
+  else if (k === "Enter") { if (isDir) toggleDir(p); else openFile(p).then(() => keepTab(p)); }
+  else if (k === "Space") { if (isDir) toggleDir(p); else openFile(p, null, { keepFocus: true, preview: true }); }
   else if (k === "Delete") deletePath(p);
   else if (k === "Shift+F10" || k === "ContextMenu") { const r = el.getBoundingClientRect(); treeMenu(p, isDir, r.left + 24, r.bottom); }
   else if (k === "Esc") focusZone("editor");
@@ -1477,7 +1538,7 @@ $("tree").addEventListener("click", (ev) => {
     openFile(p, null, { keepFocus: true }).then(() => { const n = $("tree").querySelector(`[data-file="${CSS.escape(p)}"]`); if (n) moveCursor(n); });
   }
 });
-$("tree").addEventListener("dblclick", (ev) => { if (ev.target.closest("[data-file]") && S.bufs.get(S.active)) view.focus(); });
+$("tree").addEventListener("dblclick", (ev) => { if (ev.target.closest("[data-file]") && S.bufs.get(S.active)) { keepTab(S.active); view.focus(); } });
 $("tree").addEventListener("contextmenu", (ev) => {
   if (!S.root) return;
   ev.preventDefault();
@@ -1619,7 +1680,7 @@ function renderTabs() {
     const b = S.bufs.get(p), c = counts(S.diags.get(p)), on = p === S.active;
     const dot = p === SETTINGS_TAB ? "cfg" : b?.virtual ? "cs" : pageOf(p) ? pageOf(p).dot : dotOf(p);
     const there = split && otherPane().key === p;
-    return `<div class="tab${on ? " on" : ""}${there ? " there" : ""}${b?.dirty ? " dirty" : ""}" role="tab" aria-selected="${on}" style="--tc:var(--t-${dot})" data-tab="${esc(p)}" title="${esc(isPage(p) || b?.virtual ? tabLabel(p) : rel(p))}${there ? "  ·  open in the other pane" : ""}${i < 8 ? `  ·  Ctrl ${i + 1}` : ""}" tabindex="${on ? 0 : -1}">${isPage(p) || b?.virtual ? '<span class="dot"></span>' : mark(p)}<span class="tl${c.e ? " e" : c.w ? " w" : ""}">${esc(tabLabel(p))}</span>${b?.ro ? '<span class="ro">read-only</span>' : ""}<span class="x" data-close="${esc(p)}" role="button" aria-label="Close ${esc(tabLabel(p))}"><span>×</span></span></div>`;
+    return `<div class="tab${on ? " on" : ""}${there ? " there" : ""}${b?.dirty ? " dirty" : ""}${p === S.preview ? " preview" : ""}${S.pinned.has(p) ? " pinned" : ""}" role="tab" aria-selected="${on}" style="--tc:var(--t-${dot})" data-tab="${esc(p)}" title="${esc(isPage(p) || b?.virtual ? tabLabel(p) : rel(p))}${there ? "  ·  open in the other pane" : ""}${i < 8 ? `  ·  Ctrl ${i + 1}` : ""}" tabindex="${on ? 0 : -1}">${isPage(p) || b?.virtual ? '<span class="dot"></span>' : mark(p)}<span class="tl${c.e ? " e" : c.w ? " w" : ""}">${esc(tabLabel(p))}</span>${b?.ro ? '<span class="ro">read-only</span>' : ""}<span class="x" data-close="${esc(p)}" role="button" aria-label="Close ${esc(tabLabel(p))}"><span>×</span></span></div>`;
   }).join("");
   $("tabs").querySelector(".tab.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   if (hadFocus) $("tabs").querySelector(`[data-tab="${CSS.escape(hadFocus)}"]`)?.focus();
@@ -1629,6 +1690,22 @@ $("tabs").addEventListener("click", (ev) => {
   if (x) { ev.stopPropagation(); closeTab(x.dataset.close); return; }
   const t2 = ev.target.closest("[data-tab]");
   if (t2) activate(t2.dataset.tab);
+});
+$("tabs").addEventListener("dblclick", (ev) => { const t2 = ev.target.closest("[data-tab]"); if (t2) keepTab(t2.dataset.tab); });
+$("tabs").addEventListener("contextmenu", (ev) => {
+  const t2 = ev.target.closest("[data-tab]");
+  if (!t2) return;
+  ev.preventDefault();
+  const k = t2.dataset.tab, pinned = S.pinned.has(k);
+  showMenu(ev.clientX, ev.clientY, [
+    { label: pinned ? "Unpin tab" : "Pin tab", key: "tab.pin", run: () => togglePin(k) },
+    ...(S.preview === k ? [{ label: "Keep open", run: () => keepTab(k) }] : []),
+    "-",
+    { label: "Close", key: "tab.close", run: () => closeTab(k) },
+    { label: "Close others", run: () => closeOthers(k) },
+    { label: "Close saved tabs", key: "tab.closeSaved", run: () => closeSavedTabs() },
+    { label: "Close all tabs", key: "tab.closeAll", danger: true, run: () => closeAllTabs() },
+  ]);
 });
 $("tabs").addEventListener("auxclick", (ev) => { const t2 = ev.target.closest("[data-tab]"); if (t2 && ev.button === 1) closeTab(t2.dataset.tab); });
 $("tabs").addEventListener("keydown", (ev) => {
@@ -2541,6 +2618,9 @@ C("app.update", "Check for updates", [], () => updater?.check());
 C("panel.dock", "Move the panel (terminal, output) to the right or the bottom", [], togglePanelDock);
 C("lust.lua", "Lust: show the Lua this file turns into", [], () => runAction("lua"));
 C("lust.rust", "Lust: show the Rust this file turns into (.lst)", [], () => runAction("rust"));
+C("tab.pin", "Pin or unpin this tab", [], () => togglePin());
+C("tab.closeSaved", "Close saved tabs (unsaved and pinned stay)", [], () => closeSavedTabs());
+C("tab.closeAll", "Close all tabs (asks about unsaved ones)", [], () => closeAllTabs());
 C("live.toggle", "Live Server: start or stop", [], () => (live.port ? stopLive() : startLive()));
 C("live.open", "Live Server: open this page in the browser", [], openLive);
 C("task.scripts", "Run a package.json script…", [], () => runAction("scripts"));
@@ -2683,6 +2763,18 @@ function openFolder(path) {
   folderQueue = job.catch(() => {});
   return job;
 }
+// The other language servers start with the folder too, when it has their kind of file and the
+// server is installed (no "not installed" warnings for folders that don't need one), so their
+// warm-up is done before the first file opens.
+function warmServers(root) {
+  const want = [["web", /\.(m?[jt]sx?|cjs)$/i], ["html", /\.html?$/i], ["css", /\.(s?css|less)$/i], ["lua", /\.lua$/i], ["json", /\.json$/i]];
+  for (const [id, re] of want) {
+    if (started(servers[id]) || servers[id].starting || !hasAny(re)) continue;
+    invoke("tool_info", { name: serverSpec(id).exe }).then((found) => {
+      if (found && S.root === root && !started(servers[id]) && !servers[id].starting) startServer(id);
+    }, () => {});
+  }
+}
 async function openFolderNow(path) {
   if (!path) {
     const p = await openDialog({ directory: true, multiple: false, title: "Open folder" });
@@ -2725,10 +2817,13 @@ async function openFolderNow(path) {
     if (S.root !== path) return;
     if (S.proj.rust || hasAny(/^Cargo\.toml$/)) startServer("rust");
     if (S.proj.dotnet || hasAny(/\.(csproj|slnx?)$/i)) startServer("csharp");
+    warmServers(path);
     updateCtx();
   });
   // Restoring tabs is async; if something else opened a file meanwhile (say,
   // Godot sending one), leave that file in front.
+  S.pinned = new Set(sess?.pinned || []);
+  S.preview = null;
   if (sess?.tabs?.length) {
     for (const t2 of sess.tabs) {
       if (S.root !== path) break;
@@ -2769,10 +2864,16 @@ async function closeFolder() {
   renderMain(); renderProblems();
 }
 async function newProject() {
-  const kinds = ["Web app with Vite (React, Vue, Svelte…)", "Next.js app", "Website (plain HTML, CSS and JS)", "Node.js program", "Lua program", "Lust program", "Lust app (with a window)", "LustScript (.lsc, turns into Lua)", "Rust program", "Rust library", "C# console app", "C# class library"];
+  const kinds = ["Web app with Vite (React, Vue, Svelte…)", "Next.js app", "Website (plain HTML, CSS and JS)", "Node.js program", "Lua program", "Lust program", "LustScript (.lsc, turns into Lua)", "Rust program", "Rust library", "C# console app", "C# class library"];
   const i = await choose("What kind of project?", kinds, true);
   if (i == null || i < 0) return;
-  const kind = ["vite", "next", "web", "node", "lua", "lust", "lust-app", "lustscript", "rust", "rust-lib", "console", "classlib"][i];
+  let kind = ["vite", "next", "web", "node", "lua", "lust", "lustscript", "rust", "rust-lib", "console", "classlib"][i];
+  if (kind === "lust") {
+    // Every Lust program can have a view; this only picks the starting point.
+    const w = await choose("Start with a window?", ["Yes: a window, with a piece of it in ui/", "No: a plain program"], true);
+    if (w == null || w < 0) return;
+    if (w === 0) kind = "lust-app";
+  }
   let web = null;
   if (kind === "vite" || kind === "next") {
     web = { kind };
