@@ -12,7 +12,7 @@
   --accent: #2f6db0; --accent-ink: #ffffff; --seal: #a3262e; --good: #2f7a3e; --warn: #a8670f; --info: #2f6db0;
   --guide: #e6e6e3; --mark: #fbe7a1; --scrim: rgba(0, 0, 0, .3); --shadow: 0 16px 48px rgba(0,0,0,.2);
   /* file dots */
-  --t-rs: #b7410e; --t-toml: #7a3fa8; --t-md: #2f6db0; --t-json: #a8670f; --t-lock: #8a8f93; --t-cfg: #1f7a80; --t-other: #8a8f93; --t-cs: #5b3fb3; --t-shader: #b0367a; --t-gd: #3f78a8; --t-godot: #357fb5; --t-proj: #8a6a3b; --t-xml: #6f7f8c; --t-lust: #d9433b; --t-js: #a8900f; --t-ts: #2f6fb0; --t-html: #c2481f; --t-css: #6a42b8; --t-lua: #2b3a9e; --t-db: #8a6a2b; --t-img: #2f8a6e;
+  --t-rs: #b7410e; --t-toml: #7a3fa8; --t-md: #2f6db0; --t-json: #a8670f; --t-lock: #8a8f93; --t-cfg: #1f7a80; --t-other: #8a8f93; --t-cs: #5b3fb3; --t-shader: #b0367a; --t-gd: #3f78a8; --t-godot: #357fb5; --t-proj: #8a6a3b; --t-xml: #6f7f8c; --t-lust: #d9433b; --t-lustscript: #d9433b; --t-lustql: #d9433b; --t-js: #a8900f; --t-ts: #2f6fb0; --t-html: #c2481f; --t-css: #6a42b8; --t-lua: #2b3a9e; --t-db: #8a6a2b; --t-img: #2f8a6e;
   /* The quiet colours, Lust's own: the logo's red for structure, marine green for states,
      green comments, the rest calm. Every language uses them with Settings › Code colours › Quiet. */
   --lust-red: #d9433b; --lust-flow: #b8635c; --lust-value: #8a6a2b; --lust-comment: #3f7f3f; --lust-type: #6f8a69; --lust-punct: #9d9d99; --lust-state: #1f8a78; --lust-class: #3566a8; --lust-object: #b35a1f;
@@ -31,7 +31,7 @@
   :root:not([data-theme="light"]) {
     --bg: #1e1e1e; --side: #232323; --tabbar: #191919; --hover: #2c2c2c; --select: #23374d; --ink: #e2e2e0; --muted: #9b9b97; --faint: #6e6e6a; --line: #303030; --line-hl: #242424;
     --accent: #6ea8e6; --accent-ink: #10202e; --seal: #e05a60; --good: #6fcf83; --warn: #e3a24e; --info: #6ea8e6; --mark: #5c4a12; --guide: #333333; --scrim: rgba(0,0,0,.55); --shadow: 0 16px 48px rgba(0,0,0,.5);
-    --t-rs: #e9784a; --t-toml: #c18ef0; --t-md: #6ea8e6; --t-json: #e3a24e; --t-lock: #a3a8ac; --t-cfg: #56b9bf; --t-other: #a3a8ac; --t-cs: #a493f0; --t-shader: #e07ab8; --t-gd: #7fb3ec; --t-godot: #6eb0e0; --t-proj: #d1aa82; --t-xml: #9fb0bd; --t-lust: #ff6f66; --t-js: #e6cc4a; --t-ts: #6aa6ea; --t-html: #f0845a; --t-css: #b08ff0; --t-lua: #8797f0; --t-db: #d7ba7d; --t-img: #5fc4a3;
+    --t-rs: #e9784a; --t-toml: #c18ef0; --t-md: #6ea8e6; --t-json: #e3a24e; --t-lock: #a3a8ac; --t-cfg: #56b9bf; --t-other: #a3a8ac; --t-cs: #a493f0; --t-shader: #e07ab8; --t-gd: #7fb3ec; --t-godot: #6eb0e0; --t-proj: #d1aa82; --t-xml: #9fb0bd; --t-lust: #ff6f66; --t-lustscript: #ff6f66; --t-lustql: #ff6f66; --t-js: #e6cc4a; --t-ts: #6aa6ea; --t-html: #f0845a; --t-css: #b08ff0; --t-lua: #8797f0; --t-db: #d7ba7d; --t-img: #5fc4a3;
     --lust-red: #ff5f56; --lust-flow: #f0a39e; --lust-value: #d7ba7d; --lust-comment: #6a9955; --lust-type: #a1b59c; --lust-punct: #7c7f83; --lust-state: #4fc4ab; --lust-class: #7fa9dc; --lust-object: #e8935a;
     --w-blue-soft: #a9c6ec; --w-green: #9ccf72; --w-magenta: #d987b8; --w-magenta-soft: #e3a9cb;
     --syn-kw: #c18ef0; --syn-ctl: #f08a8f; --syn-type: #56b9bf; --syn-fn: #7fb3ec; --syn-macro: #e9784a; --syn-str: #8fd19e;
@@ -42,7 +42,7 @@
 :root[data-theme="dark"] {
   --bg: #1e1e1e; --side: #232323; --tabbar: #191919; --hover: #2c2c2c; --select: #23374d; --ink: #e2e2e0; --muted: #9b9b97; --faint: #6e6e6a; --line: #303030; --line-hl: #242424;
   --accent: #6ea8e6; --accent-ink: #10202e; --seal: #e05a60; --good: #6fcf83; --warn: #e3a24e; --info: #6ea8e6; --mark: #5c4a12; --guide: #333333; --scrim: rgba(0,0,0,.55); --shadow: 0 16px 48px rgba(0,0,0,.5);
-  --t-rs: #e9784a; --t-toml: #c18ef0; --t-md: #6ea8e6; --t-json: #e3a24e; --t-lock: #a3a8ac; --t-cfg: #56b9bf; --t-other: #a3a8ac; --t-cs: #a493f0; --t-shader: #e07ab8; --t-gd: #7fb3ec; --t-godot: #6eb0e0; --t-proj: #d1aa82; --t-xml: #9fb0bd; --t-lust: #ff6f66; --t-js: #e6cc4a; --t-ts: #6aa6ea; --t-html: #f0845a; --t-css: #b08ff0; --t-lua: #8797f0; --t-db: #d7ba7d; --t-img: #5fc4a3;
+  --t-rs: #e9784a; --t-toml: #c18ef0; --t-md: #6ea8e6; --t-json: #e3a24e; --t-lock: #a3a8ac; --t-cfg: #56b9bf; --t-other: #a3a8ac; --t-cs: #a493f0; --t-shader: #e07ab8; --t-gd: #7fb3ec; --t-godot: #6eb0e0; --t-proj: #d1aa82; --t-xml: #9fb0bd; --t-lust: #ff6f66; --t-lustscript: #ff6f66; --t-lustql: #ff6f66; --t-js: #e6cc4a; --t-ts: #6aa6ea; --t-html: #f0845a; --t-css: #b08ff0; --t-lua: #8797f0; --t-db: #d7ba7d; --t-img: #5fc4a3;
     --lust-red: #ff5f56; --lust-flow: #f0a39e; --lust-value: #d7ba7d; --lust-comment: #6a9955; --lust-type: #a1b59c; --lust-punct: #7c7f83; --lust-state: #4fc4ab; --lust-class: #7fa9dc; --lust-object: #e8935a;
     --w-blue-soft: #a9c6ec; --w-green: #9ccf72; --w-magenta: #d987b8; --w-magenta-soft: #e3a9cb;
   --syn-kw: #c18ef0; --syn-ctl: #f08a8f; --syn-type: #56b9bf; --syn-fn: #7fb3ec; --syn-macro: #e9784a; --syn-str: #8fd19e;
@@ -449,11 +449,16 @@ kbd { font-family: var(--mono); font-size: .86em; color: var(--muted); }
 .cm-collapsedLines { background: var(--side) !important; color: var(--muted) !important; font-family: var(--sans); font-size: 12px; }
 .hint.spin::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
 
-/* Lust files show the L# icon instead of a dot. Every dot gets its colour from
-   --tc:var(--t-<kind>) on itself or its row, so match on that. */
-[style*="--t-lust)"] > .dot, .dot[style*="--t-lust)"] { width: 13px; height: 13px; border-radius: 3px; background: url("./assets/lust.svg") center / contain no-repeat; }
-.node[style*="--t-lust)"] > .dot { margin: 0 1.5px; }
-.li[style*="--t-lust)"] > .dot { margin: 4px 0 0 2px; }
+/* Lust files show their own icon instead of a dot: Lt for programs (.lst), Ls for LustScript (.lsc)
+   and Lq for LustQL (.lql). Every dot gets its colour from --tc:var(--t-<kind>) on itself or its
+   row, so match on that. */
+:is([style*="--t-lust)"], [style*="--t-lustscript)"], [style*="--t-lustql)"]) > .dot,
+.dot:is([style*="--t-lust)"], [style*="--t-lustscript)"], [style*="--t-lustql)"]) { width: 13px; height: 13px; border-radius: 3px; background: center / contain no-repeat; }
+[style*="--t-lust)"] > .dot, .dot[style*="--t-lust)"] { background-image: url("./assets/lust-lst.svg"); }
+[style*="--t-lustscript)"] > .dot, .dot[style*="--t-lustscript)"] { background-image: url("./assets/lust-lsc.svg"); }
+[style*="--t-lustql)"] > .dot, .dot[style*="--t-lustql)"] { background-image: url("./assets/lust-lql.svg"); }
+.node:is([style*="--t-lust)"], [style*="--t-lustscript)"], [style*="--t-lustql)"]) > .dot { margin: 0 1.5px; }
+.li:is([style*="--t-lust)"], [style*="--t-lustscript)"], [style*="--t-lustql)"]) > .dot { margin: 4px 0 0 2px; }
 
 /* Smooth cursor (Settings › Editing): the cursor fades in and out instead of switching on and off,
    and glides to where it goes. CodeMirror moves the same cursor element, so a transition is enough. */
