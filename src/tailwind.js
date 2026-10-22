@@ -48,36 +48,74 @@ done(out);
 `;
 
 let host = null; // { run(dir, args) -> stdout, dir() -> project folder or null }
-const cache = new Map(); // folder -> Promise<data | null>
+// Listing a project's classes means starting node and loading Tailwind: a second or more, longer on
+// Windows. So the list is kept between sessions (localStorage), fetched ahead of time when a file in
+// the project opens, and refreshed in the background, while the old list keeps answering.
+const ready = new Map(); // folder -> { options }: what completion uses right now
+const running = new Map(); // folder -> Promise of a listing in progress
+const fresh = new Set(); // folders already listed (or being listed) this session
+const STORE = (dir) => "ledger-tailwind:" + dir;
 
 export function initTailwind(h) { host = h; }
-/** After a CSS file or tailwind.config changes: list the classes again next time. */
-export function tailwindChanged() { cache.clear(); }
 
-function load(dir) {
-  if (!cache.has(dir)) {
-    cache.set(dir, host.run(dir, ["--input-type=module", "-e", SCRIPT]).then((text) => {
-      const d = JSON.parse(text || "null");
-      if (!d) return null;
-      const colourOf = (cls) => { // bg-red-500/50 -> the red-500 colour
-        const base = cls.replace(/\/\d+$/, "").split("-");
-        for (let i = 1; i < base.length; i++) { const c = d.colors[base.slice(i).join("-")]; if (c) return c; }
-        return null;
-      };
-      const options = d.classes.map((label) => {
-        const o = { label, type: "tw" };
-        const c = colourOf(label);
-        if (c) o.twColour = c;
-        return o;
-      });
-      for (const v of d.variants) options.push({ label: v + ":", type: "keyword", boost: -2 });
-      return { options };
-    }).catch(() => null).then((r) => {
-      if (!r) setTimeout(() => cache.delete(dir), 15000); // not installed yet, or a broken config: retry soon
-      return r;
-    }));
+function build(d) {
+  const colourOf = (cls) => { // bg-red-500/50 -> the red-500 colour
+    const base = cls.replace(/\/\d+$/, "").split("-");
+    for (let i = 1; i < base.length; i++) { const c = d.colors[base.slice(i).join("-")]; if (c) return c; }
+    return null;
+  };
+  const options = d.classes.map((label) => {
+    const o = { label, type: "tw" };
+    const c = colourOf(label);
+    if (c) o.twColour = c;
+    return o;
+  });
+  for (const v of d.variants) options.push({ label: v + ":", type: "keyword", boost: -2 });
+  return { options };
+}
+
+/** Lists the classes again in the background; the current list stays until the new one is in. */
+function refresh(dir) {
+  if (running.has(dir)) return running.get(dir);
+  fresh.add(dir);
+  const p = host.run(dir, ["--input-type=module", "-e", SCRIPT]).then((text) => {
+    const d = JSON.parse(text || "null");
+    if (!d) return ready.get(dir) || null;
+    try { localStorage.setItem(STORE(dir), JSON.stringify(d)); } catch {} // too big for the store: just this session
+    const r = build(d);
+    ready.set(dir, r);
+    return r;
+  }).catch(() => ready.get(dir) || null).then((r) => {
+    running.delete(dir);
+    if (!r) setTimeout(() => fresh.delete(dir), 15000); // not installed yet, or a broken config: try again soon
+    return r;
+  });
+  running.set(dir, p);
+  return p;
+}
+
+/** The list right away if there is one (this session's, or the one kept from last time). */
+function now(dir) {
+  if (!ready.has(dir)) {
+    try {
+      const kept = JSON.parse(localStorage.getItem(STORE(dir)) || "null");
+      if (kept) ready.set(dir, build(kept));
+    } catch {}
   }
-  return cache.get(dir);
+  if (!fresh.has(dir)) refresh(dir); // once a session, so new classes and theme colours show up
+  return ready.get(dir) || null;
+}
+const load = (dir) => now(dir) || running.get(dir) || null;
+
+/** Get the list ready before it's needed: called when a file opens. */
+export function tailwindWarm() {
+  const dir = host?.dir();
+  if (dir) now(dir);
+}
+
+/** After a CSS file or tailwind.config changes: list again in the background. */
+export function tailwindChanged() {
+  for (const dir of new Set([...ready.keys(), ...fresh])) refresh(dir);
 }
 
 // Where a class list is being typed: class="…", className="…" or {`…`}, @apply …, clsx("…") and friends.

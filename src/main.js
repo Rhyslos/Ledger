@@ -9,7 +9,7 @@ import { initImages, IMG_EXT } from "./image.js";
 import { initMarkdown } from "./md.js";
 import { iconHtml } from "./icons.js";
 import { VITE, createSteps, withTailwindPlugin, CSS_FILES, FIRST_FILES } from "./scaffold.js";
-import { initTailwind, tailwindSource, tailwindChanged, inClassList } from "./tailwind.js";
+import { initTailwind, tailwindSource, tailwindChanged, tailwindWarm, inClassList } from "./tailwind.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -989,6 +989,9 @@ function activate(key, at, opts = {}) {
   for (const f of activeHooks) f(key);
 }
 const activeHooks = [];
+// Fetch a Tailwind project's classes in the background as soon as one of its files is in front.
+let twWarmT = null;
+activeHooks.push(() => { clearTimeout(twWarmT); twWarmT = setTimeout(tailwindWarm, 400); });
 
 async function save(path = S.active) {
   const b = S.bufs.get(path);
