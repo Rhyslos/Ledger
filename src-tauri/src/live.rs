@@ -26,7 +26,8 @@ pub struct LiveServers(Mutex<HashMap<String, Live>>);
 #[tauri::command]
 pub fn live_start(window: WebviewWindow, servers: State<'_, LiveServers>, root: String, port: u16) -> Result<u16, String> {
     stop(&servers, window.label());
-    let root = PathBuf::from(root);
+    // The real folder (symlinks and junctions resolved), so served files can be checked against it.
+    let root = std::fs::canonicalize(&root).unwrap_or_else(|_| PathBuf::from(&root));
     if !root.is_dir() {
         return Err("That folder doesn't exist.".into());
     }
@@ -46,7 +47,7 @@ pub fn live_start(window: WebviewWindow, servers: State<'_, LiveServers>, root: 
             let Ok(conn) = conn else { continue };
             let (root, clients) = (root.clone(), clients.clone());
             std::thread::spawn(move || {
-                let _ = serve(conn, &root, &clients);
+                let _ = serve(conn, &root, port, &clients);
             });
         }
     });
@@ -76,15 +77,26 @@ pub fn stop(servers: &LiveServers, label: &str) {
     }
 }
 
-fn serve(mut conn: TcpStream, root: &Path, clients: &Mutex<Vec<TcpStream>>) -> std::io::Result<()> {
+fn serve(mut conn: TcpStream, root: &Path, port: u16, clients: &Mutex<Vec<TcpStream>>) -> std::io::Result<()> {
     let mut reader = BufReader::new(conn.try_clone()?);
     let mut first = String::new();
     reader.read_line(&mut first)?;
+    let mut host = String::new();
     loop {
         let mut h = String::new();
         if reader.read_line(&mut h)? == 0 || h == "\r\n" || h == "\n" {
             break;
         }
+        if let Some((k, v)) = h.split_once(':') {
+            if k.trim().eq_ignore_ascii_case("host") {
+                host = v.trim().to_ascii_lowercase();
+            }
+        }
+    }
+    // Only pages asked for as this computer: another website can't reach the folder by pointing its
+    // own name at 127.0.0.1 (DNS rebinding).
+    if !["localhost", "127.0.0.1", "[::1]"].iter().any(|h| host == format!("{h}:{port}")) {
+        return respond(&mut conn, "403 Forbidden", "text/plain", b"Live Server only answers localhost.", "GET");
     }
     let mut parts = first.split_whitespace();
     let (method, target) = (parts.next().unwrap_or(""), parts.next().unwrap_or("/"));
@@ -98,8 +110,9 @@ fn serve(mut conn: TcpStream, root: &Path, clients: &Mutex<Vec<TcpStream>>) -> s
     if method != "GET" && method != "HEAD" {
         return respond(&mut conn, "405 Method Not Allowed", "text/plain", b"Only GET here.", method);
     }
-    // Only plain names below root: no "..", no drive letters.
+    // Only plain names below root: no "..", no drive letters, and nothing hidden (.git, .env).
     let rel: PathBuf = Path::new(path.trim_start_matches('/')).components().filter_map(|c| match c {
+        Component::Normal(n) if n.to_string_lossy().starts_with('.') => Some(Err(())),
         Component::Normal(n) => Some(Ok(n)),
         Component::CurDir => None,
         _ => Some(Err(())),
@@ -112,7 +125,9 @@ fn serve(mut conn: TcpStream, root: &Path, clients: &Mutex<Vec<TcpStream>>) -> s
         }
         file = file.join("index.html");
     }
-    match std::fs::read(&file) {
+    // A symlink or junction inside the folder mustn't lead out of it.
+    let inside = std::fs::canonicalize(&file).map(|f| f.starts_with(root)).unwrap_or(true);
+    match if inside { std::fs::read(&file) } else { Err(std::io::ErrorKind::NotFound.into()) } {
         Ok(body) => {
             let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
             let mime = mime_of(&ext);

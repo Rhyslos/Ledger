@@ -600,3 +600,4 @@ th.db-n { z-index: 2; background: var(--side); }
 .tmark { font-size: 12px; font-weight: 700; color: var(--faint); }
 .tmark.t-pass { color: var(--good); } .tmark.t-fail { color: var(--seal); } .tmark.t-running { color: var(--accent); }
 .tmark.t-idle { opacity: .55; font-weight: 400; }
+.db-tx { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 10px; background: color-mix(in srgb, var(--warn) 14%, transparent); border-bottom: 1px solid var(--line); font-size: 13px; }

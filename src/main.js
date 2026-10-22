@@ -65,7 +65,8 @@ const savePrefs = () => {
     for (const k of Object.keys(breakpoints)) if (!recent.includes(k)) delete breakpoints[k];
     const watches = prefs.watchesChanged ? prefs.watches : stored.watches || prefs.watches;
     delete prefs.watchesChanged;
-    Object.assign(prefs, { sessions, recent, breakpoints, watches });
+    const trust = { ...(stored.trust || {}), ...(prefs.trust || {}) }; // every window's answers
+    Object.assign(prefs, { sessions, recent, breakpoints, watches, trust });
     localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
   } catch {}
 };
@@ -303,7 +304,7 @@ async function langDataSource(ctx) {
 }
 initTailwind({
   run: (dir, args) => invoke("run_capture", { cwd: dir, program: "node", args }).then((r) => (r.code === 0 ? r.out : "")),
-  dir: () => (S.ctx?.node ? S.ctx.dir : null),
+  dir: () => (trusted() && S.ctx?.node ? S.ctx.dir : null), // reading Tailwind's config runs the project's code
 });
 
 const splitArgs = (s) => (String(s || "").match(/"[^"]*"|\S+/g) || []).map((a) => a.replace(/^"|"$/g, ""));
@@ -315,7 +316,8 @@ function serverSpec(id) {
     return {
     exe: settings.rustAnalyzer || "rust-analyzer", args: [],
     initOptions: {
-      checkOnSave: true, check: { command: settings.rustCheck || "check" }, cargo: { buildScripts: { enable: true } }, procMacro: { enable: true },
+      // Build scripts and proc macros are the project's own code: only in folders you trust.
+      checkOnSave: true, check: { command: settings.rustCheck || "check" }, cargo: { buildScripts: { enable: trusted() } }, procMacro: { enable: trusted() },
       inlayHints: { typeHints: { enable: true }, parameterHints: { enable: true }, chainingHints: { enable: true }, closingBraceHints: { enable: false } },
       ...(linked.length ? { linkedProjects: linked } : {}),
     },
@@ -362,7 +364,9 @@ function serverSpec(id) {
   };
 }
 const serverOf = (b) => (b && LANGS[b.lang].server && !b.virtual ? servers[LANGS[b.lang].server] : null);
-const started = (srv) => !!S.root && srv.root === S.root && srv.gen > 0;
+// Running for this folder: alive, not just asked to start (a missing server stays not-started, so
+// the editor's own completions take over and the next file open tries again).
+const started = (srv) => !!S.root && srv.root === S.root && srv.gen > 0 && !!srv.alive;
 function startServer(id) {
   if (!S.root) return null;
   const srv = servers[id], root = S.root;
@@ -813,9 +817,10 @@ async function openFile(path, at, opts = {}) {
     catch (e) { if (!opts.quiet) toast(`Can't open ${base(path)}: ${e}`); return false; }
     if (!S.bufs.has(path)) { const b = makeBuffer(path, text); statOf(path).then((m) => { b.mtime = m; }); }
   }
+  const wasOpen = S.tabs.includes(path); // asked before addTab, which puts it in S.tabs
   addTab(path);
   const prevPreview = S.preview;
-  const asPreview = opts.preview && settings.previewTabs !== false && !S.tabs.includes(path);
+  const asPreview = opts.preview && settings.previewTabs !== false && !wasOpen;
   if (!opts.background) activate(path, at, opts);
   if (asPreview && S.tabs.includes(path)) {
     S.preview = path;
@@ -1052,7 +1057,6 @@ const saveHooks = [];
 // messages (entities/player.lst:3:5  missing ; …) become problems and squiggles.
 const LUST_LINE = /^(.+?\.(?:lst|lsc|lust)):(\d+):(\d+)  (.*)$/;
 const lustShown = new Set();
-let lustSeq = 0;
 // A Lust project's folder is the nearest one up with a main.lst (or main.lsc) in it. Lust
 // names files from there, and fetch paths start there, so lust runs from there too.
 async function lustRoot(path) {
@@ -1072,13 +1076,16 @@ async function lustRoot(path) {
 // Each Lust file's project folder, found when it's opened or saved, for Run and Build.
 const lustRoots = new Map();
 const lustRel = (root, path) => norm(path).slice(norm(root).replace(/\/$/, "").length + 1);
+const lustSeqs = new Map(); // Lust project folder -> number of its newest check
 async function lustCheck(path) {
-  const seq = ++lustSeq, dir = await lustRoot(path);
+  const dir = await lustRoot(path);
+  const seq = (lustSeqs.get(dir) || 0) + 1;
+  lustSeqs.set(dir, seq);
   lustRoots.set(norm(path), dir);
   let r;
   try { r = await invoke("run_capture", { cwd: dir, program: settings.lust || "lust", args: ["check", lustRel(dir, path)] }); }
   catch { return; } // lust isn't set up; Run says how to fix that
-  if (seq !== lustSeq) return;
+  if (seq !== lustSeqs.get(dir)) return; // a newer check of this project is on its way
   const found = new Map();
   for (const line of (r.out + "\n" + r.err).split(/\r?\n/)) {
     const m = LUST_LINE.exec(line);
@@ -1095,8 +1102,8 @@ async function lustCheck(path) {
     if (!found.has(file)) found.set(file, []);
     found.get(file).push({ range: { start: { line: l, character: c }, end: { line: l, character: end } }, severity: 1, message: m[4], source: "lust" });
   }
-  for (const f of lustShown) if (!found.has(f)) lspHandlers.diagnostics(f, []);
-  lustShown.clear();
+  // Only this project's earlier problems are cleared; another Lust project's stay.
+  for (const f of [...lustShown]) if (isUnder(f, dir) && !found.has(f)) { lspHandlers.diagnostics(f, []); lustShown.delete(f); }
   for (const [f, list] of found) { lustShown.add(f); lspHandlers.diagnostics(f, list); }
 }
 saveHooks.push((path, b) => { if (b.lang === "lust") lustCheck(path); if (/\.css$|tailwind\.config\./.test(path)) tailwindChanged(); });
@@ -1220,6 +1227,8 @@ async function closeOthers(key) {
 }
 
 async function closeAll() {
+  // Page tabs that can hold unsaved work (database edits, an open transaction) ask first.
+  for (const k of S.tabs.filter((k2) => isPage(k2))) if (pageOf(k)?.confirmClose && !(await pageOf(k).confirmClose(k))) return false;
   const d = dirtyPaths();
   if (d.length) {
     const c = await choose(`Save changes to ${d.length === 1 ? base(d[0]) : d.length + " files"}?`, ["Save all", "Don't save", "Cancel"]);
@@ -1227,6 +1236,7 @@ async function closeAll() {
     if (c === "Save all" && !(await saveAll())) return false;
   }
   closeSplit();
+  for (const k of S.tabs.filter((k2) => isPage(k2))) pageOf(k)?.close?.(k);
   for (const p of [...S.bufs.keys()]) dropBuffer(p);
   S.tabs = [];
   S.active = null;
@@ -1536,7 +1546,7 @@ $("tree").addEventListener("click", (ev) => {
     // a double-click moves into the editor.
     const p = f.dataset.file;
     S.sel = p; S.selDir = false;
-    openFile(p, null, { keepFocus: true }).then(() => { const n = $("tree").querySelector(`[data-file="${CSS.escape(p)}"]`); if (n) moveCursor(n); });
+    openFile(p, null, { keepFocus: true, preview: true }).then(() => { const n = $("tree").querySelector(`[data-file="${CSS.escape(p)}"]`); if (n) moveCursor(n); });
   }
 });
 $("tree").addEventListener("dblclick", (ev) => { if (ev.target.closest("[data-file]") && S.bufs.get(S.active)) { keepTab(S.active); view.focus(); } });
@@ -1612,12 +1622,22 @@ async function newFolder(dir = targetDir()) {
   S.sel = path; S.selDir = true;
   await refreshTree();
 }
+// Image and database tabs show a file by path: they close when it's renamed or deleted (an open
+// database would also keep Windows from renaming it). False if a database tab's owner said Cancel.
+async function closePagesUnder(p) {
+  for (const k of S.tabs.filter((k2) => /^@(img|db):/.test(k2))) {
+    const f = k.replace(/^@\w+:/, "");
+    if ((f === p || f.startsWith(p + "/")) && !(await closeTab(k))) return false;
+  }
+  return true;
+}
 async function renamePath(p, newName) {
   if (!p) return;
   const name = newName ?? (await promptText(`Rename ${base(p)}`, base(p)))?.trim();
   if (!name || name === base(p)) return;
   if (!validName(name) || name.includes("/")) { toast("That isn't a usable name."); return; }
   const to = join(parent(p), name);
+  if (!(await closePagesUnder(p))) return;
   try { await invoke("rename_path", { from: p, to }); } catch (e) { toast(String(e)); return; }
   const remap = (x) => (x === p ? to : x.startsWith(p + "/") ? to + x.slice(p.length) : x);
   for (const [k, b] of [...S.bufs]) {
@@ -1635,6 +1655,9 @@ async function renamePath(p, newName) {
   }
   S.tabs = S.tabs.map(remap);
   S.open = new Set([...S.open].map(remap));
+  S.pinned = new Set([...S.pinned].map(remap));
+  if (S.preview) S.preview = remap(S.preview);
+  S.diags = new Map([...S.diags].map(([k, v]) => [remap(k), v]));
   for (const P of panes) if (P.key && remap(P.key) !== P.key) { const nk = remap(P.key); S.bufs.get(nk) && (S.bufs.get(nk).mirror = null); P.key = nk; }
   panes.forEach((P, i) => { const b = S.bufs.get(P.key); if (b && P.view && P.view.state !== b.state && P.view.state !== b.mirror) { const k = P.key; P.key = null; showIn(i, k); } });
   if (S.sel) S.sel = remap(S.sel);
@@ -1650,6 +1673,7 @@ async function deletePath(p) {
   if (c !== "Move to Recycle Bin") return;
   const nodes = [...$("tree").querySelectorAll(".node")];
   const i = nodes.findIndex((n) => nodePath(n) === p);
+  if (!(await closePagesUnder(p))) return;
   try { await invoke("delete_path", { path: p }); } catch (e) { toast(String(e)); return; }
   for (const k of [...S.tabs]) if (k === p || k.startsWith(p + "/")) await closeTab(k, true);
   for (const k of [...S.diags.keys()]) if (k === p || k.startsWith(p + "/")) S.diags.delete(k);
@@ -1950,7 +1974,7 @@ function taskSteps(action, P = S.ctx) {
   return T[kind][action] || null;
 }
 function taskLabel(action) {
-  return { run: taskKind() === "godot" ? "Play" : taskKind() === "html" ? "Open in browser" : "Run", build: "Build", check: taskKind() === "node" ? "Lint" : "Check", test: "Test", lint: "Clippy", scene: "Play scene", debug: "Debug", scripts: "Scripts…" }[action];
+  return { run: taskKind() === "godot" ? "Play" : taskKind() === "html" ? "Open in browser" : "Run", build: "Build", check: taskKind() === "node" ? "Lint" : "Check", test: "Test", lint: "Clippy", scene: "Play scene", debug: "Debug", scripts: "Scripts…", lua: "Show the Lua", rust: "Show the Rust" }[action];
 }
 async function runAction(action) {
   if (!S.root) { toast("Open a folder first."); return; }
@@ -1975,6 +1999,8 @@ async function runAction(action) {
     if (!P) toast(projectDirs().length > 1 ? "Open a file from the project you want. This folder holds several projects." : "No Cargo.toml, .csproj, .sln, project.godot or package.json here.", 5000);
     else if (taskKind(P) === "node") toast(action === "run" ? "package.json has no dev, start or serve script. Pick one from Scripts." : `package.json has no script for ${taskLabel(action)}.`, 5000);
     else if (action === "scene") toast("Open a .tscn scene file to play it.");
+    else if (action === "rust" && /\.lsc$/i.test(S.active || "")) toast("LustScript turns into Lua, not Rust: use Show the Lua.");
+    else if ((action === "lua" || action === "rust") && taskKind(P) !== "lust") toast("Open a Lust file (.lst or .lsc) first.");
     else toast(`${taskLabel(action)} isn't available for this project.`);
     return;
   }
@@ -2623,6 +2649,12 @@ C("view.wrap", "Toggle word wrap (long lines wrap onto the next line)", "Alt+Z",
 C("tab.pin", "Pin or unpin this tab", [], () => togglePin());
 C("tab.closeSaved", "Close saved tabs (unsaved and pinned stay)", [], () => closeSavedTabs());
 C("tab.closeAll", "Close all tabs (asks about unsaved ones)", [], () => closeAllTabs());
+C("trust.toggle", "Trust this folder's code, or stop trusting it (Tailwind completion, Rust build scripts)", [], () => {
+  if (!S.root) return;
+  const yes = !trusted();
+  setTrust(S.root, yes);
+  toast(yes ? `${base(S.root)} is trusted: Tailwind completion and Rust build scripts are on.` : `${base(S.root)} isn't trusted: its code won't run in the background.`, 5000);
+});
 C("live.toggle", "Live Server: start or stop", [], () => (live.port ? stopLive() : startLive()));
 C("live.open", "Live Server: open this page in the browser", [], openLive);
 C("task.scripts", "Run a package.json script…", [], () => runAction("scripts"));
@@ -2691,6 +2723,7 @@ document.addEventListener("keydown", (e) => {
   const id = keymap.lookup(k);
   // In a terminal, plain Ctrl+letter and Alt keys belong to the shell (Ctrl+C,
   // Ctrl+R, Ctrl+W…), except a few app keys you'd expect to always work.
+  if (e.target.closest?.(".terms") && /^Ctrl\+Shift\+[CV]$/.test(k)) return; // the terminal's own copy and paste
   if (e.target.closest?.(".terms") && !/F\d|^Ctrl\+Shift\+|^Ctrl\+Alt\+|^Ctrl\+(Tab|PageUp|PageDown|`|\d|Plus|-|=)$/.test(k) && !TERM_PASS.has(k)) return;
   if (id) {
     const inField = e.target.closest?.("input, textarea, select") && !e.target.closest(".cm-editor");
@@ -2765,6 +2798,24 @@ function openFolder(path) {
   folderQueue = job.catch(() => {});
   return job;
 }
+// ---------- folder trust ----------
+// Some help runs the project's own code in the background: Tailwind's config (class completion),
+// Rust build scripts and proc macros (rust-analyzer). A folder Ledger hasn't seen before is asked
+// about once, like VS Code's "Do you trust the authors of the files in this folder?". Projects
+// made in Ledger are trusted. Running, building and tests are things you start, so they always work.
+const trusted = () => !!S.root && (prefs.trust || {})[S.root] === true;
+function setTrust(root, yes) {
+  prefs.trust = { ...(prefs.trust || {}), [root]: yes };
+  savePrefs();
+  if (root !== S.root) return;
+  if (started(servers.rust) || servers.rust.starting) startServer("rust");
+  if (yes) tailwindWarm();
+}
+async function askTrust(path) {
+  if (!path || (prefs.trust || {})[path] !== undefined || !hasAny(/^(package\.json|Cargo\.toml)$/)) return;
+  const c = await choose(`Do you trust the code in ${base(path)}? For Tailwind class completion and Rust analysis, Ledger runs some of the project's own code in the background (its Tailwind config, Rust build scripts and macros). Trust only folders whose code you'd run yourself. Everything else works either way.`, ["Trust it", "Don't run its code"]);
+  if (c === "Trust it" || c === "Don't run its code") setTrust(path, c === "Trust it");
+}
 // The other language servers start with the folder too, when it has their kind of file and the
 // server is installed (no "not installed" warnings for folders that don't need one), so their
 // warm-up is done before the first file opens.
@@ -2821,6 +2872,7 @@ async function openFolderNow(path) {
     if (S.proj.dotnet || hasAny(/\.(csproj|slnx?)$/i)) startServer("csharp");
     warmServers(path);
     updateCtx();
+    askTrust(path);
   });
   // Restoring tabs is async; if something else opened a file meanwhile (say,
   // Godot sending one), leave that file in front.
@@ -2926,6 +2978,8 @@ async function newProject() {
 }
 // Opens a project that was just made: inside the open folder, or as the folder.
 async function openNewProject(p, main, server) {
+  prefs.trust = { ...(prefs.trust || {}), [p]: true }; // made here, so its code is yours
+  savePrefs();
   if (S.root && isUnder(p, S.root)) {
     await revealInTree(join(p, main));
     S.open.add(p);
@@ -3098,6 +3152,14 @@ async function boot() {
 
   try {
     getCurrentWindow().onCloseRequested(async (ev) => {
+      const pages = S.tabs.filter((k) => isPage(k) && pageOf(k)?.confirmClose);
+      if (pages.length) {
+        ev.preventDefault();
+        for (const k of pages) if (!(await pageOf(k).confirmClose(k))) return;
+        for (const k of pages) pageOf(k)?.close?.(k);
+        S.tabs = S.tabs.filter((k) => !pages.includes(k));
+        if (!dirtyPaths().length) { getCurrentWindow().destroy(); return; }
+      }
       if (!dirtyPaths().length) return;
       ev.preventDefault();
       const c = await choose("You have unsaved changes.", ["Save all and quit", "Quit without saving", "Cancel"]);

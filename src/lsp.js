@@ -1,5 +1,5 @@
 // A small LSP client. The Rust side frames and pipes bytes for each server
-// (keyed by id: "rust", "csharp"); this file speaks the protocol. The debugger
+// (keyed by id: rust, csharp, web, html, css, json, lua); this file speaks the protocol. The debugger
 // (dap.js) uses the same pipe under the id "dap".
 import { invoke } from "@tauri-apps/api/core";
 import { on as listen } from "./win.js";

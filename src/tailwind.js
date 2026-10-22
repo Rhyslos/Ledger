@@ -81,7 +81,13 @@ function refresh(dir) {
   const p = host.run(dir, ["--input-type=module", "-e", SCRIPT]).then((text) => {
     const d = JSON.parse(text || "null");
     if (!d) return ready.get(dir) || null;
-    try { localStorage.setItem(STORE(dir), JSON.stringify(d)); } catch {} // too big for the store: just this session
+    try {
+      // Kept for the six folders used last, so the store (which also holds sessions) never fills up.
+      const order = [dir, ...JSON.parse(localStorage.getItem("ledger-tailwind-order") || "[]").filter((x) => x !== dir)];
+      for (const old of order.slice(6)) localStorage.removeItem(STORE(old));
+      localStorage.setItem("ledger-tailwind-order", JSON.stringify(order.slice(0, 6)));
+      localStorage.setItem(STORE(dir), JSON.stringify(d));
+    } catch {} // too big for the store: just this session
     const r = build(d);
     ready.set(dir, r);
     return r;

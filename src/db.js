@@ -94,6 +94,7 @@ export function initDb(app) {
     if (!d.view) { draw(); return; }
     try {
       d.data = await invoke("db_rows", { path: d.path, view: d.view, offset: d.offset, limit: PAGE });
+      d.inTx = d.data.in_transaction;
       d.err = null;
     } catch (e) { d.data = null; d.err = String(e); }
     draw();
@@ -143,7 +144,8 @@ export function initDb(app) {
     else if (d.mode === "structure") main = structureHtml(d, t);
     else main = dataHtml(d, t);
     const tabs = d.mode === "sql" ? "" : `<div class="db-modes"><button data-mode="data" class="${d.mode === "data" ? "on" : ""}">Data</button><button data-mode="structure" class="${d.mode === "structure" ? "on" : ""}">Structure</button></div>`;
-    el.innerHTML = `<div class="db">${side}<section class="db-main">${tabs}${main}</section></div>`;
+    const tx = d.inTx ? `<div class="db-tx">A transaction is open: run <b>COMMIT</b> to keep its changes or <b>ROLLBACK</b> to undo them. Until then other programs can't write to this database. <button class="btn" data-act="commit">Commit</button><button class="btn" data-act="rollback">Roll back</button></div>` : "";
+    el.innerHTML = `<div class="db">${side}<section class="db-main">${tx}${tabs}${main}</section></div>`;
     if (d.mode === "sql") mountSql(d);
   }
 
@@ -160,6 +162,7 @@ export function initDb(app) {
         <span class="db-count">${from.toLocaleString()}–${to.toLocaleString()} of ${data.total.toLocaleString()}</span>
         <button class="btn" data-act="prev" ${d.offset ? "" : "disabled"} aria-label="Previous page">‹</button>
         <button class="btn" data-act="next" ${to < data.total ? "" : "disabled"} aria-label="Next page">›</button>
+        <button class="btn" data-act="refresh" title="Read the database again (it also updates by itself when another program writes to it)">Refresh</button>
         <button class="btn" data-act="export">Export…</button>
       </div>
       <div class="db-bar db-editbar">${canEdit
@@ -225,6 +228,7 @@ export function initDb(app) {
     d.running = true; d.qerr = null; drawResult(d);
     try {
       d.result = await invoke("db_query", { path: d.path, sql: text });
+      if (d.inTx !== d.result.in_transaction) { d.inTx = d.result.in_transaction; draw(); }
       remember(d.path, text);
       if (d.result.changed || /^\s*(create|drop|alter)\b/im.test(text)) loadSchema(d, true); // counts and tables changed
     } catch (e) { d.qerr = String(e); d.result = null; }
@@ -364,6 +368,33 @@ export function initDb(app) {
     catch (e) { toast("Couldn't export: " + e, 6000); }
   }
 
+  async function endTx(d, keep) {
+    try {
+      const r = await invoke("db_query", { path: d.path, sql: keep ? "COMMIT;" : "ROLLBACK;" });
+      d.inTx = r.in_transaction;
+      toast(keep ? "Committed." : "Rolled back.");
+    } catch (e) { toast(String(e), 6000); }
+    await loadSchema(d, true);
+  }
+
+  // When another program writes to the database (a game saving, a server handling a request), the
+  // tab reads it again. SQLite writes to name.db-wal first in WAL mode, so that file is watched too.
+  const stamps = new Map(); // path -> last seen times
+  setInterval(async () => {
+    const d = cur();
+    const typing = el.contains(document.activeElement) && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if (!d || el.hidden || document.hidden || d.mode === "sql" || pending(d) || typing || el.querySelector(".db-input")) return;
+    const t = (await invoke("file_stats", { paths: [d.path, d.path + "-wal"] }).catch(() => [])).join(",");
+    const was = stamps.get(d.path);
+    stamps.set(d.path, t);
+    if (was !== undefined && was !== t) {
+      const keep = el.querySelector(".db-grid")?.scrollTop || 0;
+      await loadSchema(d, true);
+      const g = el.querySelector(".db-grid");
+      if (g) g.scrollTop = keep;
+    }
+  }, 2000);
+
   // ---------- events ----------
   let searchT = null;
   el.addEventListener("input", (ev) => {
@@ -422,6 +453,8 @@ export function initDb(app) {
     else if (a === "prev") { d.offset = Math.max(0, d.offset - PAGE); loadRows(d); }
     else if (a === "next") { d.offset += PAGE; loadRows(d); }
     else if (a === "export") exportTable(d);
+    else if (a === "refresh") loadSchema(d, true);
+    else if (a === "commit" || a === "rollback") endTx(d, a === "commit");
     else if (a === "qexport") exportResult(d);
     else if (a === "addrow") { d.inserts.unshift({}); draw(); app.renderTabs(); }
     else if (a === "delrows") { for (const id of d.sel) d.deletes.add(id); d.sel.clear(); draw(); app.renderTabs(); }
@@ -445,13 +478,24 @@ export function initDb(app) {
     dot: "db",
     confirmClose: async (k) => {
       const d = dbs.get(k);
+      if (d?.inTx) {
+        const c = await choose(`${base(d.path)} has a transaction open. Keep its changes?`, ["Commit", "Roll back", "Cancel"]);
+        if (!c || c === "Cancel") return false;
+        await invoke("db_query", { path: d.path, sql: c === "Commit" ? "COMMIT;" : "ROLLBACK;" }).catch((e) => toast(String(e), 6000));
+        d.inTx = false;
+      }
       if (!d || !pending(d)) return true;
       const c = await choose(`${base(d.path)} has ${pending(d)} unsaved change${pending(d) === 1 ? "" : "s"} to ${d.table}.`, ["Save", "Don't save", "Cancel"]);
       if (c === "Save") return applyEdits(d, false);
       return c === "Don't save";
     },
     focus: () => (cur()?.mode === "sql" ? sqlView?.focus() : el.querySelector(".db-grid")?.focus()),
-    close: (k) => { if (shown === k) { sqlView?.destroy(); sqlView = null; sqlFor = null; shown = null; } dbs.delete(k); },
+    close: (k) => {
+      if (shown === k) { sqlView?.destroy(); sqlView = null; sqlFor = null; shown = null; }
+      const d = dbs.get(k);
+      if (d) { invoke("db_close", { path: d.path }).catch(() => {}); stamps.delete(d.path); }
+      dbs.delete(k);
+    },
   });
   app.openDb = openDb;
 }

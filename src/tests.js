@@ -83,7 +83,12 @@ export function initTests(app) {
     const files = S.files || [];
     const old = new Map(tests);
     tests.clear();
-    const add = (t) => { const was = old.get(t.id); tests.set(t.id, was ? { ...was, ...t, status: was.status, message: was.message, at: was.at, ms: was.ms } : { status: "idle", ...t }); };
+    // A known test keeps its last result, unless #[ignore] was added or removed since.
+    const add = (t) => {
+      const was = old.get(t.id), skip = t.status === "skip";
+      const keep = was && (was.status === "skip") === skip;
+      tests.set(t.id, keep ? { ...was, ...t, status: was.status, message: was.message, at: was.at, ms: was.ms } : { status: "idle", ...t, ...(skip ? { status: "skip" } : {}) });
+    };
     const has = new Set(files.map(norm));
     // Lust: a program with what it should print (.out) or report (.err) next to it.
     for (const f of files) {
@@ -116,7 +121,7 @@ export function initTests(app) {
   const set = (t, status, more = {}) => Object.assign(t, { status, message: "", at: null, ms: null }, more);
 
   async function runRust(root, list) {
-    const all = list.length === [...tests.values()].filter((t) => t.kind === "rust" && t.root === root).length;
+    const all = list.length === [...tests.values()].filter((t) => t.kind === "rust" && t.root === root && t.status !== "skip").length;
     const r = await capture(root, "cargo", ["test", "--no-fail-fast", "--color", "never", ...(all ? [] : ["--", "--exact", ...list.map((t) => t.name)])]);
     const text = (r.out || "") + "\n" + (r.err || "");
     const byName = new Map(list.map((t) => [t.name, t]));
@@ -130,21 +135,26 @@ export function initTests(app) {
       if (!t) continue;
       const p = /panicked at (.+?):(\d+):(\d+):\n([\s\S]*?)(?:\nstack backtrace:|\nnote: |\n\n|$)/.exec(m[2]);
       t.message = (p ? p[4] : m[2]).trim();
-      if (p) t.at = { file: norm(join(root, p[1])), line: +p[2] - 1 };
+      if (p) {
+        // In a workspace the path is from the workspace's folder, not the crate's: use whichever exists.
+        const tries = [join(root, p[1]), join(S.root, p[1])].map(norm);
+        const file = tries.find((f) => (S.files || []).some((x) => norm(x) === f)) || (S.files || []).map(norm).find((f) => f.endsWith("/" + norm(p[1]))) || tries[0];
+        t.at = { file, line: +p[2] - 1 };
+      }
     }
     if (!/test result:/.test(text)) note = "The Rust tests didn't build:\n" + (r.err || r.out || "").split("\n").filter((l) => /error|-->|^\s*\|/.test(l)).slice(0, 14).join("\n");
   }
 
   async function runCs(root, list) {
     const proj = (S.files || []).find((f) => parent(f) === root && /\.csproj$/i.test(f));
-    const dir = join(root, "obj/ledger-tests/" + Date.now());
+    const dir = join(root, "obj/ledger-tests"); // one report, written over each run
     const all = list.length === [...tests.values()].filter((t) => t.kind === "cs" && t.root === root).length;
     const filter = all ? [] : ["--filter", list.map((t) => "FullyQualifiedName=" + t.name).join("|")];
-    const r = await capture(root, "dotnet", ["test", proj || root, "--nologo", "--logger", "trx", "--results-directory", dir, ...filter]);
+    const r = await capture(root, "dotnet", ["test", proj || root, "--nologo", "--logger", "trx;LogFileName=ledger.trx", "--results-directory", dir, ...filter]);
     let trx = null;
     try {
       const entries = await invoke("list_dir", { path: dir });
-      const f = entries.map((e) => e.path).find((p) => /\.trx$/i.test(p));
+      const f = entries.map((e) => e.path).find((p) => /ledger\.trx$/i.test(p));
       if (f) trx = new DOMParser().parseFromString(await invoke("read_file", { path: f }), "application/xml");
     } catch {}
     if (!trx) { note = "The C# tests didn't run:\n" + ((r.out || "") + (r.err || "")).split("\n").filter((l) => /error|failed/i.test(l)).slice(0, 14).join("\n"); return; }
@@ -306,7 +316,7 @@ export function initTests(app) {
       markers: (v) => v.state.field(marksField),
       domEventHandlers: {
         mousedown(v, line) {
-          const t = all().find((x) => x.file === norm(path) && v.state.doc.line(x.line + 1).from === line.from);
+          const t = all().find((x) => x.file === norm(path) && x.line < v.state.doc.lines && v.state.doc.line(x.line + 1).from === line.from);
           if (t && !running) { run([t]); return true; }
           return false;
         },

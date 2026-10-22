@@ -77,11 +77,11 @@ fn child_path() -> OsString {
             dirs.push(pf.join("dotnet"));
             dirs.push(pf.join("nodejs"));
         }
-        // Where winget puts command-line tools it installs.
         // Where npm puts programs installed with --global.
         if let Some(a) = std::env::var_os("APPDATA") {
             dirs.push(PathBuf::from(a).join("npm"));
         }
+        // Where winget puts command-line tools it installs.
         if let Some(l) = std::env::var_os("LOCALAPPDATA") {
             dirs.push(PathBuf::from(l).join("Microsoft").join("WinGet").join("Links"));
         }
@@ -228,7 +228,6 @@ struct Args {
     cwd: String,
 }
 
-/// The command line this process started with (minus the program itself).
 /// The command line for this window: the process's own for the first window,
 /// or the folder a new window was opened with.
 #[tauri::command]
@@ -1330,6 +1329,9 @@ async fn git(cwd: String, args: Vec<String>) -> Res<Captured> {
         let out = command_at(&find_tool("git"))
             .arg("-c")
             .arg("core.quotepath=false")
+            // A repository's own config can't make Ledger's background git run a command (fsmonitor).
+            .arg("-c")
+            .arg("core.fsmonitor=false")
             .args(&args)
             .current_dir(&cwd)
             .env("GIT_TERMINAL_PROMPT", "0")
@@ -1470,10 +1472,10 @@ async fn install_debugger(app: AppHandle, kind: String) -> Res<String> {
     .map_err(err)?
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 mod db;
 mod live;
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         // Must come first: a second launch (say, from Godot) hands its
@@ -1504,6 +1506,7 @@ pub fn run() {
             if let tauri::WindowEvent::Destroyed = ev {
                 stop_window(&window.state::<Procs>(), window.label(), false);
                 live::stop(&window.state::<live::LiveServers>(), window.label());
+                db::close_window(window.label());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -1517,6 +1520,7 @@ pub fn run() {
             db::db_apply,
             db::db_export,
             db::db_create,
+            db::db_close,
             live::live_start,
             live::live_stop,
             live::live_reload,
