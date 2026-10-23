@@ -2,6 +2,8 @@
 
 A Windows code editor for Rust, C#, Godot, web projects (HTML, CSS, JavaScript, TypeScript, React, Tailwind), Lua and our own language Lust, built with Tauri. It borrows the look of Meisner's Ledger: a side bar on the left, open files as tabs, the editor, and a thin status bar (along the bottom or the top, your choice). Everything can be done from the keyboard.
 
+**Ledger has no AI in it, and never will.** No assistant, no chat panel, no generated code, nothing sent off to a model. It's an editor: what's in your files is what you wrote.
+
 To change the name, see [Renaming](#renaming).
 
 ## What it does
@@ -16,15 +18,29 @@ To change the name, see [Renaming](#renaming).
 - **New project**: website, Vite (React, Vue, Svelte, Preact, Solid, Lit, Qwik, vanilla) and Next.js through their own create commands, in TypeScript or JavaScript, with Tailwind if you want it; Node.js, Lua, Lust, LustScript, Rust and C# projects too.
 - **Database viewer**: `.db` and `.sqlite` files open in a tab: tables and views, a grid with sorting, search and filters, the structure of each table, a SQL tab with completion and history, editing with review before saving, export to CSV or JSON. While its tab is in front, it updates when another program writes to the file. New SQLite databases from the explorer's right-click menu.
 - **Images**: PNG, JPEG, GIF, WebP, SVG, AVIF, BMP and ICO open in a viewer with zoom, a transparency checkerboard and a pixel-art mode; SVGs can be edited as code.
+- **Colour picker**: every colour in code (`#hex`, `rgb()`, `hsl()`, Godot's `Color()`) gets a small swatch; click it for a colour wheel (circle or triangle inside) or a detailed hexagon grid with CMYK, an alpha slider, Hex and RGB fields, the colours already in the file and your saved colours. The code changes as you pick, written the way it was (`#abc` stays short, `rgb()` stays `rgb()`). **Pick a colour** puts a new one at the cursor.
+- **Emmet** in HTML, JSX and CSS: type `ul>li.item*3`, `div.card>h2+p`, `!` for a whole page, or `m10`, `df`, `p10-20` in CSS, then Tab. The suggestion list shows what it becomes. Tab only expands where an abbreviation makes sense, so it still indents everywhere else.
+- **Prettier**: Format (Shift Alt F, or on save) uses the project's own Prettier for JavaScript, TypeScript, HTML, CSS, JSON, Markdown and YAML, with its `.prettierrc` and `.prettierignore`, or Ledger's built-in Prettier when the project has none. Settings › Editing can hand formatting back to the language servers.
 - **Markdown preview**: Ctrl Shift V shows the rendered file beside the editor while you type.
+- **CSV and TSV**: each column in its own colour, and Ctrl Shift V shows the file as a table with a fixed header row, sorting by any column and a filter; double-click a row to jump to it in the text.
+- **Hex view**: binary files open as offset, bytes and text instead of failing, with go to offset; **Open as hex** (right-click a file) shows any file that way.
 - **Text encodings**: opens and saves UTF-8, UTF-16 (PowerShell 5 output, .reg exports) and old Windows-1252 files in the encoding they came in; the status bar shows which, and **Convert this file to UTF-8** switches it.
 - **Tests panel**: finds Rust, C# and Lust tests, runs all of them, the failed ones, a file or one test, shows the output live while they run (with a Stop button), shows each failure's message and line, and marks results next to each test in the editor. **Tests: create a test for this file** gets you started.
+- **Bookmarks**: Ctrl Alt K marks a line, Ctrl Alt L and Ctrl Alt J go to the next and previous, **Bookmarks: list** shows them all. They're kept for next time.
+- **Overview ruler**: errors, warnings, search matches, Git changes and bookmarks are marked along the scrollbar, so you can see where they are in a long file.
+- **TODO panel**: every `TODO`, `FIXME`, `HACK`, `XXX` and `BUG` comment in the folder, grouped by file and filtered by word, in the bottom panel. The words are tinted in the editor too.
+- **Zen mode**: Ctrl Alt Z hides everything but the editor and goes full screen; the same key brings it all back.
+- **Local history**: every save keeps a copy (the last 50 per file, in Ledger's own folder, not your project), plus the file as it was before you started editing. **Local history: this file's saved versions** (or right-click a file) shows any of them next to the file now, with **Restore this version**. Works in folders without Git.
 - **Editor**: tabs, split editor (Ctrl \\), search and replace (Ctrl F), multiple cursors, folding, coloured bracket pairs, indent guides, sticky scroll (the line that opens the current function or block stays pinned at the top), problems list, clickable file:line links in build output, back and forward through your jumps, a warning when a file you're editing changes on disk.
 - **Getting around**: find all references (Shift F12), an Outline of the open file (Ctrl Shift O), symbol search (type @ or # in Ctrl E), parameter hints while you type a call.
 - **Debugging**: breakpoints (F9), start with Shift F9, step with F10, F11 and Shift F11, continue with F5. Variables, watches, call stack and a debug console. Rust uses codelldb, C# and Godot use netcoredbg; Ledger downloads them the first time you need them.
 - **Run and Debug links**: ▶ Run test and Debug above each Rust and C# test and above `main`.
 - **Terminal**: real PowerShell terminals in the bottom panel (Ctrl ` shows one, Ctrl T opens a new one).
 - **Git**: changed files are coloured in the explorer, changed lines are marked next to the line numbers, a side-by-side diff view, and a Source control view to stage, commit, pull and push (Ctrl Shift G).
+  - **Branches**: click the branch in the status bar (or in Source control) to switch, make a new one, merge one in or delete one. If switching would lose changes, Ledger offers to stash them first.
+  - **Stashes**: put changes aside (Source control's ⋯ menu, or **Git: stash changes**) and pop them back from the Stashes list.
+  - **Merge conflicts**: each conflict gets **Keep yours**, **Keep theirs**, **Keep both** and **Compare** above it, with the two sides tinted; Alt F7 goes to the next one. Source control shows the merge in progress, with **Abort the merge**.
+  - **Blame**: the cursor's line shows who last changed it, when, and the commit message, faintly at its end; click it to see what that commit changed. **Git: blame on/off**, or Settings › Git.
 - **Dependencies**: in Cargo.toml and .csproj files, the newest version of each package shows at the end of its line; click it to update.
 - **Snippets**: your own, per language, in snippets.json (Settings › Editing › Edit snippets).
 - **Tabs**: clicking through files in the explorer reuses one preview tab (in italics) until you edit, save or pin it. Right-click a tab to pin it, or to close the saved tabs or all of them.
@@ -140,10 +156,14 @@ Every command is in the command list (Ctrl Shift P or F1) with its shortcut. Cha
 | Ctrl Shift M / Ctrl Shift U | Problems / output |
 | Ctrl B | Toggle explorer |
 | Alt Z | Wrap long lines on or off |
-| Ctrl Shift V | Markdown preview |
+| Ctrl Shift V | Markdown preview, or a CSV file as a table |
+| Ctrl Alt K / Ctrl Alt L / Ctrl Alt J | Bookmark this line / next / previous |
+| Ctrl Alt Z | Zen mode |
+| Alt F7 / Shift Alt F7 | Next / previous merge conflict |
+| Tab | Expand an Emmet abbreviation (HTML, JSX, CSS) |
 | Ctrl + / Ctrl - / Ctrl 0 | Editor text size |
 
-In dialogs, arrow keys move and Enter picks; in choice dialogs the number keys pick directly.
+In dialogs, arrow keys move and Enter picks; in short choice dialogs the number keys pick directly, and long ones (branches, bookmarks) have a box to type in.
 
 In a terminal, Ctrl+letter keys go to the shell (Ctrl C, Ctrl R…), except Ctrl P, Ctrl T, Ctrl J and Ctrl B. Function keys, Ctrl Shift and Ctrl Alt shortcuts always reach Ledger; F6 or Ctrl ` gets you out.
 
@@ -184,7 +204,8 @@ src/main.js           editor, split panes, explorer, tabs, palette, tasks, keybo
 src/nav.js            references, outline, symbol search, parameter hints, Run/Debug links
 src/editorx.js        bracket colours, indent guides, sticky scroll
 src/terminal.js       the terminal panel (xterm.js)
-src/git.js            git status, change bars, diff page, Source control view
+src/git.js            git status, change bars, diff page, Source control view, branches, stashes
+src/gitmore.js        merge conflict buttons and blame
 src/dap.js            the debugger protocol client
 src/debugger.js       breakpoints, debug sessions, the Debug view and console
 src/deps.js           newest-version hints in Cargo.toml and .csproj
@@ -200,6 +221,14 @@ src/tailwind.js       Tailwind class completion
 src/db.js             the database tab (with src-tauri/src/db.rs)
 src/image.js          the image viewer
 src/md.js             Markdown preview
+src/colour.js         colour swatches and the colour picker
+src/emmet.js          Emmet abbreviations
+src/prettier.js       formatting web files with Prettier
+src/marks.js          bookmarks and the overview ruler
+src/todo.js           the TODO panel
+src/csv.js            CSV columns and the table view
+src/hex.js            the hex view
+src/history.js        local history
 src/tests.js          the Tests panel
 src/icons.js          file icons (public/fileicons, made by scripts/fileicons.mjs)
 src/scaffold.js       Vite and Next.js projects

@@ -20,15 +20,21 @@ export const DEFAULTS = {
   bracketColors: true,
   indentGuides: true,
   stickyScroll: true,
+  colourSwatches: true,
+  overviewRuler: true,
+  localHistory: true,
   smoothCaret: true,
   cursorStyle: "line",
   smoothScroll: true,
   codeLens: true,
   gitGutter: true,
+  gitBlame: true,
   dependencyHints: true,
   inlayHints: true,
   tabSize: 4,
   formatOnSave: false,
+  webFormatter: "prettier",
+  emmet: true,
   autoSave: "off",
   rustAnalyzer: "rust-analyzer",
   rustCheck: "check",
@@ -193,17 +199,23 @@ export function settingsHtml() {
       ${row("Tab size", select("sTab", "tabSize", [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]]), "", "sTab")}
       ${row("Wrapping", check("sWrap", "wordWrap", "Wrap long lines"), "Alt+Z turns it on and off from anywhere.")}
       ${row("Type hints", check("sHints", "inlayHints", "Show the types and parameter names the language server works out, in grey"), "They aren't part of your file. Rust, C#, TypeScript and Lua send them.")}
-      ${row("Formatting", check("sFmt", "formatOnSave", "Format files when saving (with the language server, for languages whose server formats)"))}
+      ${row("Formatting", check("sFmt", "formatOnSave", "Format files when saving (Prettier for web files, the language server for the rest)"))}
+      ${row("Web formatting", select("sWebFmt", "webFormatter", [["prettier", "Prettier"], ["server", "The language servers"]]), "Prettier formats JavaScript, TypeScript, HTML, CSS, JSON, Markdown and YAML: the project's own Prettier when it has one (in a trusted folder), otherwise the one built into Ledger, with your .prettierrc either way.", "sWebFmt")}
+      ${row("Emmet", check("sEmmet", "emmet", "Expand Emmet abbreviations with Tab in HTML, JSX and CSS (ul>li*3, div.card, m10, df…)"))}
       ${row("Preview tabs", check("sPreview", "previewTabs", "Clicking through files in the explorer reuses one tab"), "The file shows in a tab in italics, and the next file you click takes its place. Editing, saving, double-clicking or pinning it (right-click the tab) keeps it open.")}
       ${row("Auto save", select("sAuto", "autoSave", [["off", "Off"], ["delay", "A second after typing stops"], ["focus", "When switching tabs or apps"]]), "", "sAuto")}
       ${row("Brackets", check("sBr", "bracketColors", "Colour matching bracket pairs by depth"))}
       ${row("Indentation", check("sIg", "indentGuides", "Show indent guides"))}
       ${row("Sticky scroll", check("sSticky", "stickyScroll", "Keep the lines that open the current block (fn, impl, class…) pinned at the top while scrolling"))}
+      ${row("Local history", check("sHist", "localHistory", "Keep a copy of every save (the last 50 per file, in Ledger's own folder) so you can go back to an earlier version"))}
+      ${row("Overview ruler", check("sOv", "overviewRuler", "Mark errors, warnings, search matches, Git changes and bookmarks along the scrollbar"))}
+      ${row("Colours", check("sSw", "colourSwatches", "Show a swatch before colours in code (#hex, rgb(), hsl(), Godot's Color()); click it to pick a colour"))}
       ${row("Cursor", select("sCursor", "cursorStyle", [["line", "Line"], ["block", "Block"], ["underline", "Underline"]]), "", "sCursor")}
       ${row("Smooth cursor", check("sSmoothCaret", "smoothCaret", "The cursor fades in and out, and glides when it moves"))}
       ${row("Smooth scrolling", check("sSmoothScroll", "smoothScroll", "Ease each mouse wheel step instead of jumping"), "Touchpads already scroll smoothly, so they're left as they are.")}
       ${row("Run and Debug links", check("sLens", "codeLens", "Show ▶ Run test and Debug above tests and main functions"))}
       ${row("Git", check("sGitGutter", "gitGutter", "Mark changed lines next to the line numbers"))}
+      ${row("Blame", check("sGitBlame", "gitBlame", "Show who last changed the cursor's line, and when, faintly at its end"))}
       ${row("Dependencies", check("sDeps", "dependencyHints", "In Cargo.toml and .csproj files, show the newest version of each package (looked up on crates.io and nuget.org)"))}
       ${row("Snippets", `<div class="bar"><button class="btn" data-act="snippets">Edit snippets</button></div>`, "Your own snippets for each language, in snippets.json. They show up in completions by their prefix.")}
     </section>

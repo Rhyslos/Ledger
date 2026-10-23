@@ -9,7 +9,7 @@ import { langOf, dotOf, LANGS } from "./langs.js";
 
 export function initGit(app) {
   const { $, S, esc, invoke } = app;
-  const G = { root: null, ok: null, branch: "", oid: "", upstream: "", ahead: 0, behind: 0, files: new Map(), busy: "", missing: false };
+  const G = { root: null, ok: null, branch: "", oid: "", upstream: "", ahead: 0, behind: 0, files: new Map(), busy: "", missing: false, stashes: [], merging: false };
   const headCache = new Map(); // path -> Promise<string|null>
 
   const git = (args, cwd = G.root) => invoke("git", { cwd, args });
@@ -57,6 +57,13 @@ export function initGit(app) {
       }
       if (oid !== G.oid) { G.oid = oid; headCache.clear(); }
       G.files = files;
+      // Stashes, and whether a merge is waiting to be finished.
+      const [sl, mh] = await Promise.all([
+        git(["stash", "list", "--format=%gd%x1f%s%x1f%cr"]).catch(() => null),
+        git(["rev-parse", "-q", "--verify", "MERGE_HEAD"]).catch(() => null),
+      ]);
+      G.stashes = (sl?.code === 0 ? sl.out.split("\n").filter(Boolean) : []).map((l) => { const [ref, msg, when] = l.split("\x1f"); return { ref, msg, when }; });
+      G.merging = mh?.code === 0;
       render();
       for (const p of S.bufs.keys()) scheduleBars(p, 10);
     })().finally(() => { statusJob = null; });
@@ -140,6 +147,8 @@ export function initGit(app) {
       },
     },
   })];
+  // Ticks on the overview ruler (marks.js) for each change.
+  app.scrollMarks.push((st) => (st.field(barField, false)?.chunks || []).map((c) => ({ pos: c.from, kind: c.kind })));
   const barTimers = new Map();
   function scheduleBars(path, ms = 350) {
     clearTimeout(barTimers.get(path));
@@ -242,7 +251,7 @@ export function initGit(app) {
     if (mvKey === key && el.querySelector(".cm-mergeView")) return;
     mv?.destroy();
     mvKey = key;
-    el.innerHTML = `<div class="diffhead"><b>${esc(d.title)}</b><span class="sp"></span><span class="hint">${esc(d.leftLabel)} ↔ ${esc(d.rightLabel)} · F7 / Shift F7 next and previous change</span><button class="btn" data-dact="prev">Previous</button><button class="btn" data-dact="next">Next</button>${S.root && d.path ? '<button class="btn" data-dact="open">Open file</button>' : ""}</div><div class="diffbody"></div>`;
+    el.innerHTML = `<div class="diffhead"><b>${esc(d.title)}</b><span class="sp"></span><span class="hint">${esc(d.leftLabel)} ↔ ${esc(d.rightLabel)} · F7 / Shift F7 next and previous change</span><button class="btn" data-dact="prev">Previous</button><button class="btn" data-dact="next">Next</button>${(d.actions || []).map((a, i) => `<button class="btn primary" data-dact="x${i}">${esc(a.label)}</button>`).join("")}${S.root && d.path ? '<button class="btn" data-dact="open">Open file</button>' : ""}</div><div class="diffbody"></div>`;
     mv = new MergeView({
       a: { doc: d.left, extensions: sideExt(d.path) },
       b: { doc: d.right, extensions: sideExt(d.path) },
@@ -262,6 +271,7 @@ export function initGit(app) {
     const a = b.dataset.dact;
     if (a === "next") { goToNextChunk(mv.b); mv.b.focus(); }
     if (a === "prev") { goToPreviousChunk(mv.b); mv.b.focus(); }
+    if (/^x\d+$/.test(a)) { diffs.get(mvKey)?.actions?.[+a.slice(1)]?.run(); return; }
     if (a === "open") { const d = diffs.get(mvKey); const line = mv.b.state.doc.lineAt(mv.b.state.selection.main.head).number - 1; app.openFile(d.path, { line, character: 0 }); }
   });
   $("diff").addEventListener("keydown", (ev) => {
@@ -296,11 +306,12 @@ export function initGit(app) {
     if (!G.ok || !G.branch) { st.hidden = true; $("gitBadge").hidden = true; return; }
     st.hidden = false;
     st.innerHTML = `${esc(G.branch === "(detached)" ? G.oid.slice(0, 7) : G.branch)}${G.ahead ? ` ↑${G.ahead}` : ""}${G.behind ? ` ↓${G.behind}` : ""}${G.busy ? " · " + esc(G.busy) : ""}`;
-    st.title = `Branch ${G.branch}${G.upstream ? `, tracking ${G.upstream}` : ", not pushed anywhere yet"}. ${G.files.size} changed file${G.files.size === 1 ? "" : "s"}. Click for Source control.`;
+    st.title = `Branch ${G.branch}${G.upstream ? `, tracking ${G.upstream}` : ", not pushed anywhere yet"}. ${G.files.size} changed file${G.files.size === 1 ? "" : "s"}. Click to switch branch.`;
     $("gitBadge").hidden = !G.files.size;
     $("gitBadge").title = `${G.files.size} changed`;
   }
-  $("stBranch").onclick = () => app.showSideView("git", true);
+  $("stBranch").onclick = () => switchBranch();
+  $("stBranch").oncontextmenu = (e) => { e.preventDefault(); moreMenu(e.clientX, e.clientY - 200); };
 
   function fileRow(path, st, kind, i) {
     const r = app.rel(path), dir = r.includes("/") ? r.slice(0, r.lastIndexOf("/")) : "";
@@ -319,15 +330,17 @@ export function initGit(app) {
     const st = all.filter(([, s]) => staged(s)), un = all.filter(([, s]) => unstaged(s));
     let i = 0;
     box.innerHTML = `
-      <div class="sec"><h3 style="text-transform:none;letter-spacing:0;font-size:12.5px">${esc(G.branch)} <span>${G.upstream ? esc(G.upstream) : "not pushed yet"}${G.ahead ? ` · ${G.ahead} to push` : ""}${G.behind ? ` · ${G.behind} to pull` : ""}</span></h3>
+      ${G.merging ? `<div class="gmerge"><b>Merging.</b> ${[...G.files.values()].filter((f) => f.conflict).length ? `${[...G.files.values()].filter((f) => f.conflict).length} file${[...G.files.values()].filter((f) => f.conflict).length === 1 ? "" : "s"} with conflicts: open each, pick a side above every conflict, save and stage it, then commit.` : "No conflicts left: commit to finish the merge."}<div class="bar"><button class="btn" data-gact="abortMerge">Abort the merge</button></div></div>` : ""}
+      <div class="sec"><h3 style="text-transform:none;letter-spacing:0;font-size:12.5px"><button class="gbranch" data-gact="branch" id="gBranch" title="Switch branch, or make a new one">${esc(G.branch === "(detached)" ? G.oid.slice(0, 7) : G.branch)} ▾</button> <span>${G.upstream ? esc(G.upstream) : "not pushed yet"}${G.ahead ? ` · ${G.ahead} to push` : ""}${G.behind ? ` · ${G.behind} to pull` : ""}</span></h3>
         <div class="commit">
           <textarea id="commitMsg" placeholder="Commit message (Ctrl Enter commits)" spellcheck="true" aria-label="Commit message">${esc(msg)}</textarea>
-          <div class="bar"><button class="btn primary" data-gact="commit" id="gCommit">Commit${st.length ? "" : un.length ? " all" : ""}</button><button class="btn" data-gact="pull" id="gPull">Pull</button><button class="btn" data-gact="push" id="gPush">Push</button><button class="btn plain" data-gact="refresh" id="gRefresh" title="Refresh">↻</button></div>
+          <div class="bar"><button class="btn primary" data-gact="commit" id="gCommit">Commit${st.length ? "" : un.length ? " all" : ""}</button><button class="btn" data-gact="pull" id="gPull">Pull</button><button class="btn" data-gact="push" id="gPush">Push</button><button class="btn plain" data-gact="more" id="gMore" title="Branches and stashes" aria-label="Branches and stashes">⋯</button><button class="btn plain" data-gact="refresh" id="gRefresh" title="Refresh">↻</button></div>
           ${G.busy ? `<div class="hint spin">${esc(G.busy)}…</div>` : !st.length && un.length ? '<div class="hint">Nothing is staged, so Commit all includes every change below.</div>' : ""}
         </div>
       </div>
       ${st.length ? `<div class="sec"><h3>Staged <span>${st.length}</span></h3><div class="rows" role="tree">${st.map(([p, s]) => fileRow(p, s, "staged", i++)).join("")}</div></div>` : ""}
       <div class="sec"><h3>Changes <span>${un.length}</span></h3><div class="rows" role="tree">${un.map(([p, s]) => fileRow(p, s, "changes", i++)).join("") || '<p class="hint" style="padding:2px 8px">No changes since the last commit.</p>'}</div></div>
+      ${G.stashes.length ? `<div class="sec"><h3>Stashes <span>${G.stashes.length}</span></h3><div class="rows">${G.stashes.map((x) => `<button class="node gstash" data-gstash="${esc(x.ref)}" title="${esc(x.ref)} · ${esc(x.when)}. Click to pop it back, right-click for more."><span class="lbl">${esc(x.msg.replace(/^On [^:]+: /, ""))}</span><span class="sub">${esc(x.when)}</span></button>`).join("")}</div></div>` : ""}
       <p class="hint" style="padding:8px 14px">Enter shows the changes, Space stages or unstages, Delete throws a change away, Shift F10 for more.</p>`;
     if (focusKey) {
       const el = focusKey.includes("|") ? box.querySelector(`[data-gk="${CSS.escape(focusKey.split("|")[0])}"][data-gp="${CSS.escape(focusKey.slice(focusKey.indexOf("|") + 1))}"]`) || box.querySelector(".node") : box.querySelector("#" + CSS.escape(focusKey)) || box.querySelector(`[data-gact="${CSS.escape(focusKey)}"]`);
@@ -342,7 +355,7 @@ export function initGit(app) {
   app.sideViews.git.render = () => { renderView(); refresh(); };
   app.sideViews.git.focus = focusView;
 
-  async function op(label, args, after) {
+  async function op(label, args, after, quiet) {
     if (G.busy) { app.toast(`Wait for ${G.busy.toLowerCase()} to finish.`); return null; }
     G.busy = label;
     render();
@@ -350,12 +363,12 @@ export function initGit(app) {
     try { r = await git(args); }
     catch (e) { r = { code: -1, out: "", err: String(e) }; }
     G.busy = "";
-    if (r.code !== 0) {
+    if (r.code !== 0 && !quiet) {
       const why = (r.err || r.out).trim();
       app.appendOut(`<span class="cmd">$ git ${esc(args.join(" "))}</span>`);
       app.appendOut(esc(why));
       app.toast(`${label} failed: ${why.split("\n").filter(Boolean).pop() || "see Output"}`, 7000);
-    } else if (after) after(r);
+    } else if (r.code === 0 && after) after(r);
     await refresh();
     return r;
   }
@@ -409,12 +422,30 @@ export function initGit(app) {
       if (act === "push") push();
       if (act === "refresh") refresh();
       if (act === "init") git(["init"], S.root).then(() => { G.forRoot = null; refresh(); });
+      if (act === "branch") switchBranch();
+      if (act === "more") { const r = a.getBoundingClientRect(); moreMenu(r.left, r.bottom + 2); }
+      if (act === "abortMerge") abortMerge();
       return;
     }
+    const sh = ev.target.closest("[data-gstash]");
+    if (sh) { stashOp("pop", sh.dataset.gstash); return; }
     const n = ev.target.closest("[data-gp]");
     if (n) showDiffOf(n.dataset.gp);
   });
   $("git").addEventListener("contextmenu", (ev) => {
+    const sh = ev.target.closest("[data-gstash]");
+    if (sh) {
+      ev.preventDefault();
+      const ref = sh.dataset.gstash;
+      app.showMenu(ev.clientX, ev.clientY, [
+        { label: "Pop (apply and remove)", run: () => stashOp("pop", ref) },
+        { label: "Apply (keep the stash)", run: () => stashOp("apply", ref) },
+        { label: "Show what's in it", run: () => showStash(ref) },
+        "-",
+        { label: "Drop", danger: true, run: () => stashOp("drop", ref) },
+      ]);
+      return;
+    }
     const n = ev.target.closest("[data-gp]");
     if (!n) return;
     ev.preventDefault();
@@ -443,6 +474,17 @@ export function initGit(app) {
     if (!el) { if (k === "Esc") { ev.preventDefault(); app.focusZone("editor"); } return; }
     const nodes = [...$("git").querySelectorAll(".node")], i = nodes.indexOf(el);
     const go = (n) => { if (!n) return; nodes.forEach((x) => (x.tabIndex = x === n ? 0 : -1)); n.focus(); n.scrollIntoView({ block: "nearest" }); };
+    // A stash row: Enter or Space pops it, Delete drops it, Shift F10 for the rest.
+    if (el.dataset.gstash && !["Down", "Up", "Home", "End", "Esc"].includes(k)) {
+      const ref = el.dataset.gstash;
+      if (k === "Enter" || k === "Space") stashOp("pop", ref);
+      else if (k === "Delete") stashOp("drop", ref);
+      else if (k === "Shift+F10" || k === "ContextMenu") { const rc = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: rc.left + 24, clientY: rc.bottom })); }
+      else return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
     if (k === "Down") go(nodes[i + 1]);
     else if (k === "Up") { if (i === 0) $("commitMsg")?.focus(); else go(nodes[i - 1]); }
     else if (k === "Home") go(nodes[0]);
@@ -457,6 +499,140 @@ export function initGit(app) {
     ev.preventDefault();
     ev.stopPropagation();
   });
+
+  // ---------- branches ----------
+  async function refs() {
+    const r = await git(["for-each-ref", "--sort=-committerdate", "--format=%(refname)%09%(HEAD)%09%(committerdate:relative)%09%(upstream:short)", "refs/heads", "refs/remotes"]).catch(() => null);
+    const local = [], remote = [];
+    for (const l of (r?.code === 0 ? r.out.split("\n") : [])) {
+      const [ref, head, when, up] = l.split("\t");
+      if (!ref) continue;
+      if (ref.startsWith("refs/heads/")) local.push({ name: ref.slice(11), current: head === "*", when, up });
+      else if (!ref.endsWith("/HEAD")) remote.push({ name: ref.slice(13), when });
+    }
+    const names = new Set(local.map((b) => b.name));
+    // A remote branch only needs its own row when there's no local branch of that name yet.
+    return { local, remote: remote.filter((b) => !names.has(b.name.slice(b.name.indexOf("/") + 1))) };
+  }
+  async function afterSwitch() {
+    headCache.clear();
+    await refresh();
+    await app.reloadClean?.();
+    app.refreshTree?.();
+  }
+  async function switchTo(name) {
+    await app.saveAll();
+    let r = await op("Switching", ["switch", name], null, true);
+    if (r && r.code !== 0 && /overwritten|commit your changes or stash/i.test(r.err)) {
+      const c = await app.choose(`Your changes to some files would be lost by switching to ${name}.`, ["Stash them, then switch", "Cancel"]);
+      if (c !== "Stash them, then switch") return;
+      const s = await op("Stashing", ["stash", "push", "-u", "-m", `Before switching to ${name}`]);
+      if (!s || s.code !== 0) return;
+      r = await op("Switching", ["switch", name], null, true);
+      if (r?.code === 0) app.toast(`On ${name}. Your changes are stashed: pop them back from Source control when you want them.`, 7000);
+    }
+    if (r && r.code !== 0) { app.toast("Couldn't switch: " + ((r.err || r.out).trim().split("\n").pop() || "see Output"), 7000); app.appendOut(esc((r.err || r.out).trim())); }
+    else if (r) app.toast(`Switched to ${name}.`);
+    await afterSwitch();
+  }
+  async function switchBranch() {
+    if (!G.ok) { app.toast("This folder isn't a Git repository."); return; }
+    const { local, remote } = await refs();
+    const rows = [
+      { label: "+ New branch from here…", run: newBranch },
+      ...local.map((b) => ({ label: `${b.name}${b.current ? "  (current)" : ""}  ·  ${b.when}${b.up ? "  ·  " + b.up : ""}`, run: () => (b.current ? app.toast(`Already on ${b.name}.`) : switchTo(b.name)) })),
+      ...remote.map((b) => ({ label: `${b.name}  ·  ${b.when}  ·  remote`, run: () => switchTo(b.name.slice(b.name.indexOf("/") + 1)) })),
+    ];
+    const i = await app.choose("Switch branch", rows.map((x) => x.label), true);
+    if (i != null && i >= 0) rows[i].run();
+  }
+  async function newBranch() {
+    const name = (await app.promptText("New branch name (it starts from where you are now, and you switch to it)", "", "feature/my-change"))?.trim();
+    if (!name) return;
+    if (/[\s~^:?*[\\]|\.\.|@\{|^[-/]|[/.]$|\.lock$/.test(name)) { app.toast("That name won't work as a Git branch: no spaces, ~ ^ : ? * [ \\ or .."); return; }
+    await app.saveAll();
+    await op("Creating branch", ["switch", "-c", name], () => app.toast(`On the new branch ${name}. Your changes came along.`));
+    await afterSwitch();
+  }
+  async function deleteBranch() {
+    const { local } = await refs();
+    const others = local.filter((b) => !b.current);
+    if (!others.length) { app.toast("There's no other branch to delete."); return; }
+    const i = await app.choose("Delete which branch?", others.map((b) => `${b.name}  ·  ${b.when}`), true);
+    if (i == null || i < 0) return;
+    const name = others[i].name;
+    const r = await op("Deleting branch", ["branch", "-d", name], () => app.toast(`Deleted ${name}.`), true);
+    if (r && r.code !== 0 && /not fully merged/i.test(r.err)) {
+      const c = await app.choose(`${name} has commits that aren't in any other branch. Delete it anyway? Those commits will be lost.`, ["Delete it anyway", "Cancel"]);
+      if (c === "Delete it anyway") await op("Deleting branch", ["branch", "-D", name], () => app.toast(`Deleted ${name}.`));
+    } else if (r && r.code !== 0) app.toast("Couldn't delete: " + r.err.trim().split("\n").pop(), 7000);
+  }
+  async function mergeBranch() {
+    const { local, remote } = await refs();
+    const all = [...local.filter((b) => !b.current).map((b) => b.name), ...remote.map((b) => b.name)];
+    if (!all.length) { app.toast("There's no other branch to merge."); return; }
+    const i = await app.choose(`Merge which branch into ${G.branch}?`, all, true);
+    if (i == null || i < 0) return;
+    await app.saveAll();
+    const r = await op("Merging", ["merge", "--no-edit", all[i]], (x) => app.toast((x.out.trim().split("\n").pop() || "Merged.").slice(0, 160)), true);
+    if (r && r.code !== 0) {
+      if (/conflict/i.test(r.out + r.err)) { app.toast("The merge has conflicts. They're marked in Source control: open each file and pick a side above every conflict.", 9000); app.showSideView("git"); }
+      else app.toast("Couldn't merge: " + ((r.err || r.out).trim().split("\n").pop()), 7000);
+    }
+    await afterSwitch();
+  }
+  async function abortMerge() {
+    const c = await app.choose("Abort the merge? Every file goes back to how it was before you merged.", ["Abort the merge", "Cancel"]);
+    if (c !== "Abort the merge") return;
+    await op("Aborting", ["merge", "--abort"], () => app.toast("Merge aborted."));
+    await afterSwitch();
+  }
+
+  // ---------- stashes ----------
+  async function stash() {
+    if (!G.files.size) { app.toast("Nothing to stash: no changes since the last commit."); return; }
+    const msg = await app.promptText("Stash your changes (they're put aside, and the files go back to the last commit). A note, so you know what it was:", "", "half-done header");
+    if (msg == null) return;
+    await app.saveAll();
+    await op("Stashing", ["stash", "push", "-u", ...(msg.trim() ? ["-m", msg.trim()] : [])], () => app.toast("Stashed. Pop it back from Source control."));
+    await afterSwitch();
+  }
+  async function stashOp(kind, ref) {
+    if (!ref) {
+      if (!G.stashes.length) { app.toast("There are no stashes."); return; }
+      const i = G.stashes.length === 1 ? 0 : await app.choose(kind === "drop" ? "Drop which stash?" : "Which stash?", G.stashes.map((x) => `${x.msg.replace(/^On [^:]+: /, "")}  ·  ${x.when}`), true);
+      if (i == null || i < 0) return;
+      ref = G.stashes[i].ref;
+    }
+    if (kind === "drop") {
+      const c = await app.choose("Drop this stash? The changes in it are gone for good.", ["Drop it", "Cancel"]);
+      if (c !== "Drop it") return;
+    }
+    await app.saveAll();
+    const r = await op(kind === "pop" ? "Popping stash" : kind === "apply" ? "Applying stash" : "Dropping stash", ["stash", kind, ref], () => app.toast(kind === "drop" ? "Dropped." : "Your stashed changes are back."), true);
+    if (r && r.code !== 0) {
+      if (/conflict/i.test(r.out + r.err)) app.toast("Some stashed changes clash with yours: the conflicts are marked in those files. The stash is kept until you drop it.", 9000);
+      else app.toast("Couldn't: " + ((r.err || r.out).trim().split("\n").pop()), 7000);
+    }
+    await afterSwitch();
+  }
+  async function showStash(ref) {
+    const r = await git(["stash", "show", "-p", "--include-untracked", ref]).catch(() => null);
+    if (!r || r.code !== 0) { app.toast("Couldn't read that stash."); return; }
+    openDiff({ path: null, left: "", right: r.out, leftLabel: "", rightLabel: ref, title: ref + " · stashed changes" });
+  }
+  function moreMenu(x, y) {
+    app.showMenu(x, y, [
+      { label: "Switch branch…", run: switchBranch },
+      { label: "New branch…", run: newBranch },
+      { label: "Merge a branch into this one…", run: mergeBranch },
+      { label: "Delete a branch…", run: deleteBranch },
+      "-",
+      { label: "Stash changes…", run: stash },
+      ...(G.stashes.length ? [{ label: "Pop the latest stash", run: () => stashOp("pop", G.stashes[0].ref) }] : []),
+      ...(G.merging ? ["-", { label: "Abort the merge", danger: true, run: abortMerge }] : []),
+    ]);
+  }
 
   // ---------- wiring ----------
   app.extraExt.push((path, b) => (app.settings.gitGutter && !b.virtual ? [gitPath.of(path), barGutter] : []));
@@ -482,7 +658,16 @@ export function initGit(app) {
   C("git.prevChange", "Previous change in this file", "Shift+Alt+F5", () => jumpChange(-1));
   C("diff.next", "Next change (in a comparison)", "F7", () => jumpChange(1));
   C("diff.prev", "Previous change (in a comparison)", "Shift+F7", () => jumpChange(-1));
+  C("git.branch", "Git: switch branch", [], switchBranch);
+  C("git.branchNew", "Git: new branch", [], newBranch);
+  C("git.branchDelete", "Git: delete a branch", [], deleteBranch);
+  C("git.merge", "Git: merge a branch into this one", [], mergeBranch);
+  C("git.mergeAbort", "Git: abort the merge", [], () => (G.merging ? abortMerge() : app.toast("No merge in progress.")));
+  C("git.stash", "Git: stash changes", [], stash);
+  C("git.stashPop", "Git: pop a stash (apply it and remove it)", [], () => stashOp("pop"));
+  C("git.stashApply", "Git: apply a stash (and keep it)", [], () => stashOp("apply"));
+  C("git.stashDrop", "Git: drop a stash", [], () => stashOp("drop"));
   C("git.revertChange", "Undo the change at the cursor (back to the last commit)", [], revertChange);
 
-  return { refresh, G, showDiff };
+  return { refresh, G, showDiff, git, relTo, headText, openDiff };
 }

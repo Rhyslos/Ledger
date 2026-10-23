@@ -52,6 +52,7 @@ export function initMarkdown(app) {
   };
 
   function toggle(path = S.active) {
+    if (/^@csv:|\.(csv|tsv|tab|psv)$/i.test(path || "") && app.csvTable) { app.csvTable(path); return; }
     if (!isMd(S.bufs.get(path))) { app.toast("Open a Markdown file to preview it."); return; }
     on.has(path) ? on.delete(path) : on.add(path);
     updateAll();

@@ -8,6 +8,8 @@
     "core:window:allow-destroy",
     "core:window:allow-close",
     "core:window:allow-set-title",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
     "dialog:default",
     "updater:default",
     "process:allow-restart",
