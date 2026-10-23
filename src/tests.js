@@ -237,6 +237,7 @@ export function initTests(app) {
   async function run(list) {
     if (running) { toast("Tests are already running."); return; }
     if (!list.length) { toast(tests.size ? "No tests to run there." : "No Rust, C# or Lust tests found in this folder."); return; }
+    if (!(await app.ensureTrusted("Running tests"))) return;
     running = true; stopped = false; note = ""; ran = true; log = [];
     await app.saveAll();
     for (const t of list) t.status = "running";
@@ -419,7 +420,7 @@ export function initTests(app) {
       { label: "dotnet add reference", program: "dotnet", args: ["add", testCsproj, "reference", proj], cwd: where },
       ...(sln ? [{ label: "dotnet sln add", program: "dotnet", args: ["sln", sln, "add", testCsproj], cwd: where }] : []),
     ];
-    app.startSteps(steps, async () => { await app.refreshTree(); await app.loadFiles(true); framework = "xunit"; make(testCsproj); });
+    app.startSteps(steps.map((s) => ({ ...s, scaffold: true })), async () => { await app.refreshTree(); await app.loadFiles(true); framework = "xunit"; make(testCsproj); });
   }
   async function lustTest(path) {
     const lust = app.settings.lust || "lust";

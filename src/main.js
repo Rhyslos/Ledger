@@ -365,7 +365,9 @@ function serverSpec(id) {
   }
   if (id === "web") return {
     exe: "typescript-language-server", args: ["--stdio"],
-    initOptions: { preferences: { includeCompletionsForModuleExports: true, includeCompletionsWithInsertText: true, includeCompletionsForImportStatements: true, includeInlayParameterNameHints: "literals", includeInlayFunctionLikeReturnTypeHints: false } },
+    // In a restricted folder the server uses the computer's own TypeScript, not the project's
+    // node_modules/typescript (which is the project's code).
+    initOptions: { ...(!trusted() && globalTs ? { tsserver: { path: globalTs } } : {}), preferences: { includeCompletionsForModuleExports: true, includeCompletionsWithInsertText: true, includeCompletionsForImportStatements: true, includeInlayParameterNameHints: "literals", includeInlayFunctionLikeReturnTypeHints: false } },
     missing: "The JavaScript and TypeScript language server isn't installed. Open Settings (Ctrl+P) › Languages and install it.",
   };
   return {
@@ -377,9 +379,17 @@ const serverOf = (b) => (b && LANGS[b.lang].server && !b.virtual ? servers[LANGS
 // Running for this folder: alive, not just asked to start (a missing server stays not-started, so
 // the editor's own completions take over and the next file open tries again).
 const started = (srv) => !!S.root && srv.root === S.root && srv.gen > 0 && !!srv.alive;
+// Servers that load the project itself; in a restricted folder they wait for trust.
+const NEEDS_TRUST = new Set(["rust", "csharp", "lua"]);
+let globalTs = null;
+invoke("global_tsserver").then((p) => { globalTs = p ? norm(p) : null; }, () => {});
 function startServer(id) {
   if (!S.root) return null;
   const srv = servers[id], root = S.root;
+  if ((NEEDS_TRUST.has(id) || (id === "web" && !globalTs)) && !trusted()) {
+    srv.setStatus("restricted", false, false, `${srv.label} ${id === "web" ? "would load the project's own TypeScript" : "loads the project's own code"}, so it only runs in folders you trust. Click Restricted in the status bar to trust this folder.`);
+    return null;
+  }
   // Several callers ask at once while a folder opens; they all share one start.
   if (srv.starting && srv.startingRoot === root) return srv.starting;
   srv.startingRoot = root;
@@ -1965,6 +1975,7 @@ function renderServer() {
   el.title = s.detail || srv.label;
   el.dataset.server = srv.id;
 }
+$("stTrust").onclick = () => S.root && askTrust(S.root, true);
 $("stServer").onclick = () => {
   const srv = servers[$("stServer").dataset.server];
   if (!srv) return;
@@ -2105,8 +2116,10 @@ async function runAction(action) {
   }
   if (action === "scripts") { pickScript(P); return; }
   if (action === "run" && (taskKind(P) === "html" || (taskKind(P) === "node" && !runScript(P) && S.bufs.get(S.active)?.lang === "html"))) {
-    const url = live.port && isUnder(S.active, live.root) ? liveUrl() : pathToUri(S.active);
-    openInBrowser(url).catch((e) => toast("Couldn't open the browser: " + e, 5000));
+    // Through Live Server (started if needed): Ledger doesn't hand file:// links to other programs.
+    if (!isUnder(S.active, S.root)) { toast("Open this page's folder to view it in the browser."); return; }
+    if (live.port && live.root === S.root) openInBrowser(liveUrl()).catch((e) => toast("Couldn't open the browser: " + e, 5000));
+    else startLive();
     return;
   }
   const steps = taskSteps(action, P);
@@ -2125,6 +2138,8 @@ async function runAction(action) {
     requestAnimationFrame(() => { const f = $("sGodotPath"); f?.focus(); f?.scrollIntoView({ block: "center" }); });
     return;
   }
+  // "Show the Lua/Rust" only translates a Lust file; everything else runs the project's code.
+  if (action !== "lua" && action !== "rust" && !(await ensureTrusted(taskLabel(action)))) return;
   if (!(await haveTools(steps, () => runAction(action)))) return;
   startSteps(steps);
 }
@@ -2172,9 +2187,18 @@ async function startStep(step) {
   renderStatus();
   const run = ++S.runSeq;
   S.run = run; // set before starting, so events from an older run are ignored
-  try { await invoke("run_task", { run, root: cwd, program: step.program, args: step.args }); }
+  try { await invoke("run_task", { run, root: cwd, program: step.program, args: step.args, scaffold: !!step.scaffold }); }
   catch (e) {
-    S.running = false; S.runInput = false; S.queue = [];
+    S.running = false; S.runInput = false;
+    // A restricted folder: ask, and go on from this step if the answer is yes.
+    if (isUntrustedError(e)) {
+      renderStatus();
+      if (await ensureTrusted(step.label || "This")) { S.running = true; startStep(step); return; }
+      appendOut(`<span class="done bad">Not run: ${esc(base(S.root || ""))} is in restricted mode.</span>`);
+      S.queue = []; const f = S.onFail; S.onFail = S.onDone = null; f?.();
+      return;
+    }
+    S.queue = [];
     appendOut(`<span class="done bad">${esc(String(e))}</span>`);
     if (step.lust) appendOut(`<span class="done bad">Ledger couldn't start lust. Set where lust.exe is in Settings › Lust.</span>`);
     renderStatus(); const f = S.onFail; S.onFail = S.onDone = null; f?.();
@@ -2187,9 +2211,17 @@ const partialOut = {};
 // start of the line it began is left off what comes next: answered[stream] is that start.
 const answered = {};
 let pieceRun = null;
-listen("task-line", (e) => {
-  const { run, stream, partial } = e.payload;
-  let text = e.payload.text;
+// Output arrives in batches (see pump in lib.rs); the panel scrolls once per batch, not per line.
+let outQuiet = false;
+listen("task-lines", (e) => {
+  if (e.payload.run !== S.run) return;
+  outQuiet = true;
+  try { for (const l of e.payload.lines) onLine({ ...l, run: e.payload.run }); } finally { outQuiet = false; }
+  outFollow().changed();
+});
+function onLine(line) {
+  const { run, stream, partial } = line;
+  let text = line.text;
   if (run !== S.run) return;
   if (run !== pieceRun) { pieceRun = run; for (const k in partialOut) delete partialOut[k]; for (const k in answered) delete answered[k]; }
   if (answered[stream] != null) {
@@ -2202,12 +2234,12 @@ listen("task-line", (e) => {
     open.innerHTML = ansiToHtml(text);
     open.dataset.text = text;
     if (!partial) delete partialOut[stream];
-    outFollow().changed();
+    if (!outQuiet) outFollow().changed();
     return;
   }
   const d = appendOut(ansiToHtml(text));
   if (partial) { partialOut[stream] = d; d.dataset.text = text; } else delete partialOut[stream];
-});
+}
 listen("task-done", (e) => {
   if (e.payload.run !== S.run) return;
   const code = e.payload.run === S.stopped ? null : e.payload.code, secs = ((performance.now() - S.runStart) / 1000).toFixed(1);
@@ -2260,6 +2292,8 @@ function focusInput() {
 }
 
 function renderStatus() {
+  const tp = $("stTrust");
+  if (tp) tp.hidden = !S.root || trusted() || !hasProjectCode();
   const kind = taskKind();
   const k = (id) => (keymap.label(id) ? ` (${keymap.label(id)})` : "");
   const acts = !kind ? [] : kind === "lust" ? ["run", "check", "build"] : kind === "html" || kind === "nodefile" || kind === "lua" ? ["run"] : kind === "node" ? ["run", "build", "test", "check", "scripts"].filter((a) => a === "scripts" || a === "run" || taskSteps(a)) : kind === "rust" ? ["run", "debug", "check", "test", "lint"] : kind === "dotnet" ? ["run", "debug", "build", "test"] : ["run", "debug", "scene", "build"].filter((a) => a === "debug" ? S.ctx?.dotnet : taskSteps(a));
@@ -2476,7 +2510,7 @@ function appendOut(html) {
   d.innerHTML = html;
   out.append(d);
   while (out.childElementCount > OUT_MAX) out.firstElementChild.remove();
-  outFollow().changed();
+  if (!outQuiet) outFollow().changed();
   return d;
 }
 
@@ -2791,11 +2825,11 @@ C("view.wrap", "Toggle word wrap (long lines wrap onto the next line)", "Alt+Z",
 C("tab.pin", "Pin or unpin this tab", [], () => togglePin());
 C("tab.closeSaved", "Close saved tabs (unsaved and pinned stay)", [], () => closeSavedTabs());
 C("tab.closeAll", "Close all tabs (asks about unsaved ones)", [], () => closeAllTabs());
-C("trust.toggle", "Trust this folder's code, or stop trusting it (Tailwind completion, Rust build scripts)", [], () => {
+C("trust.toggle", "Trust this folder, or go back to restricted mode", [], () => {
   if (!S.root) return;
   const yes = !trusted();
   setTrust(S.root, yes);
-  toast(yes ? `${base(S.root)} is trusted: Tailwind completion and Rust build scripts are on.` : `${base(S.root)} isn't trusted: its code won't run in the background.`, 5000);
+  toast(yes ? `${base(S.root)} is trusted: its code can run (Run, Build, Test, Debug, Rust, C# and Lua analysis).` : `${base(S.root)} is in restricted mode: none of its code runs.`, 5000);
 });
 C("file.toUtf8", "Convert this file to UTF-8 (from UTF-16 or Windows-1252)", [], async () => {
   const b = S.bufs.get(S.active);
@@ -2953,23 +2987,55 @@ function openFolder(path) {
   folderQueue = job.catch(() => {});
   return job;
 }
-// ---------- folder trust ----------
-// Some help runs the project's own code in the background: Tailwind's config (class completion),
-// Rust build scripts and proc macros (rust-analyzer). A folder Ledger hasn't seen before is asked
-// about once, like VS Code's "Do you trust the authors of the files in this folder?". Projects
-// made in Ledger are trusted. Running, building and tests are things you start, so they always work.
+// ---------- folder trust (restricted mode) ----------
+// A folder you haven't trusted can't make Ledger run its code: no Rust, C# or Lua analysis (they
+// load the project), no Run, Build, Test or Debug, no project tools (its Tailwind, its Prettier),
+// and Git without the repository's hooks. Editing, search, Git and the HTML, CSS, JSON and
+// TypeScript help (with the computer's own TypeScript) work either way. The answer is kept per
+// folder, and the backend (src-tauri/src/trust.rs) enforces it. Projects made in Ledger are trusted.
 const trusted = () => !!S.root && (prefs.trust || {})[S.root] === true;
+const trustHooks = [];
+const hasProjectCode = () => hasAny(/^(package\.json|Cargo\.toml|project\.godot|\.luarc\.json|.*\.(csproj|sln|slnx|fsproj))$/i) || S.isRepo;
 function setTrust(root, yes) {
   prefs.trust = { ...(prefs.trust || {}), [root]: yes };
   savePrefs();
   if (root !== S.root) return;
-  if (started(servers.rust) || servers.rust.starting) startServer("rust");
+  invoke("set_window_trust", { trusted: yes }).catch(() => {});
+  // Servers that waited for trust start now (TypeScript again, with the project's own TypeScript);
+  // ones that load the project stop when trust is taken back.
+  for (const id of ["rust", "csharp", "lua", "web"]) {
+    const srv = servers[id];
+    if (yes) {
+      const was = srv.state?.text === "restricted";
+      if (was) srv.setStatus("", false);
+      if ((was || (id === "web" && started(srv))) && [...S.bufs.values()].some((b) => LANGS[b.lang].server === id)) startServer(id);
+    } else if ((NEEDS_TRUST.has(id) || (id === "web" && !globalTs)) && (started(srv) || srv.starting)) { srv.stop(); srv.setStatus("restricted", false, false, ""); }
+    else if (id === "web" && started(srv)) startServer(id); // back to the computer's TypeScript
+  }
+  if (yes) startProjectServers();
+  for (const f of trustHooks) { try { f(yes); } catch (e) { console.error(e); } }
   if (yes) tailwindWarm();
+  renderStatus();
 }
-async function askTrust(path) {
-  if (!path || (prefs.trust || {})[path] !== undefined || !hasAny(/^(package\.json|Cargo\.toml)$/)) return;
-  const c = await choose(`Do you trust the code in ${base(path)}? For Tailwind class completion and Rust analysis, Ledger runs some of the project's own code in the background (its Tailwind config, Rust build scripts and macros). Trust only folders whose code you'd run yourself. Everything else works either way.`, ["Trust it", "Don't run its code"]);
-  if (c === "Trust it" || c === "Don't run its code") setTrust(path, c === "Trust it");
+async function askTrust(path, force) {
+  if (!path || (!force && (prefs.trust || {})[path] !== undefined) || (!force && !hasProjectCode())) return trusted();
+  const c = await choose(`Do you trust the code in ${base(path)}? Trusting lets Ledger run it: Run, Build, Test and Debug, Rust, C# and Lua analysis, and the project's own Tailwind and Prettier. Without trust the folder opens in restricted mode: you can read, edit, search and commit, but none of its code runs. Trust only folders whose code you'd run yourself.`, ["Trust it", "Stay in restricted mode"]);
+  if (c === "Trust it" || c === "Stay in restricted mode") setTrust(path, c === "Trust it");
+  return trusted();
+}
+/** Before running the project's code: asks for trust if needed. True when it may run. */
+async function ensureTrusted(what) {
+  if (!S.root || trusted()) return true;
+  const c = await choose(`${what} runs this folder's code, and ${base(S.root)} isn't trusted yet. Trust it?`, ["Trust it", "Cancel"]);
+  if (c !== "Trust it") return false;
+  setTrust(S.root, true);
+  return true;
+}
+const isUntrustedError = (e) => String(e).startsWith("untrusted");
+function startProjectServers(path = S.root) {
+  if (S.proj.rust || hasAny(/^Cargo\.toml$/)) startServer("rust");
+  if (S.proj.dotnet || hasAny(/\.(csproj|slnx?)$/i)) startServer("csharp");
+  warmServers(path);
 }
 // The other language servers start with the folder too, when it has their kind of file and the
 // server is installed (no "not installed" warnings for folders that don't need one), so their
@@ -3010,7 +3076,7 @@ async function openFolderNow(path) {
   savePrefs();
   $("rootName").textContent = base(path).toUpperCase();
   getCurrentWindow().setTitle(`${base(path)} · ${APP_NAME}`).catch(() => {});
-  invoke("set_window_root", { root: path }).catch(() => {});
+  invoke("set_window_root", { root: path, trusted: (prefs.trust || {})[path] === true }).catch(() => {});
   for (const f of folderHooks) f(path);
   const sess = prefs.sessions[path];
   await loadDir(path);
@@ -3021,12 +3087,13 @@ async function openFolderNow(path) {
   renderMain();
   renderProblems();
   S.ctx = null;
-  loadFiles().then(() => {
+  loadFiles().then(async () => {
     if (S.root !== path) return;
-    if (S.proj.rust || hasAny(/^Cargo\.toml$/)) startServer("rust");
-    if (S.proj.dotnet || hasAny(/\.(csproj|slnx?)$/i)) startServer("csharp");
-    warmServers(path);
+    S.isRepo = !!(await invoke("file_stats", { paths: [join(path, ".git")] }).catch(() => [null]))[0];
+    if (S.root !== path) return;
+    startProjectServers(path);
     updateCtx();
+    renderStatus();
     askTrust(path);
   });
   // Restoring tabs is async; if something else opened a file meanwhile (say,
@@ -3120,7 +3187,7 @@ async function newProject() {
   // the Lust you have (and lust new gets built programs ready on this PC).
   if ((kind === "lust" || kind === "lust-app") && (await invoke("tool_info", { name: settings.lust || "lust" }).catch(() => null))) {
     const at = join(dir, name);
-    startSteps([{ label: "lust new", program: settings.lust || "lust", args: ["new", name, ...(kind === "lust-app" ? ["app"] : [])], cwd: dir }],
+    startSteps([{ label: "lust new", program: settings.lust || "lust", args: ["new", name, ...(kind === "lust-app" ? ["app"] : [])], cwd: dir, scaffold: true }],
       () => openNewProject(at, "main.lst", null));
     return;
   }
@@ -3152,7 +3219,7 @@ async function openNewProject(p, main, server) {
 async function newWebProject(o) {
   const at = join(o.dir, o.name);
   if ((await invoke("file_stats", { paths: [at] }).catch(() => [null]))[0] != null) { toast(`There's already something called ${o.name} there.`); return; }
-  const steps = createSteps(o);
+  const steps = createSteps(o).map((s) => ({ ...s, scaffold: true })); // making a project, not running one
   if (!(await haveTools(steps, () => newWebProject(o)))) return;
   startSteps(steps, async () => {
     try {
@@ -3226,6 +3293,7 @@ const app = {
   highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
   cwd: () => S.ctx?.dir || S.root || "",
   trusted: () => trusted(),
+  ensureTrusted, isUntrustedError, askTrust, trustHooks,
   indentOf,
   updateCtx, taskKind, projectFor, projectDirs, invoke, keyString, openFolder, closeFolder,
   run: (id) => keymap.cmds.get(id)?.run(),
@@ -3280,7 +3348,8 @@ async function boot() {
   settingsFile = norm(await invoke("settings_path").catch(() => "")) || null;
   initSettings({
     keymap, apply: applySetting, toast, choose, appName: APP_NAME,
-    runTask: (program, args, label, done, fail) => startSteps([{ label, program, args }], done, fail),
+    // Installing tools (winget, npm -g, cargo install) runs no project code.
+    runTask: (program, args, label, done, fail) => startSteps([{ label, program, args, scaffold: true }], done, fail),
     restartServer: (id) => (S.root ? startServer(id) : toast("Open a folder first.")),
     stopServer: (id) => servers[id].stop(),
     openFile: (p) => openFile(norm(p)),
