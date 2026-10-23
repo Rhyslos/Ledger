@@ -77,7 +77,8 @@ export function initMarkdown(app) {
     const parts = (href.startsWith("/") ? (S.root || "") + href : dir(base) + "/" + href).split("/");
     const out = [];
     for (const s of parts) { if (s === "..") out.pop(); else if (s !== "." && s !== "") out.push(s); }
-    return (/^[A-Za-z]:$/.test(out[0]) ? "" : "/") + out.join("/");
+    const unc = !href.startsWith("/") && base.startsWith("//"); // a network share keeps its //server
+    return (unc ? "//" : /^[A-Za-z]:$/.test(out[0]) ? "" : "/") + out.join("/");
   }
   const safeDecode = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
   const slug = (t) => t.toLowerCase().trim().replace(/[^\w\- ]+/g, "").replace(/\s/g, "-");
@@ -110,6 +111,8 @@ export function initMarkdown(app) {
         const type = /\.svg$/i.test(file) ? "image/svg+xml" : "";
         const url = URL.createObjectURL(new Blob([bytes], type ? { type } : {}));
         images.set(file, url);
+        // Keep the 100 images used last; the rest give their memory back.
+        while (images.size > 100) { const [k, u] = images.entries().next().value; URL.revokeObjectURL(u); images.delete(k); }
         img.src = url;
       }, () => { img.alt = `(${img.alt || "image"} not found)`; });
     }

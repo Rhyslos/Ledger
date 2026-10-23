@@ -85,3 +85,33 @@ test("blame: porcelain output to a commit per line", () => {
   assert.equal(lines[1].summary, "First");
   assert.equal(ago(Date.now() - 3 * 86400e3), "3 days ago");
 });
+
+test("blame follows edits made after it was asked", async () => {
+  const { blameFor } = await import("../src/gitmore.js");
+  const { EditorState } = await import("@codemirror/state");
+  const a = { sha: "a".repeat(40) }, b = { sha: "b".repeat(40) }, c = { sha: "c".repeat(40) };
+  let st = EditorState.create({ doc: "one\ntwo\nthree" });
+  const data = { lines: [null, a, b, c], doc: st.doc, changes: null };
+  assert.equal(blameFor(data, st.doc, 2), b);
+  // A new line typed above "two": "two" is line 3 now and still b's; the new line is yours.
+  const tr = st.update({ changes: { from: 4, insert: "new\n" } });
+  const d2 = { ...data, changes: tr.changes };
+  assert.equal(blameFor(d2, tr.state.doc, 3), b);
+  assert.equal(blameFor(d2, tr.state.doc, 4), c);
+  assert.match(blameFor(d2, tr.state.doc, 2).sha, /^0+$/);
+});
+
+test("blame: typing inside a line, or joining lines, marks them changed", async () => {
+  const { blameFor } = await import("../src/gitmore.js");
+  const { EditorState } = await import("@codemirror/state");
+  const a = { sha: "a".repeat(40) }, b = { sha: "b".repeat(40) }, c = { sha: "c".repeat(40) };
+  const st = EditorState.create({ doc: "one\ntwo\nthree" });
+  const data = { lines: [null, a, b, c], doc: st.doc, changes: null };
+  let tr = st.update({ changes: { from: 5, insert: "X" } }); // tXwo
+  assert.match(blameFor({ ...data, changes: tr.changes }, tr.state.doc, 2).sha, /^0+$/);
+  assert.equal(blameFor({ ...data, changes: tr.changes }, tr.state.doc, 3), c);
+  tr = st.update({ changes: { from: 7, to: 8 } }); // "twothree"
+  assert.match(blameFor({ ...data, changes: tr.changes }, tr.state.doc, 2).sha, /^0+$/);
+  tr = st.update({ changes: { from: 0, to: 4 } }); // first line deleted: "two" is line 1 and still b's
+  assert.equal(blameFor({ ...data, changes: tr.changes }, tr.state.doc, 1), b);
+});

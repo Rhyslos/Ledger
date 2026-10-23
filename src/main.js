@@ -76,9 +76,14 @@ const savePrefs = () => {
     const watches = prefs.watchesChanged ? prefs.watches : stored.watches || prefs.watches;
     delete prefs.watchesChanged;
     const trust = { ...(stored.trust || {}), ...(prefs.trust || {}) }; // every window's answers
-    Object.assign(prefs, { sessions, recent, breakpoints, watches, trust });
+    const bookmarks = { ...(stored.bookmarks || {}), ...(prefs.bookmarks || {}) };
+    for (const k of Object.keys(bookmarks)) if (!recent.includes(k) && k !== mine) delete bookmarks[k];
+    Object.assign(prefs, { sessions, recent, breakpoints, watches, trust, bookmarks });
     localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
-  } catch {}
+  } catch (e) {
+    // Full storage would quietly drop sessions and trust answers: say so once.
+    if (!savePrefs.warned && /quota/i.test(String(e?.name || e))) { savePrefs.warned = true; setTimeout(() => toast("Ledger couldn't save its window state (sessions, folder trust): the browser storage is full.", 8000), 0); }
+  }
 };
 
 const SETTINGS_TAB = "@settings";
@@ -108,13 +113,22 @@ const isVirtual = (p) => /^[a-z]+:/i.test(p) && !/^[A-Za-z]:\//.test(p); // csha
 const base = (p) => norm(p).split("/").pop();
 const parent = (p) => { const s = norm(p); const i = s.lastIndexOf("/"); return i <= 0 ? s.slice(0, i + 1) || "/" : s.slice(0, i); };
 const join = (a, b) => norm(a).replace(/\/$/, "") + "/" + norm(b).replace(/^\//, "");
-const isUnder = (p, root) => !!root && !!p && (p === root || p.toLowerCase().startsWith(root.toLowerCase() + "/"));
-const rel = (p) => (S.root && isUnder(p, S.root) ? p.slice(S.root.length + 1) : p);
+// A drive root keeps its slash ("C:/"), so it's trimmed before adding one.
+const isUnder = (p, root) => !!root && !!p && (p === root || p.toLowerCase().startsWith(root.toLowerCase().replace(/\/$/, "") + "/"));
+const rel = (p) => (S.root && isUnder(p, S.root) ? p.slice(S.root.replace(/\/$/, "").length + 1) : p);
 const isAbs = (p) => /^(\/|[A-Za-z]:\/)/.test(norm(p));
 const TOOLCHAIN = /\/(\.rustup|\.cargo\/registry|\.cargo\/git|\.nuget|rustlib|dotnet\/packs|dotnet\/shared)\//i;
 
 // ---------- small ui helpers ----------
-function toast(m, ms = 2600) { const el = $("toast"); el.textContent = m; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (el.hidden = true), ms); }
+/** Calls every hook in a list; one that throws is logged and the rest still run (a broken
+ *  module mustn't stop a save, a tab switch or a folder opening). Async hooks are awaited by no one. */
+function each(list, ...args) {
+  for (const f of list) {
+    try { const r = f(...args); if (r && typeof r.catch === "function") r.catch((e) => console.error("hook", e)); }
+    catch (e) { console.error("hook", e); }
+  }
+}
+function toast(m, ms = 2600) { const el = $("toast"); el.textContent = m; el.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => { el.classList.remove("on"); el.textContent = ""; }, ms); }
 let uiQueued = false;
 function scheduleUi() {
   if (uiQueued) return;
@@ -289,7 +303,7 @@ const lspHandlers = {
   },
   status: (srv) => {
     renderServer();
-    if (srv.state.text?.startsWith("ready")) { for (const [p, b] of S.bufs) if (serverOf(b) === srv) scheduleHints(p, 50); for (const f of readyHooks) f(srv); }
+    if (srv.state.text?.startsWith("ready")) { for (const [p, b] of S.bufs) if (serverOf(b) === srv) scheduleHints(p, 50); each(readyHooks, srv); }
   },
   refreshHints: (srv) => { for (const [p, b] of S.bufs) if (serverOf(b) === srv) scheduleHints(p, 50); },
   message: (m) => toast(m, 5000),
@@ -315,6 +329,8 @@ async function langDataSource(ctx) {
 initTailwind({
   run: (dir, args) => invoke("run_capture", { cwd: dir, program: "node", args }).then((r) => (r.code === 0 ? r.out : "")),
   dir: () => (trusted() && S.ctx?.node ? S.ctx.dir : null), // reading Tailwind's config runs the project's code
+  cacheGet: (key) => invoke("cache_get", { key }),
+  cacheSet: (key, value) => invoke("cache_set", { key, value }).catch(() => {}),
 });
 
 const splitArgs = (s) => (String(s || "").match(/"[^"]*"|\S+/g) || []).map((a) => a.replace(/^"|"$/g, ""));
@@ -397,7 +413,7 @@ function startServer(id) {
     await loadFiles();
     if (S.root !== root) return;
     if (await srv.start(root, serverSpec(id))) {
-      for (const [p, b] of S.bufs) if (LANGS[b.lang].server === id && !b.virtual && !b.ro) { b.sent = b.state.doc; srv.open(p, b.state.doc.toString(), LANGS[b.lang].languageId); }
+      for (const [p, b] of S.bufs) if (LANGS[b.lang].server === id && !b.virtual && !b.ro) { b.sent = b.state.doc; b.pend = null; srv.open(p, b.state.doc.toString(), LANGS[b.lang].languageId); }
     }
   })().finally(() => { if (srv.startingRoot === root) srv.starting = null; });
   return srv.starting;
@@ -412,7 +428,17 @@ function syncDoc(path, doc) {
   if (!srv || b.ro) return;
   doc = doc || b.state.doc;
   clearTimeout(b.ct);
-  if (b.sent !== doc) { b.sent = doc; srv.change(path, doc.toString(), LANGS[b.lang].languageId); }
+  if (b.sent === doc) return;
+  // The edits since the last sync, when they lead from what the server has to this text.
+  let edits = null;
+  if (b.pend && b.sent && doc === b.state.doc && b.pend.length === b.sent.length && b.pend.newLength === doc.length) {
+    edits = [];
+    const old = b.sent;
+    b.pend.iterChanges((fa, ta, fb, tb, ins) => edits.push({ range: { start: toPos(old, fa), end: toPos(old, ta) }, text: ins.toString() }));
+    edits.reverse(); // last first, so each range is still where it was in the old text
+  }
+  b.sent = doc; b.pend = null;
+  srv.change(path, () => doc.toString(), LANGS[b.lang].languageId, edits);
 }
 
 function applyDiags(path) {
@@ -825,6 +851,7 @@ function onUpdate(path, u) {
   if (u.view === view && (u.selectionSet || u.docChanged || u.focusChanged)) renderPos();
   if (!canon) return;
   if (u.docChanged) {
+    if (b.sent) b.pend = b.pend ? b.pend.compose(u.changes) : u.changes;
     const was = b.dirty;
     b.dirty = !u.state.doc.eq(b.saved);
     if (b.dirty && S.preview === path) keepTab(path);
@@ -848,6 +875,7 @@ function dispatchBuf(path, spec) {
     const tr = b.state.update(s1);
     b.state = tr.state;
     if (tr.docChanged) {
+      if (b.sent) b.pend = b.pend ? b.pend.compose(tr.changes) : tr.changes;
       b.dirty = !b.state.doc.eq(b.saved);
       if (serverOf(b)) { clearTimeout(b.ct); b.ct = setTimeout(() => syncDoc(path), 150); scheduleHints(path, 700); }
       bufChanged(path, b);
@@ -861,20 +889,26 @@ function dispatchBuf(path, spec) {
 }
 // Other parts (git change bars, breakpoints) listen for edits here.
 const bufListeners = [];
-function bufChanged(path, b) { for (const f of bufListeners) f(path, b); }
+function bufChanged(path, b) { each(bufListeners, path, b); }
 
+/** The line ending most lines use (a file with a few stray CRLFs stays LF), and whether it's mixed. */
+function eolOf(text) {
+  const crlf = (text.match(/\r\n/g) || []).length, lf = (text.match(/\n/g) || []).length - crlf;
+  return { eol: crlf > lf ? "\r\n" : "\n", mixedEol: crlf > 0 && lf > 0 };
+}
+const ENC_LABEL = { utf16le: "UTF-16 LE", utf16be: "UTF-16 BE", "utf16le-nobom": "UTF-16 LE, no BOM", "utf16be-nobom": "UTF-16 BE, no BOM", cp1252: "Windows-1252" };
 function makeBuffer(path, text, opts = {}) {
   const b = { lang: opts.lang || langOf(path), dirty: false, virtual: !!opts.virtual, label: opts.label };
   b.bom = text.startsWith("\uFEFF");
   if (b.bom) text = text.slice(1);
-  b.eol = text.includes("\r\n") ? "\r\n" : "\n";
+  Object.assign(b, eolOf(text));
   b.ro = !!opts.virtual || (!isUnder(path, S.root) && TOOLCHAIN.test(path));
   b.saved = Text.of(text.split(/\r?\n/));
   b.indent = detectIndent(text.length > 2_000_000 ? text.slice(0, 200_000) : text);
   b.state = EditorState.create({ doc: b.saved, extensions: extensionsFor(path, b) });
   S.bufs.set(path, b);
   const srv = serverOf(b);
-  if (srv && !b.ro) { b.sent = b.saved; ensureServer(b.lang); srv.open(path, b.saved.toString(), LANGS[b.lang].languageId); scheduleHints(path, 300); }
+  if (srv && !b.ro) { b.sent = b.saved; b.pend = null; ensureServer(b.lang); srv.open(path, b.saved.toString(), LANGS[b.lang].languageId); scheduleHints(path, 300); }
   if (S.diags.has(path)) applyDiags(path);
   if (b.lang === "lust" && !b.virtual) setTimeout(() => lustCheck(path), 0);
   return b;
@@ -908,10 +942,20 @@ async function openFile(path, at, opts = {}) {
     catch (e) {
       // Not text: show its bytes instead.
       if (/binary/i.test(String(e)) && app.openHex) return app.openHex(path, opts);
+      // Too big to edit: the hex view reads up to 128 MB.
+      if (/larger than 8 MB/i.test(String(e)) && app.openHex && !opts.quiet) {
+        const c = await choose(`${base(path)} is over 8 MB, too big to edit in Ledger.`, ["Look at it in the hex view", "Cancel"]);
+        return c?.startsWith("Look") ? app.openHex(path, opts) : false;
+      }
       if (!opts.quiet) toast(`Can't open ${base(path)}: ${e}`);
       return false;
     }
-    if (!S.bufs.has(path)) { const b = makeBuffer(path, file.text); b.enc = file.encoding; statOf(path).then((m) => { b.mtime = m; }); }
+    if (!S.bufs.has(path)) {
+      const b = makeBuffer(path, file.text); b.enc = file.encoding; statOf(path).then((m) => { b.mtime = m; });
+      // Guesses worth saying out loud, once, when the file opens.
+      if (b.enc === "cp1252" && !opts.quiet) toast(`${base(path)} isn't valid UTF-8, so it opened as Windows-1252. If letters look wrong, it's in another encoding; "Convert this file to UTF-8" changes it.`, 8000);
+      else if (b.mixedEol && !opts.quiet) toast(`${base(path)} mixes line endings; it will be saved with ${b.eol === "\r\n" ? "CRLF" : "LF"} throughout. "Change line endings" picks the other.`, 7000);
+    }
   }
   const wasOpen = S.tabs.includes(path); // asked before addTab, which puts it in S.tabs
   addTab(path);
@@ -1026,7 +1070,7 @@ function copyDecorations(path) {
   applyDiags(path);
   const h = b.state.field(hintField, false);
   if (h) paneShowing(b.mirror, path)?.view.dispatch({ effects: setHints.of(h) });
-  for (const f of decorationCopiers) f(path, b);
+  each(decorationCopiers, path, b);
 }
 const decorationCopiers = [];
 
@@ -1038,8 +1082,8 @@ function setFocusPane(i) {
   for (const P of panes) P.el.classList.toggle("focused", P === panes[fp]);
   renderTabs(); renderCrumbs(); renderPos(); renderStatus(); renderPaneHeads();
   updateCtx();
-  for (const f of focusListeners) f();
-  for (const f of activeHooks) f(S.active);
+  each(focusListeners);
+  each(activeHooks, S.active);
 }
 const focusListeners = [];
 panes.forEach((P, i) => P.el.addEventListener("focusin", () => setFocusPane(i)));
@@ -1109,7 +1153,7 @@ function activate(key, at, opts = {}) {
   if (b) scheduleHints(key, 100);
   updateCtx();
   saveSession();
-  for (const f of activeHooks) f(key);
+  each(activeHooks, key);
 }
 const activeHooks = [];
 // Fetch a Tailwind project's classes in the background as soon as one of its files is in front.
@@ -1152,7 +1196,7 @@ async function saveNow(path) {
   const srv = serverOf(b);
   if (srv) { syncDoc(path); srv.saved(path); scheduleHints(path, 400); }
   if (settingsFile && path.toLowerCase() === settingsFile.toLowerCase()) reloadSettingsFromFile();
-  for (const f of saveHooks) f(path, b);
+  each(saveHooks, path, b);
   scheduleUi();
   return true;
 }
@@ -1404,7 +1448,7 @@ async function reloadFromDisk(path) {
   const bom = text.startsWith("\uFEFF");
   if (bom) text = text.slice(1);
   cur.bom = bom;
-  cur.eol = text.includes("\r\n") ? "\r\n" : "\n";
+  Object.assign(cur, eolOf(text));
   text = text.replace(/\r\n/g, "\n");
   cur.diskChanged = null;
   const old = cur.state.doc.toString();
@@ -1521,11 +1565,22 @@ function counts(list) {
   for (const x of list || []) { if ((x.severity || 1) === 1) e++; else if (x.severity === 2) w++; }
   return { e, w };
 }
-function dirCounts(d) {
-  let e = 0, w = 0;
-  for (const [p, l] of S.diags) if (p.startsWith(d + "/")) { const c = counts(l); e += c.e; w += c.w; }
-  return { e, w };
+// Errors and warnings per folder, added up once per tree drawing (not once per folder).
+let dirAgg = new Map();
+function aggregateDirs() {
+  dirAgg = new Map();
+  for (const [p, l] of S.diags) {
+    const c = counts(l);
+    if (!c.e && !c.w) continue;
+    for (let d = parent(p); d && d.length >= (S.root || "").length; d = parent(d)) {
+      const a = dirAgg.get(d) || { e: 0, w: 0 };
+      a.e += c.e; a.w += c.w;
+      dirAgg.set(d, a);
+      if (d === S.root || parent(d) === d) break;
+    }
+  }
 }
+function dirCounts(d) { return dirAgg.get(d) || { e: 0, w: 0 }; }
 const cntHtml = ({ e, w }, dirty) => (e ? `<span class="cnt e">${e}</span>` : w ? `<span class="cnt w">${w}</span>` : dirty ? `<span class="cnt" aria-label="unsaved">●</span>` : "");
 
 function nodeHtml(n, depth) {
@@ -1549,6 +1604,7 @@ function nodeHtml(n, depth) {
 }
 
 function renderTree() {
+  aggregateDirs();
   const tree = $("tree");
   const hadFocus = tree.contains(document.activeElement);
   const top = tree.scrollTop;
@@ -1751,6 +1807,8 @@ async function closePagesUnder(p) {
  *  pins, the preview tab, problems and the explorer follow it to its new path. */
 async function movedOnDisk(p, to) {
   const remap = (x) => (x === p ? to : x.startsWith(p + "/") ? to + x.slice(p.length) : x);
+  // Local history follows the file (for a folder, the files of it that are open).
+  for (const k of new Set([p, ...S.bufs.keys()])) { const nk = remap(k); if (nk !== k) invoke("history_move", { from: k, to: nk }).catch(() => {}); }
   for (const [k, b] of [...S.bufs]) {
     const nk = remap(k);
     if (nk === k) continue;
@@ -1762,7 +1820,7 @@ async function movedOnDisk(p, to) {
     b.state = EditorState.create({ doc: b.state.doc, selection: b.state.selection, extensions: extensionsFor(nk, b) });
     S.bufs.set(nk, b);
     const srv2 = serverOf(b);
-    if (srv2) { b.sent = b.state.doc; srv2.open(nk, b.state.doc.toString(), LANGS[b.lang].languageId); }
+    if (srv2) { b.sent = b.state.doc; b.pend = null; srv2.open(nk, b.state.doc.toString(), LANGS[b.lang].languageId); }
   }
   S.tabs = S.tabs.map(remap);
   S.open = new Set([...S.open].map(remap));
@@ -1959,7 +2017,7 @@ function renderPos() {
   $("stPos").textContent = `Ln ${line.number}, Col ${sel.head - line.from + 1}${n ? ` (${n} selected)` : ""}`;
   const ind = indentOf(b);
   $("stIndent").textContent = ind.tabs ? "Tabs" : `Spaces: ${ind.size}`;
-  $("stLang").textContent = LANGS[b.lang].name + (b.eol === "\r\n" ? " · CRLF" : "") + (b.bom ? " · BOM" : "") + ({ utf16le: " · UTF-16 LE", utf16be: " · UTF-16 BE", cp1252: " · Windows-1252" }[b.enc] || "");
+  $("stLang").textContent = LANGS[b.lang].name + (b.eol === "\r\n" ? " · CRLF" : "") + (b.bom ? " · BOM" : "") + (ENC_LABEL[b.enc] ? " · " + ENC_LABEL[b.enc] : "");
   renderServer();
 }
 function renderServer() {
@@ -2406,7 +2464,7 @@ function applySetting(key) {
   if (["bracketColors", "indentGuides", "stickyScroll", "colourSwatches", "emmet", "overviewRuler", "gitBlame", "codeLens", "gitGutter", "dependencyHints"].includes(key)) reconfigureExtras();
   if (key === "statusBar") applyStatusBar();
   if (["theme", "fontSize", "fontFamily"].includes(key)) requestAnimationFrame(() => term?.restyle());
-  for (const f of settingHooks) f(key);
+  each(settingHooks, key);
 }
 const settingHooks = [];
 function applyStatusBar() {
@@ -2622,11 +2680,19 @@ async function revealActiveInExplorer() {
 const palModes = [];
 const pal = { mode: "files", list: [], sel: 0, resolve: null, prevFocus: null, searchT: null, searchQ: null, wantIndex: false };
 function openPalette(mode, init = "", head = "") {
-  if (!$("palOv").hidden) finishPalette(null);
+  if (!$("palOv").hidden) {
+    // A question is waiting for an answer: Ctrl E or the command list don't replace it.
+    if (pal.resolve && mode !== "choose" && mode !== "prompt") { $("palIn").hidden ? $("palRes").querySelector(".li")?.focus() : $("palIn").focus(); return; }
+    finishPalette(null);
+  }
   if (view) closeInfo(view);
   pal.mode = mode; pal.sel = 0; pal.list = []; pal.searchQ = null; pal.prevFocus = document.activeElement;
   $("palOv").hidden = false;
   $("palHead").textContent = head || (mode === "text" ? "Search in files" : "");
+  // A question is read out with its options: the dialog is labelled by it.
+  const box = $("palOv").firstElementChild;
+  if ($("palHead").textContent) { box.setAttribute("aria-labelledby", "palHead"); box.removeAttribute("aria-label"); }
+  else { box.removeAttribute("aria-labelledby"); box.setAttribute("aria-label", "Command palette"); }
   const inp = $("palIn");
   inp.hidden = mode === "choose" && !pal.filter;
   inp.value = init;
@@ -2642,8 +2708,17 @@ function finishPalette(value) {
   if (r) r(value);
   if (pal.prevFocus?.focus && document.contains(pal.prevFocus)) pal.prevFocus.focus({ preventScroll: true });
 }
+// Questions take turns: one asked while another is open (a "changed on disk" from auto-save during
+// "Save changes?", the trust question after a folder loads) waits for the first to be answered,
+// instead of answering it with Cancel.
+let dialogTurn = Promise.resolve();
+function inTurn(open) {
+  const p = dialogTurn.then(() => new Promise(open));
+  dialogTurn = p.then(() => {}, () => {});
+  return p;
+}
 function promptText(head, init = "", placeholder = "") {
-  return new Promise((resolve) => {
+  return inTurn((resolve) => {
     openPalette("prompt", init, head);
     $("palIn").placeholder = placeholder;
     $("palIn").select();
@@ -2654,7 +2729,7 @@ function promptText(head, init = "", placeholder = "") {
 /** Pick one of `options`. Lists of names (branches, bookmarks) pass { filter: true } for a box to
  *  type in (so typing "b2" finds b2 instead of picking the second row); long lists get one anyway. */
 function choose(head, options, wantIndex = false, opts = {}) {
-  return new Promise((resolve) => {
+  return inTurn((resolve) => {
     pal.options = options;
     pal.wantIndex = wantIndex;
     pal.filter = opts.filter ?? options.length > 8;
@@ -2682,7 +2757,7 @@ function hlText(text, q) {
 }
 const fdot = (path) => ({ dot: dotOf(path), path }); // a palette row for a file: its icon
 const row = (i, dot, title, meta, extra, code) =>
-  `<div class="li" role="option" tabindex="-1" data-pi="${i}" aria-selected="${i === pal.sel}" style="--tc:var(--t-${dot.dot || dot})">${dot.path ? mark(dot.path) : '<span class="dot"></span>'}<span class="t">${title}</span><span class="m">${meta}</span>${extra ? `<span class="x${code ? " code" : ""}">${extra}</span>` : ""}</div>`;
+  `<div class="li" role="option" id="pal-opt-${i}" tabindex="-1" data-pi="${i}" aria-selected="${i === pal.sel}" style="--tc:var(--t-${dot.dot || dot})">${dot.path ? mark(dot.path) : '<span class="dot"></span>'}<span class="t">${title}</span><span class="m">${meta}</span>${extra ? `<span class="x${code ? " code" : ""}">${extra}</span>` : ""}</div>`;
 
 function drawPalette() {
   const v = $("palIn").value, res = $("palRes");
@@ -2745,6 +2820,7 @@ function drawPalette() {
   }
   pal.sel = Math.min(pal.sel, Math.max(0, pal.list.length - 1));
   res.innerHTML = html;
+  if (res.querySelector("#pal-opt-" + pal.sel)) $("palIn").setAttribute("aria-activedescendant", "pal-opt-" + pal.sel); else $("palIn").removeAttribute("aria-activedescendant");
 }
 function pick(i) {
   if (pal.mode === "prompt") { finishPalette($("palIn").value); return; }
@@ -2767,6 +2843,7 @@ $("palOv").addEventListener("keydown", (ev) => {
     const d = k === "Up" || k === "Shift+Tab" ? -1 : 1;
     pal.sel = Math.max(0, Math.min(pal.list.length - 1, pal.sel + d));
     $("palRes").querySelectorAll(".li").forEach((el, i) => el.setAttribute("aria-selected", i === pal.sel));
+    $("palIn").setAttribute("aria-activedescendant", "pal-opt-" + pal.sel);
     const cur = $("palRes").querySelector('[aria-selected="true"]');
     cur?.scrollIntoView({ block: "nearest" });
     if (pal.mode === "choose" && !pal.filter) cur?.focus();
@@ -2775,6 +2852,13 @@ $("palOv").addEventListener("keydown", (ev) => {
 });
 $("palRes").addEventListener("click", (ev) => { const r = ev.target.closest("[data-pi]"); if (r) pick(+r.dataset.pi); });
 $("palOv").addEventListener("mousedown", (ev) => { if (ev.target === $("palOv")) finishPalette(null); });
+// While a dialog is open, focus stays in it: a page that finishes loading behind it (an image,
+// a table) can't pull the keyboard away, which would leave Esc and the arrows going elsewhere.
+document.addEventListener("focusin", (ev) => {
+  const ov = $("palOv");
+  if (ov.hidden || ov.contains(ev.target)) return;
+  (($("palIn").hidden ? null : $("palIn")) || $("palRes").querySelector('.li[aria-selected="true"]') || $("palRes").querySelector(".li"))?.focus();
+});
 
 // ---------- context menu ----------
 let menuPrevFocus = null;
@@ -2830,6 +2914,17 @@ C("trust.toggle", "Trust this folder, or go back to restricted mode", [], () => 
   const yes = !trusted();
   setTrust(S.root, yes);
   toast(yes ? `${base(S.root)} is trusted: its code can run (Run, Build, Test, Debug, Rust, C# and Lua analysis).` : `${base(S.root)} is in restricted mode: none of its code runs.`, 5000);
+});
+C("file.eol", "Change line endings (CRLF or LF)", [], async () => {
+  const b = S.bufs.get(S.active);
+  if (!b || b.virtual || b.ro) return;
+  const c = await choose(`Line endings for ${base(S.active)} (now ${b.eol === "\r\n" ? "CRLF, Windows" : "LF"})`, ["LF (Linux, macOS, most tools)", "CRLF (Windows)"]);
+  if (!c) return;
+  const eol = c.startsWith("CRLF") ? "\r\n" : "\n";
+  if (eol === b.eol && !b.mixedEol) return;
+  b.eol = eol; b.mixedEol = false; b.dirty = true;
+  scheduleUi(); renderPos();
+  toast(`Saving will write ${eol === "\r\n" ? "CRLF" : "LF"} line endings.`);
 });
 C("file.toUtf8", "Convert this file to UTF-8 (from UTF-16 or Windows-1252)", [], async () => {
   const b = S.bufs.get(S.active);
@@ -3055,8 +3150,9 @@ async function openFolderNow(path) {
     if (!p) return false;
     path = p;
   }
-  path = norm(path).replace(/(.)\/$/, "$1");
+  path = norm(path).replace(/(.)\/$/, "$1").replace(/^([A-Za-z]:)$/, "$1/"); // "C:" alone is the drive's current folder, not its root
   if (S.root === path) return true;
+  if (await invoke("focus_window_with", { root: path }).catch(() => false)) { toast(`${base(path) || path} is already open in another window.`); return false; }
   if (S.root && !(await closeAll())) return false;
   try { await invoke("list_dir", { path }); }
   catch (e) {
@@ -3077,7 +3173,7 @@ async function openFolderNow(path) {
   $("rootName").textContent = base(path).toUpperCase();
   getCurrentWindow().setTitle(`${base(path)} · ${APP_NAME}`).catch(() => {});
   invoke("set_window_root", { root: path, trusted: (prefs.trust || {})[path] === true }).catch(() => {});
-  for (const f of folderHooks) f(path);
+  each(folderHooks, path);
   const sess = prefs.sessions[path];
   await loadDir(path);
   detectProject();
@@ -3136,7 +3232,7 @@ async function closeFolder() {
   $("rootName").textContent = "EXPLORER";
   getCurrentWindow().setTitle(APP_NAME).catch(() => {});
   invoke("set_window_root", { root: null }).catch(() => {});
-  for (const f of folderHooks) f(null);
+  each(folderHooks, null);
   renderMain(); renderProblems();
 }
 async function newProject() {
@@ -3419,7 +3515,10 @@ async function boot() {
   renderProblems();
 
   let focusT = null;
-  window.addEventListener("focus", () => { clearTimeout(focusT); focusT = setTimeout(() => { reloadClean(); if (S.root) refreshTree(); }, 150); });
+  // Coming back to Ledger looks for files changed meanwhile; the whole-folder walk at most every
+  // 10 seconds, so Alt-Tabbing in a big repository stays cheap.
+  let lastWalk = 0;
+  window.addEventListener("focus", () => { clearTimeout(focusT); focusT = setTimeout(() => { reloadClean(); if (S.root && Date.now() - lastWalk > 10000) { lastWalk = Date.now(); refreshTree(); } }, 150); });
   setInterval(() => { if (document.hasFocus()) reloadClean(); }, 3000);
   window.addEventListener("blur", () => { if (settings.autoSave === "focus") saveAll(); });
 

@@ -87,8 +87,12 @@ function save(all) {
   if (all) for (const k of Object.keys(settings)) changed.add(k);
   clearTimeout(saveT);
   saveT = setTimeout(async () => {
+    // What's in the file now (another window may have changed it); if it doesn't read (a mistake
+    // typed into settings.json), this window's settings instead, and the broken file is kept as
+    // settings.json.bak by the backend.
     let onDisk = {};
-    try { onDisk = JSON.parse((await invoke("settings_read")) || "{}"); } catch {}
+    try { onDisk = JSON.parse((await invoke("settings_read")) || "{}"); }
+    catch { onDisk = structuredClone(settings); ctx?.toast("settings.json had a mistake in it, so Ledger kept it as settings.json.bak and saved your settings fresh.", 7000); }
     for (const k of changed) onDisk[k] = settings[k];
     changed.clear();
     invoke("settings_write", { json: JSON.stringify({ ...structuredClone(DEFAULTS), ...onDisk }, null, 2) }).then(() => ctx?.saved?.(), (e) => ctx?.toast("Couldn't save settings: " + e));
@@ -295,7 +299,7 @@ export function settingsHtml() {
     </section>
 
     <section aria-labelledby="sKeys"><h2 id="sKeys">Keyboard shortcuts</h2>
-      <p class="hint">Select a shortcut and press Enter, then press the new keys. Esc cancels, Backspace removes the shortcut.</p>
+      <p class="hint">Select a shortcut and press Enter, then press the new keys. Esc cancels, Backspace removes the shortcut. On keyboards where AltGr types characters (Norwegian, Polish, German…), Ctrl Alt with a letter that AltGr uses types that character instead of running the shortcut; give such a command another key here.</p>
       <input type="search" id="sKeyFilter" class="kfilter" placeholder="Filter shortcuts" value="${esc(filter)}" aria-label="Filter shortcuts">
       <div class="ktable" role="list">${cmds.map((c) => {
         const keys = km.keysFor(c.id), changed = c.id in settings.keys, rec = recording === c.id;

@@ -62,6 +62,9 @@ export function initGit(app) {
       }
       if (oid !== G.oid) { G.oid = oid; headCache.clear(); }
       G.files = files;
+      // Folders holding a change, worked out once here rather than for every folder drawn.
+      G.dirs = new Set();
+      for (const k of files.keys()) for (let i = k.lastIndexOf("/"); i > 0; i = k.lastIndexOf("/", i - 1)) { const d = k.slice(0, i).toLowerCase(); if (G.dirs.has(d)) break; G.dirs.add(d); }
       liveDiffs();
       // Stashes, and whether a merge is waiting to be finished.
       const [sl, mh] = await Promise.all([
@@ -101,11 +104,7 @@ export function initGit(app) {
   // Explorer colours and letters.
   app.treeDecor = (path, isDir) => {
     if (!G.ok || !G.files.size) return null;
-    if (isDir) {
-      const pre = path.toLowerCase() + "/";
-      for (const k of G.files.keys()) if (k.toLowerCase().startsWith(pre)) return { cls: "g-dir", badge: "" };
-      return null;
-    }
+    if (isDir) return G.dirs?.has(path.toLowerCase()) ? { cls: "g-dir", badge: "" } : null;
     const st = G.files.get(path);
     const l = letter(st);
     return l ? { cls: "g-" + (l === "!" ? "X" : l), badge: `<span class="gs ${l === "!" ? "X" : l}" title="${esc(describe(st))}">${l}</span>` } : null;
@@ -122,8 +121,9 @@ export function initGit(app) {
   }
 
   async function hasMarkers(path) {
+    // What's on disk is what a commit takes; an open file with unsaved edits counts as it is now.
     const b = S.bufs.get(path);
-    const text = b ? b.state.doc.toString() : await invoke("read_file", { path }).catch(() => "");
+    const text = b?.dirty ? b.state.doc.toString() : await invoke("read_file", { path }).catch(() => "");
     return /^<{7}( |$)/m.test(text) && /^>{7}( |$)/m.test(text);
   }
 

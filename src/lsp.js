@@ -15,7 +15,8 @@ export function pathToUri(p) {
 }
 export function uriToPath(u) {
   const rest = String(u).replace(/^file:\/\//, "");
-  let s = decodeURIComponent(rest);
+  let s;
+  try { s = decodeURIComponent(rest); } catch { s = rest; } // a stray % from a server mustn't drop its message
   // file://server/share/a.rs is a network share: //server/share/a.rs.
   if (!rest.startsWith("/") && !/^[A-Za-z]:/.test(s)) return "//" + s;
   if (/^\/[A-Za-z]:\//.test(s)) s = s.slice(1);
@@ -263,12 +264,19 @@ export class Lsp {
     this.versions.set(uri, 1);
     this.notify("textDocument/didOpen", { textDocument: { uri, languageId, version: 1, text } });
   }
-  change(path, text, languageId) {
+  /** Sends the new text, or just the edits (`edits`, LSP ranges in the old text, last first)
+   *  when the server takes them: a few bytes per keystroke instead of the whole file. */
+  change(path, text, languageId, edits) {
     const uri = pathToUri(path);
-    if (!this.versions.has(uri)) return this.open(path, text, languageId);
+    if (!this.versions.has(uri)) return this.open(path, typeof text === "function" ? text() : text, languageId);
     const v = this.versions.get(uri) + 1;
     this.versions.set(uri, v);
-    this.notify("textDocument/didChange", { textDocument: { uri, version: v }, contentChanges: [{ text }] });
+    const contentChanges = edits && this.incremental ? edits : [{ text: typeof text === "function" ? text() : text }];
+    this.notify("textDocument/didChange", { textDocument: { uri, version: v }, contentChanges });
+  }
+  get incremental() {
+    const s = this.caps?.textDocumentSync;
+    return (typeof s === "number" ? s : s?.change) === 2;
   }
   saved(path) { this.notify("textDocument/didSave", { textDocument: { uri: pathToUri(path) } }); }
   close(path) {
@@ -280,31 +288,39 @@ export class Lsp {
 }
 
 // Snippet text like `foo(${1:x}, $2)$0` → plain text plus where the cursor goes.
+/** LSP snippet text -> plain text and where the cursor goes (the first tab stop, else $0, else
+ *  the end). Handles nested placeholders (foo(${1:a, ${2:b}})), choices (${1|a,b|}), variables
+ *  ($TM_FILENAME, ${VAR:default}) and \\ escapes. */
 export function unsnippet(s) {
-  let out = "", first = null, firstN = Infinity, end = null;
+  let out = "", firstN = Infinity, first = null, end = null;
   const stop = (n) => {
     if (n === 0) { if (end == null) end = out.length; }
     else if (n < firstN) { firstN = n; first = out.length; }
   };
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (c === "\\" && i + 1 < s.length) { out += s[++i]; continue; }
-    if (c === "$") {
-      let m = /^\$(\d+)/.exec(s.slice(i));
-      if (m) { stop(+m[1]); i += m[0].length - 1; continue; }
-      m = /^\$\{(\d+)(?::((?:[^}\\]|\\.)*))?\}/.exec(s.slice(i));
-      if (m) {
-        stop(+m[1]);
-        const body = (m[2] || "").replace(/\\(.)/g, "$1").replace(/\$\{\d+:([^}]*)\}/g, "$1").replace(/\$\{?\d+\}?/g, "");
-        if (+m[1] !== 0 || body) out += body;
-        i += m[0].length - 1;
-        continue;
+  // Reads from i until `close` (a "}" of a placeholder) or the end; returns where it stopped.
+  function body(i, close) {
+    while (i < s.length) {
+      const c = s[i];
+      if (c === "\\" && i + 1 < s.length) { out += s[i + 1]; i += 2; continue; }
+      if (close && c === "}") return i + 1;
+      if (c === "$") {
+        let m = /^\$(\d+)/.exec(s.slice(i));
+        if (m) { stop(+m[1]); i += m[0].length; continue; }
+        m = /^\$\{(\d+)\|((?:[^|\\]|\\.)*)\|\}/.exec(s.slice(i));
+        if (m) { stop(+m[1]); out += m[2].split(/(?<!\\),/)[0].replace(/\\(.)/g, "$1"); i += m[0].length; continue; }
+        m = /^\$\{(\d+)(:?)/.exec(s.slice(i));
+        if (m) { stop(+m[1]); i += m[0].length; i = m[2] ? body(i, true) : s.indexOf("}", i) + 1 || s.length; continue; }
+        m = /^\$\{([A-Za-z_]\w*)(:?)/.exec(s.slice(i));
+        if (m) { i += m[0].length; i = m[2] ? body(i, true) : s.indexOf("}", i) + 1 || s.length; continue; } // a variable: its default
+        m = /^\$([A-Za-z_]\w*)/.exec(s.slice(i));
+        if (m) { i += m[0].length; continue; } // an unknown variable: nothing
       }
-      m = /^\$\{(\d+)\|([^|]*)\|\}/.exec(s.slice(i));
-      if (m) { stop(+m[1]); out += m[2].split(",")[0]; i += m[0].length - 1; continue; }
+      out += c;
+      i++;
     }
-    out += c;
+    return i;
   }
+  body(0, false);
   return { text: out, cursor: first ?? end ?? out.length };
 }
 

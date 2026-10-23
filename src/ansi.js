@@ -5,7 +5,10 @@ export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&a
 const link = (file, line, col, text) => `<a data-file="${esc(file)}" data-line="${line}" data-col="${col || 1}" tabindex="0">${esc(text)}</a>`;
 
 // rustc / panics: src/main.rs:14:20, and Lust: main.lust:3:5 or main.lust:3
-const RS = /((?:[A-Za-z]:)?[\w.\-\/\\]*[\w\-]\.(?:rs|lust|lst|lsc|m?[jt]sx?|cjs|vue|svelte|s?css|lua)):(\d+)(?::(\d+))?/g;
+// A full Windows path may have spaces in it (C:\Users\John Smith\proj\index.js:3:9), so that form
+// is tried first, from the drive letter on; other paths stop at a space.
+const EXT = String.raw`(?:rs|lust|lst|lsc|m?[jt]sx?|cjs|vue|svelte|s?css|lua)`;
+const RS = new RegExp(String.raw`([A-Za-z]:[\\/](?:[^:*?"<>|\r\n\\/]+[\\/])*[^:*?"<>|\r\n\\/ ][^:*?"<>|\r\n\\/]*\.${EXT}|(?:[A-Za-z]:)?[\w.\-\/\\]*[\w\-]\.${EXT}):(\d+)(?::(\d+))?`, "g");
 // Web addresses, such as the one a dev server prints when it starts.
 const URLS = /https?:\/\/[^\s"'<>]*[^\s"'<>.,;:)\]]/g;
 // MSBuild: C:\proj\Player.cs(12,5): error CS0103: ...   (may contain spaces, so anchored at line start)

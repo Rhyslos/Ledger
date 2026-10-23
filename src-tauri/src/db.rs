@@ -21,6 +21,16 @@ const MAX_QUERY_ROWS: usize = 5000;
 /// tab shares it, so a BEGIN in one run and a COMMIT in a later one work, and foreign keys are on
 /// for all of them (SQLite turns them off in every new connection).
 static CONNS: LazyLock<Mutex<HashMap<String, Arc<Mutex<Connection>>>>> = LazyLock::new(Default::default);
+/// Queries running now, so Stop can interrupt one (SQLite checks between steps).
+static RUNNING: LazyLock<Mutex<HashMap<String, rusqlite::InterruptHandle>>> = LazyLock::new(Default::default);
+
+/// Stops the query running on this database in this window, if any.
+#[tauri::command]
+pub fn db_stop(window: WebviewWindow, path: String) {
+    if let Some(h) = RUNNING.lock().unwrap_or_else(|e| e.into_inner()).get(&key(window.label(), &path)) {
+        h.interrupt();
+    }
+}
 
 /// Connections are per window too: closing a tab in one window leaves another window's transaction alone.
 fn key(win: &str, path: &str) -> String {
@@ -319,6 +329,14 @@ pub async fn db_query(window: WebviewWindow, path: String, sql: String) -> Res<Q
 fn query(win: &str, path: &str, sql: &str) -> Res<Query> {
     let cc = conn(win, path)?;
     let c = lock(&cc);
+    let k = key(win, path);
+    RUNNING.lock().unwrap_or_else(|e| e.into_inner()).insert(k.clone(), c.get_interrupt_handle());
+    let r = run_query(&c, sql);
+    RUNNING.lock().unwrap_or_else(|e| e.into_inner()).remove(&k);
+    r.map_err(|e| if e.contains("interrupted") { "Stopped.".into() } else { e })
+}
+
+fn run_query(c: &Connection, sql: &str) -> Res<Query> {
     let start = Instant::now();
     let mut res = Query { columns: vec![], rows: vec![], truncated: false, changed: 0, statements: 0, ms: 0, in_transaction: false };
     let mut batch = rusqlite::Batch::new(&c, sql);

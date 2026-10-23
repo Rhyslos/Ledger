@@ -186,7 +186,7 @@ export function initDb(app) {
   function sqlHtml(d) {
     const r = d.result;
     let out = "";
-    if (d.running) out = `<div class="db-msg">Running…</div>`;
+    if (d.running) out = `<div class="db-msg">Running… <button class="btn" data-act="stopq">Stop</button></div>`;
     else if (d.qerr) out = `<div class="db-msg db-err">${esc(d.qerr)}</div>`;
     else if (r) {
       const info = [r.columns.length ? `${r.rows.length.toLocaleString()}${r.truncated ? "+" : ""} row${r.rows.length === 1 ? "" : "s"}` : "", r.changed ? `${r.changed} row${r.changed === 1 ? "" : "s"} changed` : "", `${r.ms} ms`].filter(Boolean).join(" · ");
@@ -456,6 +456,7 @@ export function initDb(app) {
     else if (a === "refresh") loadSchema(d, true);
     else if (a === "commit" || a === "rollback") endTx(d, a === "commit");
     else if (a === "qexport") exportResult(d);
+    else if (a === "stopq") invoke("db_stop", { path: d.path }).catch(() => {});
     else if (a === "addrow") { d.inserts.unshift({}); draw(); app.renderTabs(); }
     else if (a === "delrows") { for (const id of d.sel) d.deletes.add(id); d.sel.clear(); draw(); app.renderTabs(); }
     else if (a === "discard") { d.edits.clear(); d.inserts = []; d.deletes.clear(); draw(); app.renderTabs(); }
