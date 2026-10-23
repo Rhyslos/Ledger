@@ -12,6 +12,7 @@ import { css } from "@codemirror/lang-css";
 import { sCSS, less } from "@codemirror/legacy-modes/mode/css";
 import { webColours, legacyCssColours } from "./webcolours.js";
 import { tailwindSwatches } from "./tailwind.js";
+import { csvColumns } from "./csv.js";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { clike } from "@codemirror/legacy-modes/mode/clike";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
@@ -455,6 +456,7 @@ export const LANGS = {
   yaml: { name: "YAML", dot: "cfg", ext: () => legacy(yaml) },
   ini: { name: "INI", dot: "cfg", ext: () => legacy(properties) },
   powershell: { name: "PowerShell", dot: "cfg", ext: () => legacy(powerShell) },
+  csv: { name: "CSV", dot: "cfg", ext: () => [], extFor: (path) => csvColumns(path) },
   text: { name: "Plain text", dot: "other", ext: () => [] },
 };
 
@@ -465,7 +467,7 @@ const BY_EXT = {
   js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx", ts: "typescript", mts: "typescript", cts: "typescript", tsx: "tsx",
   html: "html", htm: "html", vue: "html", svelte: "html", astro: "html", css: "css", scss: "scss", sass: "scss", less: "less",
   csproj: "xml", fsproj: "xml", props: "xml", targets: "xml", slnx: "xml", xml: "xml", resx: "xml", xaml: "xml", config: "xml", svg: "xml",
-  yml: "yaml", yaml: "yaml", ps1: "powershell", psm1: "powershell",
+  yml: "yaml", yaml: "yaml", ps1: "powershell", psm1: "powershell", csv: "csv", tsv: "csv", tab: "csv", psv: "csv",
 };
 
 export function langOf(path) {

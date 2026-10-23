@@ -343,6 +343,93 @@ async fn read_bytes(path: String) -> Result<tauri::ipc::Response, String> {
     std::fs::read(&path).map(tauri::ipc::Response::new).map_err(err)
 }
 
+// ---------- local history ----------
+// Every save keeps a copy of the file in Ledger's own folder (not the project), the last 50 per
+// file, so an earlier version can be brought back even without Git.
+
+const HISTORY_KEEP: usize = 50;
+
+fn history_dir(app: &AppHandle, path: &str) -> Res<PathBuf> {
+    let key = path.replace('\\', "/").to_lowercase();
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a: a short, stable folder name per file
+    for b in key.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    Ok(app.path().app_data_dir().map_err(err)?.join("history").join(format!("{h:016x}")))
+}
+
+/// The versions kept for `dir`, oldest first: (millis, file).
+fn history_versions(dir: &Path) -> Vec<(u64, PathBuf)> {
+    let mut v: Vec<(u64, PathBuf)> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter_map(|e| {
+                    let n = e.file_name().to_string_lossy().to_string();
+                    n.strip_suffix(".txt")?.parse::<u64>().ok().map(|t| (t, e.path()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
+#[derive(Serialize)]
+struct Version {
+    id: String,
+    time: f64,
+    size: u64,
+}
+
+/// Keeps `text` as the newest version of `path`. False if it's the same as the last one.
+#[tauri::command]
+async fn history_add(app: AppHandle, path: String, text: String) -> Res<bool> {
+    let dir = history_dir(&app, &path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::create_dir_all(&dir).map_err(err)?;
+        std::fs::write(dir.join("path"), &path).map_err(err)?;
+        let versions = history_versions(&dir);
+        if let Some((_, last)) = versions.last() {
+            if std::fs::read(last).map(|b| b == text.as_bytes()).unwrap_or(false) {
+                return Ok(false);
+            }
+        }
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        let t = versions.last().map(|(l, _)| now.max(l + 1)).unwrap_or(now);
+        std::fs::write(dir.join(format!("{t}.txt")), text.as_bytes()).map_err(err)?;
+        let all = history_versions(&dir);
+        if all.len() > HISTORY_KEEP {
+            for (_, f) in &all[..all.len() - HISTORY_KEEP] {
+                let _ = std::fs::remove_file(f);
+            }
+        }
+        Ok(true)
+    })
+    .await
+    .map_err(err)?
+}
+
+/// The versions kept for `path`, newest first.
+#[tauri::command]
+fn history_list(app: AppHandle, path: String) -> Res<Vec<Version>> {
+    let dir = history_dir(&app, &path)?;
+    Ok(history_versions(&dir)
+        .into_iter()
+        .rev()
+        .map(|(t, f)| Version { id: t.to_string(), time: t as f64, size: std::fs::metadata(&f).map(|m| m.len()).unwrap_or(0) })
+        .collect())
+}
+
+#[tauri::command]
+fn history_read(app: AppHandle, path: String, id: String) -> Res<String> {
+    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
+        return Err("No such version.".into());
+    }
+    let f = history_dir(&app, &path)?.join(format!("{id}.txt"));
+    std::fs::read_to_string(f).map_err(|_| "That version is gone.".to_string())
+}
+
 // ---------- text encodings ----------
 // Ledger edits UTF-8. UTF-16 files with a byte-order mark (PowerShell 5's `>` and Out-File, .reg
 // exports) and old Windows-1252 ("ANSI") files are read too, and saved back the way they were.
@@ -1489,15 +1576,25 @@ async fn git(cwd: String, args: Vec<String>) -> Res<Captured> {
 /// Runs a tool and returns what it printed, without a console window.
 /// Used to check Lust files (.lst, .lsc) with `lust check` after they're saved.
 #[tauri::command]
-async fn run_capture(cwd: String, program: String, args: Vec<String>) -> Res<Captured> {
+async fn run_capture(cwd: String, program: String, args: Vec<String>, input: Option<String>) -> Res<Captured> {
     tauri::async_runtime::spawn_blocking(move || {
         let exe = if is_bare(&program) { find_tool(&program) } else { PathBuf::from(&program) };
-        let out = command_at(&exe)
-            .args(&args)
-            .current_dir(&cwd)
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|e| format!("Couldn't run {program} ({e})."))?;
+        let mut cmd = command_at(&exe);
+        cmd.args(&args).current_dir(&cwd).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
+        let mut child = cmd.spawn().map_err(|e| format!("Couldn't run {program} ({e})."))?;
+        // Text for the program's stdin (Prettier reads the file from there), written on its own
+        // thread so a program that answers while it reads can't block on a full pipe.
+        let feeder = match (input, child.stdin.take()) {
+            (Some(text), Some(mut pipe)) => Some(thread::spawn(move || {
+                let _ = pipe.write_all(text.as_bytes());
+            })),
+            _ => None,
+        };
+        let out = child.wait_with_output().map_err(|e| format!("Couldn't run {program} ({e})."))?;
+        if let Some(f) = feeder {
+            let _ = f.join();
+        }
         Ok(Captured {
             code: out.status.code().unwrap_or(-1),
             out: String::from_utf8_lossy(&out.stdout).to_string(),
@@ -1697,6 +1794,9 @@ pub fn run() {
             git,
             run_capture,
             run_test,
+            history_add,
+            history_list,
+            history_read,
             test_stop,
             http_get,
             debugger_path,

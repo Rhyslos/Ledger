@@ -8,6 +8,15 @@ import { initDb, DB_EXT } from "./db.js";
 import { initImages, IMG_EXT } from "./image.js";
 import { initMarkdown } from "./md.js";
 import { initTests } from "./tests.js";
+import { initColours } from "./colour.js";
+import { diff } from "@codemirror/merge";
+import { initPrettier } from "./prettier.js";
+import { initEmmet, emmetSource } from "./emmet.js";
+import { initMarks } from "./marks.js";
+import { initTodo } from "./todo.js";
+import { initCsv } from "./csv.js";
+import { initHex } from "./hex.js";
+import { initHistory } from "./history.js";
 import { iconHtml } from "./icons.js";
 import { VITE, createSteps, withTailwindPlugin, CSS_FILES, FIRST_FILES } from "./scaffold.js";
 import { initTailwind, tailwindSource, tailwindChanged, tailwindWarm, inClassList } from "./tailwind.js";
@@ -41,6 +50,7 @@ import { initNav } from "./nav.js";
 import { initDeps } from "./deps.js";
 import { initSnippets } from "./snippets.js";
 import { initGit } from "./git.js";
+import { initGitMore } from "./gitmore.js";
 import { initDebugger } from "./debugger.js";
 
 // ---------- prefs (window layout & sessions; settings live in settings.json) ----------
@@ -505,8 +515,26 @@ async function goToDefinition(path = S.active, pos) {
   await openFile(uriToPath(uri), (loc.targetSelectionRange || loc.range).start, { uri, server: srv });
 }
 
+// Formatters that aren't a language server (Prettier for web files): (path, buffer) -> an async
+// function from the text to the formatted text (null when it couldn't), or null for files it skips.
+const formatters = [];
+const formatterFor = (path, b) => (b && !b.ro ? formatters.map((f) => f(path, b)).find(Boolean) : null);
+/** The changes from `a` to `b` as small edits, so the cursor, bookmarks and folds stay where they were. */
+function smallChanges(a, b) {
+  return diff(a, b, { scanLimit: 5000, timeout: 300 }).map((c) => ({ from: c.fromA, to: c.toA, insert: b.slice(c.fromB, c.toB) }));
+}
 async function formatBuffer(path) {
   const b = S.bufs.get(path), srv = serverOf(b);
+  const fmt = formatterFor(path, b);
+  if (fmt) {
+    const before = b.state.doc.toString();
+    const out = await fmt(before);
+    if (out == null) return false;
+    const now = S.bufs.get(path);
+    if (!now || now.state.doc.toString() !== before) return true; // edited meanwhile: leave it
+    if (out !== before) dispatchBuf(path, { changes: smallChanges(before, out.replace(/\r\n/g, "\n")), userEvent: "format" });
+    return true;
+  }
   if (!b || b.ro || !srv?.alive) return false;
   syncDoc(path, b.state.doc);
   const edits = await srv.request("textDocument/formatting", { textDocument: { uri: pathToUri(path) }, options: { tabSize: settings.tabSize, insertSpaces: true } });
@@ -518,8 +546,8 @@ async function formatBuffer(path) {
 async function formatActive() {
   const b = S.bufs.get(S.active);
   if (!b || b.ro) return;
-  if (!needServer(b, "Formatting")) return;
-  if (!(await formatBuffer(S.active))) toast("Couldn't format. Fix syntax errors first.");
+  if (!formatterFor(S.active, b) && !needServer(b, "Formatting")) return;
+  if (!(await formatBuffer(S.active)) && !formatterFor(S.active, b)) toast("Couldn't format. Fix syntax errors first.");
 }
 
 async function renameSymbol() {
@@ -697,6 +725,7 @@ function extensionsFor(path, b) {
       override: [
         ...(hasServer ? [completionSource(path), (ctx) => (started(serverOf(S.bufs.get(path))) ? null : langDataSource(ctx))] : L.complete ? [L.complete] : [langDataSource]),
         ...(L.tailwind ? [tailwindSource] : []),
+        ...(emmetSource(b.lang) ? [((src) => (ctx) => (settings.emmet === false ? null : src(ctx)))(emmetSource(b.lang))] : []),
         ...(snippets ? [snippets.source(b.lang, L.languageId)] : []),
       ],
       activateOnTypingDelay: 60, maxRenderedOptions: 80,
@@ -720,7 +749,7 @@ function extensionsFor(path, b) {
       { key: "Escape", run: closeInfo },
       ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, ...completionKeymap, ...lintKeymap, indentWithTab,
     ]),
-    L.ext(), theme,
+    L.ext(), L.extFor ? L.extFor(path) : [], theme,
     b.ro ? EditorState.readOnly.of(true) : [],
     EditorView.updateListener.of((u) => onUpdate(path, u)),
   ];
@@ -799,7 +828,10 @@ function makeBuffer(path, text, opts = {}) {
 }
 
 /** at: {line, character} (0-based) or {offset}. opts: quiet, background, noNav, keepFocus, uri, server */
+// Pages other modules open from a key, like "@csv:" and "@hex:" (sessions restore them this way).
+const openers = [];
 async function openFile(path, at, opts = {}) {
+  for (const o of openers) { const r = o(path, opts); if (r) return r; }
   // Databases open in their own tab (src/db.js); "@db:" is how a restored session names them.
   if (app.openDb && (DB_EXT.test(path) || String(path).startsWith("@db:"))) return app.openDb(String(path).replace(/^@db:/, ""), opts);
   // Images open in a viewer tab (src/image.js); "Edit code" on an SVG passes asText to get the text editor.
@@ -820,7 +852,12 @@ async function openFile(path, at, opts = {}) {
   if (!S.bufs.has(path)) {
     let file;
     try { file = await invoke("read_text", { path }); }
-    catch (e) { if (!opts.quiet) toast(`Can't open ${base(path)}: ${e}`); return false; }
+    catch (e) {
+      // Not text: show its bytes instead.
+      if (/binary/i.test(String(e)) && app.openHex) return app.openHex(path, opts);
+      if (!opts.quiet) toast(`Can't open ${base(path)}: ${e}`);
+      return false;
+    }
     if (!S.bufs.has(path)) { const b = makeBuffer(path, file.text); b.enc = file.encoding; statOf(path).then((m) => { b.mtime = m; }); }
   }
   const wasOpen = S.tabs.includes(path); // asked before addTab, which puts it in S.tabs
@@ -1029,7 +1066,7 @@ activeHooks.push(() => { clearTimeout(twWarmT); twWarmT = setTimeout(tailwindWar
 async function save(path = S.active) {
   const b = S.bufs.get(path);
   if (!b || b.ro) return true;
-  if (settings.formatOnSave && serverOf(b)?.alive && b.dirty) await formatBuffer(path);
+  if (settings.formatOnSave && (formatterFor(path, b) || serverOf(b)?.alive) && b.dirty) await formatBuffer(path);
   if (!b.dirty) { syncDoc(path); return true; }
   if (!b.virtual && b.mtime != null) {
     const now = await statOf(path);
@@ -1572,7 +1609,10 @@ function treeMenu(p, isDir, x, y) {
     { label: "New folder…", key: "file.newFolder", run: () => newFolder(dirOf) },
     { label: "New SQLite database…", run: () => app.newDb?.(dirOf) },
   ];
-  if (p && !isDir) items.unshift({ label: "Open", hint: "Enter", run: () => openFile(p) }, "-");
+  if (p && !isDir) items.unshift({ label: "Open", hint: "Enter", run: () => openFile(p) },
+    ...(/\.(csv|tsv|tab|psv)$/i.test(p) ? [{ label: "Open as a table", run: () => app.csvTable?.(p) }] : []),
+    { label: "Open as hex", run: () => app.openHex?.(p) },
+    { label: "Saved versions (local history)…", run: async () => { if (await openFile(p)) app.run("history.show"); } }, "-");
   if (p) items.push("-", { label: "Rename…", hint: "F2", run: () => renamePath(p) }, { label: "Move to Recycle Bin", hint: "Delete", danger: true, run: () => deletePath(p) }, "-",
     { label: "Copy path", run: () => copy(p) }, { label: "Copy relative path", run: () => copy(rel(p)) });
   else items.push("-", { label: "Refresh", run: refreshTree });
@@ -2207,6 +2247,25 @@ $("statusbar").addEventListener("keydown", (ev) => {
   if (n) { ev.preventDefault(); n.focus(); }
 });
 
+// Zen mode: just the editor, full screen. The same key brings everything back.
+let zen = null;
+async function toggleZen() {
+  const w = getCurrentWindow();
+  if (!zen) {
+    zen = { panel: S.panel, full: await w.isFullscreen().catch(() => false) };
+    if (S.panel) { S.panel = false; renderPanel(); }
+    $("app").classList.add("zen");
+    if (!zen.full) w.setFullscreen(true).catch(() => {});
+    toast(`Zen mode. ${keymap.label("view.zen") || "Toggle zen mode"} brings everything back.`);
+  } else {
+    $("app").classList.remove("zen");
+    if (!zen.full) w.setFullscreen(false).catch(() => {});
+    if (zen.panel && !S.panel) { S.panel = true; renderPanel(); }
+    zen = null;
+  }
+  for (const p of panes) p.view?.requestMeasure();
+  focusZone("editor");
+}
 function toggleExplorer(force) {
   prefs.collapsed = force != null ? !force : !prefs.collapsed;
   $("app").classList.toggle("collapsed", prefs.collapsed);
@@ -2245,7 +2304,7 @@ function applySetting(key) {
   if ((key === "rustAnalyzer" || key === "rustCheck") && started(servers.rust)) startServer("rust");
   if ((key === "csharpServer" || key === "csharpArgs") && started(servers.csharp)) startServer("csharp");
   if (key === "godot") renderStatus();
-  if (["bracketColors", "indentGuides", "stickyScroll", "codeLens", "gitGutter", "dependencyHints"].includes(key)) reconfigureExtras();
+  if (["bracketColors", "indentGuides", "stickyScroll", "colourSwatches", "emmet", "overviewRuler", "gitBlame", "codeLens", "gitGutter", "dependencyHints"].includes(key)) reconfigureExtras();
   if (key === "statusBar") applyStatusBar();
   if (["theme", "fontSize", "fontFamily"].includes(key)) requestAnimationFrame(() => term?.restyle());
   for (const f of settingHooks) f(key);
@@ -2470,12 +2529,12 @@ function openPalette(mode, init = "", head = "") {
   $("palOv").hidden = false;
   $("palHead").textContent = head || (mode === "text" ? "Search in files" : "");
   const inp = $("palIn");
-  inp.hidden = mode === "choose";
+  inp.hidden = mode === "choose" && !pal.filter;
   inp.value = init;
-  inp.placeholder = mode === "text" ? "Text to find…" : mode === "files" ? "File name   ·   > commands   ·   : line   ·   @ symbol here   ·   # symbol anywhere" : "";
+  inp.placeholder = mode === "choose" ? "Type to narrow the list" : mode === "text" ? "Text to find…" : mode === "files" ? "File name   ·   > commands   ·   : line   ·   @ symbol here   ·   # symbol anywhere" : "";
   if (mode === "files") loadFiles().then(() => { if (pal.mode === "files" && !$("palOv").hidden) drawPalette(); });
   drawPalette();
-  if (mode === "choose") $("palRes").querySelector(".li")?.focus(); else { inp.focus(); inp.setSelectionRange(init.length, init.length); }
+  if (mode === "choose" && !pal.filter) $("palRes").querySelector(".li")?.focus(); else { inp.focus(); inp.setSelectionRange(init.length, init.length); }
 }
 function finishPalette(value) {
   $("palOv").hidden = true;
@@ -2497,6 +2556,7 @@ function choose(head, options, wantIndex = false) {
   return new Promise((resolve) => {
     pal.options = options;
     pal.wantIndex = wantIndex;
+    pal.filter = options.length > 8; // long lists (branches, bookmarks) get a box to type in
     openPalette("choose", "", head);
     pal.resolve = resolve;
   });
@@ -2528,8 +2588,10 @@ function drawPalette() {
   let html = "";
   if (pal.mode === "prompt") { res.innerHTML = ""; return; }
   if (pal.mode === "choose") {
-    pal.list = pal.options.map((o, i) => ({ choice: o, i }));
-    html = pal.options.map((o, i) => row(i, i === 0 ? "rs" : "other", esc(o), i < 9 ? `<kbd>${i + 1}</kbd>` : "", "")).join("");
+    const q = pal.filter ? v.trim().toLowerCase() : "";
+    pal.list = pal.options.map((o, i) => ({ choice: o, i, score: q ? fuzzy(q, o) : 0 })).filter((x) => x.score >= 0);
+    if (q) pal.list.sort((a, b) => b.score - a.score);
+    html = pal.list.map((o, j) => row(j, o.i === 0 ? "rs" : "other", q ? hlText(o.choice, q) : esc(o.choice), !pal.filter && j < 9 ? `<kbd>${j + 1}</kbd>` : "", "")).join("") || '<p class="empty" style="padding:8px 10px">Nothing matches.</p>';
   } else if (pal.mode === "text") {
     const q = v;
     if (q !== pal.searchQ) {
@@ -2598,7 +2660,7 @@ $("palIn").oninput = () => { pal.sel = 0; drawPalette(); };
 $("palOv").addEventListener("keydown", (ev) => {
   const k = keyString(ev);
   if (k === "Esc") { ev.preventDefault(); finishPalette(null); return; }
-  if (pal.mode === "choose" && /^[1-9]$/.test(k) && +k <= pal.list.length) { ev.preventDefault(); pick(+k - 1); return; }
+  if (pal.mode === "choose" && !pal.filter && /^[1-9]$/.test(k) && +k <= pal.list.length) { ev.preventDefault(); pick(+k - 1); return; }
   if (k === "Down" || k === "Up" || (pal.mode === "choose" && (k === "Tab" || k === "Shift+Tab"))) {
     ev.preventDefault();
     const d = k === "Up" || k === "Shift+Tab" ? -1 : 1;
@@ -2606,7 +2668,7 @@ $("palOv").addEventListener("keydown", (ev) => {
     $("palRes").querySelectorAll(".li").forEach((el, i) => el.setAttribute("aria-selected", i === pal.sel));
     const cur = $("palRes").querySelector('[aria-selected="true"]');
     cur?.scrollIntoView({ block: "nearest" });
-    if (pal.mode === "choose") cur?.focus();
+    if (pal.mode === "choose" && !pal.filter) cur?.focus();
   }
   if (k === "Enter") { ev.preventDefault(); pick(pal.sel); }
 });
@@ -2657,6 +2719,7 @@ C("app.update", "Check for updates", [], () => updater?.check());
 C("panel.dock", "Move the panel (terminal, output) to the right or the bottom", [], togglePanelDock);
 C("lust.lua", "Lust: show the Lua this file turns into", [], () => runAction("lua"));
 C("lust.rust", "Lust: show the Rust this file turns into (.lst)", [], () => runAction("rust"));
+C("view.zen", "Toggle zen mode (just the editor, full screen)", "Ctrl+Alt+Z", toggleZen);
 C("view.wrap", "Toggle word wrap (long lines wrap onto the next line)", "Alt+Z", () => { setSetting("wordWrap", !settings.wordWrap); toast(settings.wordWrap ? "Long lines wrap." : "Long lines run on; scroll sideways to see them."); });
 C("tab.pin", "Pin or unpin this tab", [], () => togglePin());
 C("tab.closeSaved", "Close saved tabs (unsaved and pinned stay)", [], () => closeSavedTabs());
@@ -3089,12 +3152,13 @@ listen("open-args", (e) => (booted ? handleArgs(e.payload) : pendingArgs.push(e.
 const app = {
   $, S, settings, prefs, savePrefs, panelTabs, keymap, servers, LANGS,
   get view() { return view; }, get split() { return split; }, panes,
-  command: (...a) => C(...a), toast, choose, promptText, copy,
+  command: (...a) => C(...a), setSetting, toast, choose, promptText, copy,
   showPanel, focusPanel, focusZone, currentZone, showSideView, sideViews, get sideView() { return sideView; },
   openFile, activate, addTab, save, saveAll, startSteps, appendOut, renderTabs, renderMain, renderStatus, scheduleUi,
   dispatchBuf, serverOf, needServer, syncDoc, renderMd, hl, norm, rel, base, parent, join, isUnder, isAbs, esc, splitArgs,
-  highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [],
+  highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
   cwd: () => S.ctx?.dir || S.root || "",
+  trusted: () => trusted(),
   updateCtx, taskKind, projectFor, projectDirs, invoke, keyString, openFolder, closeFolder,
   run: (id) => keymap.cmds.get(id)?.run(),
   openPaletteWith: (prefix) => openPalette("files", prefix),
@@ -3158,11 +3222,19 @@ async function boot() {
   navx = initNav(app);
   initDeps(app);
   snippets = initSnippets(app, () => settingsFile);
-  initGit(app);
+  initGitMore(app, initGit(app));
   initDb(app);
   initImages(app);
   initMarkdown(app);
   initTests(app);
+  initColours(app);
+  initPrettier(app, formatters);
+  initEmmet(app);
+  initMarks(app);
+  initTodo(app);
+  initCsv(app);
+  initHex(app);
+  initHistory(app);
   debug = app.debug = initDebugger(app);
   view = panes[0].view = new EditorView({ parent: $("editor") });
   panes[0].el.classList.add("focused");
