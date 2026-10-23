@@ -125,13 +125,35 @@ const conflictField = (onCompare) => StateField.define({
 
 // ---------- blame ----------
 const setBlame = StateEffect.define();
+// Blame is asked for when a file is opened, shown or saved, not while you type. Edits since then
+// are kept as a change set, and each line is looked up through it: lines you changed say so,
+// the others keep their commit.
 const blameField = StateField.define({
   create: () => null,
   update(v, tr) {
-    for (const e of tr.effects) if (e.is(setBlame)) return e.value;
-    return tr.docChanged ? null : v; // stale until it's asked again
+    // setBlame carries { lines, doc }: the blame and the text it was worked out for.
+    for (const e of tr.effects) if (e.is(setBlame)) return e.value ? { changes: null, ...e.value } : null; // (a copy for the other pane keeps its changes)
+    if (!v || !tr.docChanged) return v;
+    return { ...v, changes: v.changes ? v.changes.compose(tr.changes) : tr.changes };
   },
 });
+const NOT_COMMITTED = { sha: "0".repeat(40) };
+/** The blame for line `n` of the text now, looked up through the edits made since it was asked. */
+export function blameFor(data, doc, n) {
+  if (!data) return null;
+  if (!data.changes) return data.lines[n] || null;
+  const ch = data.changes;
+  if (ch.newLength !== doc.length || ch.length !== data.doc.length) return null;
+  const line = doc.line(n);
+  // Changed if an edit's new text overlaps the line, or a deletion happened inside it. An edit
+  // that only ends at the line's start (a line typed above it) leaves the line as it was.
+  let touched = false;
+  ch.iterChangedRanges((fa, ta, fb, tb) => {
+    if (tb > fb ? fb < line.to && tb > line.from : fb > line.from && fb < line.to) touched = true;
+  });
+  if (touched) return NOT_COMMITTED; // you changed this line
+  return data.lines[data.doc.lineAt(ch.invertedDesc.mapPos(line.from, 1)).number] || null;
+}
 export function parseBlame(out) {
   const commits = new Map(), lines = [];
   const rows = out.split("\n");
@@ -166,6 +188,7 @@ class BlameNote extends WidgetType {
   toDOM() {
     const s = document.createElement("span");
     s.className = "cm-blame";
+    s.setAttribute("aria-hidden", "true"); // not part of the code a screen reader reads out
     const i = this.info;
     const none = /^0+$/.test(i.sha);
     s.textContent = none ? "You · not committed yet" : `${i.author || "?"}, ${ago(i.time)} · ${i.summary || ""}`;
@@ -182,7 +205,7 @@ const blamePlugin = (onClick) => ViewPlugin.fromClass(class {
     const data = v.state.field(blameField, false);
     if (!data || v.state.selection.ranges.length > 1) return Decoration.none;
     const line = v.state.doc.lineAt(v.state.selection.main.head);
-    const info = data[line.number];
+    const info = blameFor(data, v.state.doc, line.number);
     if (!info) return Decoration.none;
     return Decoration.set([Decoration.widget({ widget: new BlameNote(info, onClick), side: 1 }).range(line.to)]);
   }
@@ -254,7 +277,7 @@ export function initGitMore(app, gitApi) {
     const r = await invoke("run_capture", { cwd: G.root, program: "git", args: ["-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "blame", "--porcelain", "--contents", "-", "--", relTo(path)], input: (b.bom ? "\uFEFF" : "") + (b.eol === "\r\n" ? doc.toString().replace(/\n/g, "\r\n") : doc.toString()) }).catch(() => null);
     const now = S.bufs.get(path);
     if (!r || r.code !== 0 || !now || now.state.doc !== doc) return;
-    app.dispatchBuf(path, { effects: setBlame.of(parseBlame(r.out)) });
+    app.dispatchBuf(path, { effects: setBlame.of({ lines: parseBlame(r.out), doc }) });
   }
   const soon = (path, ms) => { clearTimeout(pending.get(path)); pending.set(path, setTimeout(() => blame(path), ms)); };
   async function showCommit(info) {
@@ -265,7 +288,6 @@ export function initGitMore(app, gitApi) {
   }
   const plugin = blamePlugin(showCommit);
   app.extraExt.push((path, b) => (settings.gitBlame && !b.virtual ? [blameField, plugin] : []));
-  app.bufListeners.push((path) => soon(path, 1200));
   app.activeHooks.push((key) => { if (S.bufs.has(key)) soon(key, 200); });
   app.saveHooks.push((path) => soon(path, 600));
   app.settingHooks.push((k) => { if (k === "gitBlame") { asked.clear(); for (const p of S.bufs.keys()) soon(p, 50); } });

@@ -23,7 +23,7 @@ struct Live {
 pub struct LiveServers(Mutex<HashMap<String, Live>>);
 
 /// Starts serving `root` (or restarts on a new root). Returns the port.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn live_start(window: WebviewWindow, servers: State<'_, LiveServers>, root: String, port: u16) -> Result<u16, String> {
     stop(&servers, window.label());
     // The real folder (symlinks and junctions resolved), so served files can be checked against it.
@@ -51,33 +51,35 @@ pub fn live_start(window: WebviewWindow, servers: State<'_, LiveServers>, root: 
             });
         }
     });
-    servers.0.lock().unwrap().insert(window.label().to_string(), live);
+    servers.0.lock().unwrap_or_else(|e| e.into_inner()).insert(window.label().to_string(), live);
     Ok(port)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn live_stop(window: WebviewWindow, servers: State<'_, LiveServers>) {
     stop(&servers, window.label());
 }
 
 /// Tells every open page to reload; `css` only refreshes stylesheets.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn live_reload(window: WebviewWindow, servers: State<'_, LiveServers>, css: bool) {
-    if let Some(l) = servers.0.lock().unwrap().get(window.label()) {
+    if let Some(l) = servers.0.lock().unwrap_or_else(|e| e.into_inner()).get(window.label()) {
         let msg = format!("data: {}\n\n", if css { "css" } else { "reload" });
-        l.clients.lock().unwrap().retain_mut(|c| c.write_all(msg.as_bytes()).and_then(|_| c.flush()).is_ok());
+        l.clients.lock().unwrap_or_else(|e| e.into_inner()).retain_mut(|c| c.write_all(msg.as_bytes()).and_then(|_| c.flush()).is_ok());
     }
 }
 
 pub fn stop(servers: &LiveServers, label: &str) {
-    if let Some(l) = servers.0.lock().unwrap().remove(label) {
+    if let Some(l) = servers.0.lock().unwrap_or_else(|e| e.into_inner()).remove(label) {
         l.stop.store(true, Ordering::SeqCst);
-        l.clients.lock().unwrap().clear();
+        l.clients.lock().unwrap_or_else(|e| e.into_inner()).clear();
         let _ = TcpStream::connect(("127.0.0.1", l.port)); // wakes the accept loop so it sees `stop`
     }
 }
 
 fn serve(mut conn: TcpStream, root: &Path, port: u16, clients: &Mutex<Vec<TcpStream>>) -> std::io::Result<()> {
+    // A client that connects and says nothing mustn't hold a thread for ever.
+    conn.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
     let mut reader = BufReader::new(conn.try_clone()?);
     let mut first = String::new();
     reader.read_line(&mut first)?;
@@ -103,8 +105,9 @@ fn serve(mut conn: TcpStream, root: &Path, port: u16, clients: &Mutex<Vec<TcpStr
     let path = decode(target.split(['?', '#']).next().unwrap_or("/"));
 
     if path == LIVE_PATH {
+        conn.set_read_timeout(None)?;
         conn.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n: ledger\n\n")?;
-        clients.lock().unwrap().push(conn);
+        clients.lock().unwrap_or_else(|e| e.into_inner()).push(conn);
         return Ok(());
     }
     if method != "GET" && method != "HEAD" {
@@ -153,12 +156,24 @@ fn respond(conn: &mut TcpStream, status: &str, mime: &str, body: &[u8], method: 
     conn.flush()
 }
 
-/// Puts the reload script before </body>, or at the end if there isn't one.
-fn inject(body: Vec<u8>) -> Vec<u8> {
-    let text = String::from_utf8_lossy(&body);
-    match text.to_ascii_lowercase().rfind("</body>") {
-        Some(i) => format!("{}{SCRIPT}{}", &text[..i], &text[i..]).into_bytes(),
-        None => format!("{text}{SCRIPT}").into_bytes(),
+/// Puts the reload script before </body>, or at the end if there isn't one. Works on the bytes,
+/// so a page in another encoding than UTF-8 comes through unchanged.
+fn inject(mut body: Vec<u8>) -> Vec<u8> {
+    let lower = body.to_ascii_lowercase();
+    let at = lower.windows(7).rposition(|w| w == b"</body>").unwrap_or(body.len());
+    body.splice(at..at, SCRIPT.bytes());
+    body
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn script_goes_before_the_end_of_body() {
+        let out = super::inject(b"<html><BODY>hi \xe9</body></html>".to_vec());
+        let s = String::from_utf8_lossy(&out);
+        assert!(s.contains("EventSource") && s.ends_with("</body></html>"));
+        assert_eq!(out.iter().filter(|&&b| b == 0xe9).count(), 1); // the Latin-1 byte is untouched
+        assert!(String::from_utf8_lossy(&super::inject(b"no body".to_vec())).ends_with("</script>"));
     }
 }
 

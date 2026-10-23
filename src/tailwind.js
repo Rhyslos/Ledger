@@ -54,7 +54,9 @@ let host = null; // { run(dir, args) -> stdout, dir() -> project folder or null 
 const ready = new Map(); // folder -> { options }: what completion uses right now
 const running = new Map(); // folder -> Promise of a listing in progress
 const fresh = new Set(); // folders already listed (or being listed) this session
-const STORE = (dir) => "ledger-tailwind:" + dir;
+const STORE = (dir) => "tailwind:" + dir;
+// Lists used to live in localStorage; that's left for sessions and trust now.
+try { for (const k of Object.keys(localStorage)) if (k.startsWith("ledger-tailwind")) localStorage.removeItem(k); } catch {}
 
 export function initTailwind(h) { host = h; }
 
@@ -81,13 +83,7 @@ function refresh(dir) {
   const p = host.run(dir, ["--input-type=module", "-e", SCRIPT]).then((text) => {
     const d = JSON.parse(text || "null");
     if (!d) return ready.get(dir) || null;
-    try {
-      // Kept for the six folders used last, so the store (which also holds sessions) never fills up.
-      const order = [dir, ...JSON.parse(localStorage.getItem("ledger-tailwind-order") || "[]").filter((x) => x !== dir)];
-      for (const old of order.slice(6)) localStorage.removeItem(STORE(old));
-      localStorage.setItem("ledger-tailwind-order", JSON.stringify(order.slice(0, 6)));
-      localStorage.setItem(STORE(dir), JSON.stringify(d));
-    } catch {} // too big for the store: just this session
+    host.cacheSet?.(STORE(dir), JSON.stringify(d)); // for next time (Ledger's cache folder)
     const r = build(d);
     ready.set(dir, r);
     return r;
@@ -101,17 +97,19 @@ function refresh(dir) {
 }
 
 /** The list right away if there is one (this session's, or the one kept from last time). */
+const kept = new Map(); // folder -> Promise of the list kept from last time
 function now(dir) {
-  if (!ready.has(dir)) {
-    try {
-      const kept = JSON.parse(localStorage.getItem(STORE(dir)) || "null");
-      if (kept) ready.set(dir, build(kept));
-    } catch {}
+  if (!ready.has(dir) && !kept.has(dir) && host.cacheGet) {
+    kept.set(dir, host.cacheGet(STORE(dir)).then((t) => {
+      try { const d = JSON.parse(t || "null"); if (d && !ready.has(dir)) ready.set(dir, build(d)); } catch {}
+      return ready.get(dir) || null;
+    }, () => null));
   }
   if (!fresh.has(dir)) refresh(dir); // once a session, so new classes and theme colours show up
   return ready.get(dir) || null;
 }
-const load = (dir) => now(dir) || running.get(dir) || null;
+// The list now, else last time's (from disk, quick), else the one being made.
+const load = (dir) => now(dir) || (kept.get(dir) || Promise.resolve(null)).then((r) => r || running.get(dir) || null);
 
 /** Get the list ready before it's needed: called when a file opens. */
 export function tailwindWarm() {

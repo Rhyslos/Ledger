@@ -252,6 +252,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; }
 .menu button:hover, .menu button:focus-visible { background: var(--hover); outline: none; }
 .menu button.danger { color: var(--seal); }
 .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+.toast:not(.on) { visibility: hidden; } /* always in the page, so screen readers announce each new message */
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 44px; background: var(--ink); color: var(--bg); padding: 7px 14px; border-radius: var(--r); font-size: 13px; z-index: 30; max-width: min(90vw, 560px); }
 
 /* CodeMirror pieces that live outside the editor theme */

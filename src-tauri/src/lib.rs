@@ -58,7 +58,7 @@ async fn refresh_path() {
     if let Ok(out) = c.stdin(Stdio::null()).stderr(Stdio::null()).output() {
         let text = String::from_utf8_lossy(&out.stdout);
         let joined = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(";");
-        *FRESH_PATH.lock().unwrap() = Some(joined.into());
+        *FRESH_PATH.lock().unwrap_or_else(|e| e.into_inner()) = Some(joined.into());
     }
 }
 
@@ -93,7 +93,7 @@ fn child_path() -> OsString {
     if let Some(p) = std::env::var_os("PATH") {
         dirs.extend(std::env::split_paths(&p));
     }
-    if let Some(p) = FRESH_PATH.lock().unwrap().as_ref() {
+    if let Some(p) = FRESH_PATH.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
         dirs.extend(std::env::split_paths(p));
     }
     std::env::join_paths(dirs).unwrap_or_default()
@@ -171,12 +171,18 @@ fn command_at(exe: &Path) -> Command {
 /// "Open with Ledger" in Explorer's right-click menu (the installer adds it): whether it's there,
 /// and turning it on or off. Off also leaves a note so updates don't add it back.
 #[tauri::command]
-fn shell_menu_state() -> bool {
+async fn shell_menu_state() -> Res<bool> {
+    blocking(move || shell_menu_state_now()).await
+}
+fn shell_menu_state_now() -> bool {
     cfg!(windows) && reg(&["query", r"HKCU\Software\Classes\Directory\shell\Ledger"])
 }
 
 #[tauri::command]
-fn shell_menu(on: bool) -> Res<()> {
+async fn shell_menu(on: bool) -> Res<()> {
+    blocking(move || shell_menu_now(on)).await?
+}
+fn shell_menu_now(on: bool) -> Res<()> {
     if !cfg!(windows) {
         return Err("This is a Windows menu.".into());
     }
@@ -210,7 +216,10 @@ fn reg(args: &[&str]) -> bool {
 
 /// Where a tool resolves to, if it works. Used by the settings page.
 #[tauri::command]
-async fn tool_info(name: String) -> Option<String> {
+async fn tool_info(name: String) -> Res<Option<String>> {
+    blocking(move || tool_info_now(name)).await
+}
+fn tool_info_now(name: String) -> Option<String> {
     find_working(&name).map(|p| plain_path(&p))
 }
 
@@ -233,7 +242,7 @@ struct Args {
 #[tauri::command]
 fn startup_args(window: tauri::WebviewWindow, procs: State<'_, Procs>) -> Args {
     if window.label() != "main" {
-        return procs.pending.lock().unwrap().remove(window.label()).unwrap_or(Args { argv: vec![], cwd: String::new() });
+        return procs.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(window.label()).unwrap_or(Args { argv: vec![], cwd: String::new() });
     }
     Args {
         argv: std::env::args().skip(1).collect(),
@@ -247,7 +256,7 @@ fn exe_path() -> String {
 }
 
 /// "dir", "file" or null, after resolving `path` against `cwd`.
-#[tauri::command]
+#[tauri::command(async)]
 fn resolve_path(path: String, cwd: String) -> Option<(String, String)> {
     let p = Path::new(&path);
     let p = if p.is_absolute() { p.to_path_buf() } else { Path::new(&cwd).join(p) };
@@ -281,7 +290,7 @@ fn dir_arg(path: &str) -> String {
 }
 
 /// Nearest folder above `file` that looks like a project root.
-#[tauri::command]
+#[tauri::command(async)]
 fn find_project_root(file: String) -> Option<String> {
     let has = |d: &Path, pred: &dyn Fn(&str) -> bool| {
         std::fs::read_dir(d)
@@ -311,28 +320,43 @@ fn settings_file(app: &AppHandle) -> Res<PathBuf> {
     Ok(app.path().app_config_dir().map_err(err)?.join("settings.json"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn settings_read(app: AppHandle) -> Res<Option<String>> {
     let f = settings_file(&app)?;
     Ok(std::fs::read_to_string(f).ok())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn settings_write(app: AppHandle, json: String) -> Res<String> {
     let f = settings_file(&app)?;
     if let Some(d) = f.parent() {
         std::fs::create_dir_all(d).map_err(err)?;
     }
-    std::fs::write(&f, json).map_err(err)?;
+    // A settings.json with a mistake in it (edited by hand) is kept as settings.json.bak before
+    // it's replaced, so nothing typed there is lost.
+    if let Ok(old) = std::fs::read_to_string(&f) {
+        if !old.trim().is_empty() && serde_json::from_str::<serde_json::Value>(&old).is_err() {
+            let _ = std::fs::write(f.with_extension("json.bak"), old);
+        }
+    }
+    write_atomic(&f, json.as_bytes()).map_err(err)?;
     Ok(plain_path(&f))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn settings_path(app: AppHandle) -> Res<String> {
     settings_file(&app).map(|p| plain_path(&p))
 }
 
 // ---------- files ----------
+
+/// Runs slow work (disk, other programs) on Tauri's blocking pool, away from the window's thread
+/// and the async workers that carry language-server and terminal traffic.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Res<T> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(err)
+}
+// File commands run off the window's thread (command(async)): a slow network share, a big file or
+// the Recycle Bin mustn't freeze the window. Commands without `async` run on the UI thread.
 
 #[derive(Serialize)]
 struct Entry {
@@ -341,7 +365,7 @@ struct Entry {
     is_dir: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_dir(path: String) -> Res<Vec<Entry>> {
     let path = dir_arg(&path);
     let mut out = Vec::new();
@@ -360,7 +384,10 @@ fn list_dir(path: String) -> Res<Vec<Entry>> {
 
 /// A file's bytes as they are (images), sent as binary rather than as text or JSON.
 #[tauri::command]
-async fn read_bytes(path: String) -> Result<tauri::ipc::Response, String> {
+async fn read_bytes(path: String) -> Res<tauri::ipc::Response> {
+    blocking(move || read_bytes_now(path)).await?
+}
+fn read_bytes_now(path: String) -> Result<tauri::ipc::Response, String> {
     let meta = std::fs::metadata(&path).map_err(err)?;
     if meta.len() > 128 * 1024 * 1024 {
         return Err("This file is over 128 MB, too big to show here.".into());
@@ -407,10 +434,44 @@ struct Version {
     size: u64,
 }
 
+// ---------- caches ----------
+// Things worth keeping between sessions that aren't settings (Tailwind's class lists), in
+// Ledger's cache folder rather than the window's localStorage, which also holds sessions and
+// folder trust and would silently stop saving those once full.
+
+fn cache_file(app: &AppHandle, key: &str) -> Res<PathBuf> {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in key.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    Ok(app.path().app_cache_dir().map_err(err)?.join("cache").join(format!("{h:016x}.json")))
+}
+
+#[tauri::command(async)]
+fn cache_get(app: AppHandle, key: String) -> Option<String> {
+    std::fs::read_to_string(cache_file(&app, &key).ok()?).ok()
+}
+
+#[tauri::command(async)]
+fn cache_set(app: AppHandle, key: String, value: String) -> Res<()> {
+    let f = cache_file(&app, &key)?;
+    if let Some(d) = f.parent() {
+        std::fs::create_dir_all(d).map_err(err)?;
+    }
+    write_atomic(&f, value.as_bytes()).map_err(err)
+}
+
 /// Keeps `text` as the newest version of `path`. False if it's the same as the last one.
 #[tauri::command]
 async fn history_add(app: AppHandle, path: String, text: String) -> Res<bool> {
+    // Files that usually hold passwords and keys aren't copied anywhere.
+    let name = Path::new(&path).file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+    if name.starts_with(".env") || name.starts_with("id_rsa") || name.starts_with("id_ed25519") || [".pem", ".key", ".pfx", ".p12"].iter().any(|e| name.ends_with(e)) || name.contains("secret") || name.contains("credential") {
+        return Ok(false);
+    }
     let dir = history_dir(&app, &path)?;
+    let all_dir = dir.parent().map(Path::to_path_buf);
     tauri::async_runtime::spawn_blocking(move || {
         std::fs::create_dir_all(&dir).map_err(err)?;
         std::fs::write(dir.join("path"), &path).map_err(err)?;
@@ -429,14 +490,50 @@ async fn history_add(app: AppHandle, path: String, text: String) -> Res<bool> {
                 let _ = std::fs::remove_file(f);
             }
         }
+        // Now and then, keep the whole history under 200 MB by dropping the oldest versions.
+        if t % 16 == 0 {
+            if let Some(all_dir) = all_dir {
+                trim_history(&all_dir, 200 * 1024 * 1024);
+            }
+        }
         Ok(true)
     })
     .await
     .map_err(err)?
 }
 
+fn trim_history(root: &Path, limit: u64) {
+    let mut files: Vec<(u64, u64, PathBuf)> = vec![];
+    for d in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        for (t, f) in history_versions(&d.path()) {
+            files.push((t, std::fs::metadata(&f).map(|m| m.len()).unwrap_or(0), f));
+        }
+    }
+    let mut total: u64 = files.iter().map(|f| f.1).sum();
+    files.sort();
+    for (_, size, f) in files {
+        if total <= limit {
+            break;
+        }
+        if std::fs::remove_file(&f).is_ok() {
+            total -= size;
+        }
+    }
+}
+
+/// A file was renamed or moved: its history goes with it.
+#[tauri::command(async)]
+fn history_move(app: AppHandle, from: String, to: String) -> Res<()> {
+    let (a, b) = (history_dir(&app, &from)?, history_dir(&app, &to)?);
+    if a.is_dir() && !b.exists() {
+        std::fs::rename(&a, &b).map_err(err)?;
+        let _ = std::fs::write(b.join("path"), &to);
+    }
+    Ok(())
+}
+
 /// The versions kept for `path`, newest first.
-#[tauri::command]
+#[tauri::command(async)]
 fn history_list(app: AppHandle, path: String) -> Res<Vec<Version>> {
     let dir = history_dir(&app, &path)?;
     Ok(history_versions(&dir)
@@ -446,7 +543,7 @@ fn history_list(app: AppHandle, path: String) -> Res<Vec<Version>> {
         .collect())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn history_read(app: AppHandle, path: String, id: String) -> Res<String> {
     if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
         return Err("No such version.".into());
@@ -468,6 +565,9 @@ const CP1252: [u16; 32] = [
 /// The text in a file, and its encoding: "utf8", "utf16le", "utf16be" or "cp1252".
 fn decode_text(bytes: Vec<u8>) -> Res<(String, &'static str)> {
     let utf16 = |rest: &[u8], le: bool| {
+        if rest.len() % 2 == 1 {
+            return Err("This UTF-16 file ends in half a character, so Ledger won't open it as text (saving would lose that byte).".to_string());
+        }
         let units: Vec<u16> = rest.chunks_exact(2).map(|c| if le { u16::from_le_bytes([c[0], c[1]]) } else { u16::from_be_bytes([c[0], c[1]]) }).collect();
         String::from_utf16(&units).map_err(|_| "This UTF-16 file has broken characters in it.".to_string())
     };
@@ -476,6 +576,10 @@ fn decode_text(bytes: Vec<u8>) -> Res<(String, &'static str)> {
     }
     if bytes.starts_with(&[0xFE, 0xFF]) {
         return Ok((utf16(&bytes[2..], false)?, "utf16be"));
+    }
+    // UTF-16 without a byte-order mark: mostly-English text has a zero in every other byte.
+    if let Some(le) = bomless_utf16(&bytes) {
+        return Ok((utf16(&bytes, le)?, if le { "utf16le-nobom" } else { "utf16be-nobom" }));
     }
     match String::from_utf8(bytes) {
         Ok(t) => Ok((t, "utf8")),
@@ -490,11 +594,38 @@ fn decode_text(bytes: Vec<u8>) -> Res<(String, &'static str)> {
     }
 }
 
+/// Some(true) for UTF-16 LE, Some(false) for BE, when the bytes look like UTF-16 without a BOM.
+fn bomless_utf16(b: &[u8]) -> Option<bool> {
+    if b.len() < 4 || b.len() % 2 == 1 {
+        return None;
+    }
+    let pairs = (b.len() / 2).min(4096);
+    let (mut even0, mut odd0) = (0, 0);
+    for i in 0..pairs {
+        if b[2 * i] == 0 {
+            even0 += 1;
+        }
+        if b[2 * i + 1] == 0 {
+            odd0 += 1;
+        }
+    }
+    // Text in Latin letters: zeros in one half nearly always, almost never in the other.
+    if odd0 * 10 >= pairs * 7 && even0 * 20 <= pairs {
+        Some(true)
+    } else if even0 * 10 >= pairs * 7 && odd0 * 20 <= pairs {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 fn encode_text(text: &str, encoding: &str) -> Res<Vec<u8>> {
     let text = text.strip_prefix('\u{FEFF}').filter(|_| encoding.starts_with("utf16")).unwrap_or(text);
     Ok(match encoding {
         "utf16le" => [0xFF, 0xFE].into_iter().chain(text.encode_utf16().flat_map(|u| u.to_le_bytes())).collect(),
         "utf16be" => [0xFE, 0xFF].into_iter().chain(text.encode_utf16().flat_map(|u| u.to_be_bytes())).collect(),
+        "utf16le-nobom" => text.encode_utf16().flat_map(|u| u.to_le_bytes()).collect(),
+        "utf16be-nobom" => text.encode_utf16().flat_map(|u| u.to_be_bytes()).collect(),
         "cp1252" => {
             let mut out = Vec::with_capacity(text.len());
             for ch in text.chars() {
@@ -523,7 +654,7 @@ fn read_bytes_checked(path: &str) -> Res<Vec<u8>> {
     std::fs::read(path).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_file(path: String) -> Res<String> {
     decode_text(read_bytes_checked(&path)?).map(|(t, _)| t)
 }
@@ -535,17 +666,66 @@ struct TextFile {
 }
 
 /// A file's text and how it was stored, for the editor (which saves it back the same way).
-#[tauri::command]
+#[tauri::command(async)]
 fn read_text(path: String) -> Res<TextFile> {
     decode_text(read_bytes_checked(&path)?).map(|(text, encoding)| TextFile { text, encoding })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn write_file(path: String, contents: String, encoding: Option<String>) -> Res<()> {
-    std::fs::write(&path, encode_text(&contents, encoding.as_deref().unwrap_or("utf8"))?).map_err(err)
+    write_atomic(Path::new(&path), &encode_text(&contents, encoding.as_deref().unwrap_or("utf8"))?).map_err(err)
 }
 
-#[tauri::command]
+/// Saves without a moment where the file is half-written: the new text goes into a temporary file
+/// next to it, then takes its place in one step (ReplaceFileW on Windows keeps the file's
+/// attributes and permissions). A crash, a power cut or a full disk leaves the old file whole.
+/// A link, or a folder where that can't be done, is written in place as before.
+fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let meta = std::fs::symlink_metadata(path);
+    let plain = match &meta {
+        Err(_) => true,                       // a new file: nothing to protect
+        Ok(m) => m.file_type().is_symlink(), // keep the link, write through it
+    };
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    if plain {
+        return std::fs::write(path, bytes);
+    }
+    let tmp = dir.join(format!(".{name}.ledger-save-{}", std::process::id()));
+    let result = (|| {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        replace_file(path, &tmp)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        // A folder that doesn't allow new files (or a share that can't replace): the old way.
+        return std::fs::write(path, bytes);
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn replace_file(target: &Path, tmp: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{ReplaceFileW, REPLACEFILE_IGNORE_MERGE_ERRORS};
+    let wide = |p: &Path| p.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+    let (t, s) = (wide(target), wide(tmp));
+    let ok = unsafe { ReplaceFileW(t.as_ptr(), s.as_ptr(), std::ptr::null(), REPLACEFILE_IGNORE_MERGE_ERRORS, std::ptr::null(), std::ptr::null()) };
+    if ok == 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
+}
+
+#[cfg(not(windows))]
+fn replace_file(target: &Path, tmp: &Path) -> std::io::Result<()> {
+    if let Ok(m) = std::fs::metadata(target) {
+        let _ = std::fs::set_permissions(tmp, m.permissions());
+    }
+    std::fs::rename(tmp, target)
+}
+
+#[tauri::command(async)]
 fn create_file(path: String) -> Res<()> {
     if let Some(parent) = Path::new(&path).parent() {
         std::fs::create_dir_all(parent).map_err(err)?;
@@ -553,7 +733,7 @@ fn create_file(path: String) -> Res<()> {
     std::fs::OpenOptions::new().write(true).create_new(true).open(&path).map(|_| ()).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn create_dir(path: String) -> Res<()> {
     if Path::new(&path).exists() {
         return Err("Something with that name already exists.".into());
@@ -561,7 +741,7 @@ fn create_dir(path: String) -> Res<()> {
     std::fs::create_dir_all(&path).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn rename_path(from: String, to: String) -> Res<()> {
     // On Windows, main.rs → Main.rs "exists" already (same file), so allow case-only renames.
     let case_only = from.to_lowercase() == to.to_lowercase();
@@ -573,7 +753,10 @@ fn rename_path(from: String, to: String) -> Res<()> {
 
 /// Moves to the recycle bin rather than deleting outright.
 #[tauri::command]
-fn delete_path(path: String) -> Res<()> {
+async fn delete_path(path: String) -> Res<()> {
+    blocking(move || delete_path_now(path)).await?
+}
+fn delete_path_now(path: String) -> Res<()> {
     trash::delete(&path).map_err(err)
 }
 
@@ -589,6 +772,9 @@ fn walker(root: &str) -> ignore::Walk {
 /// Every file under root, respecting .gitignore. Used by go-to-file.
 #[tauri::command]
 async fn list_files(root: String) -> Res<Vec<String>> {
+    blocking(move || list_files_now(root)).await?
+}
+fn list_files_now(root: String) -> Res<Vec<String>> {
     let mut out = Vec::new();
     for ent in walker(&root).flatten() {
         if ent.file_type().is_some_and(|t| t.is_file()) {
@@ -611,6 +797,9 @@ struct Hit {
 
 #[tauri::command]
 async fn search_text(root: String, query: String, case_sensitive: bool) -> Res<Vec<Hit>> {
+    blocking(move || search_text_now(root, query, case_sensitive)).await?
+}
+fn search_text_now(root: String, query: String, case_sensitive: bool) -> Res<Vec<Hit>> {
     if query.is_empty() {
         return Ok(vec![]);
     }
@@ -623,7 +812,8 @@ async fn search_text(root: String, query: String, case_sensitive: bool) -> Res<V
         if ent.metadata().map(|m| m.len() > 2 * 1024 * 1024).unwrap_or(true) {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(ent.path()) else { continue };
+        // Any text file Ledger opens, UTF-16 and Windows-1252 too; not binary files.
+        let Ok(Ok((text, _))) = std::fs::read(ent.path()).map(decode_text) else { continue };
         for (i, line) in text.lines().enumerate() {
             let hay = if case_sensitive { line.to_string() } else { line.to_lowercase() };
             if let Some(byte) = hay.find(&needle) {
@@ -653,7 +843,7 @@ async fn find_todos(root: String) -> Res<Vec<Hit>> {
             if !ent.file_type().is_some_and(|t| t.is_file()) || ent.metadata().map(|m| m.len() > 2 * 1024 * 1024).unwrap_or(true) {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(ent.path()) else { continue };
+            let Ok(Ok((text, _))) = std::fs::read(ent.path()).map(decode_text) else { continue };
             if !WORDS.iter().any(|w| text.contains(w)) {
                 continue;
             }
@@ -675,8 +865,8 @@ async fn find_todos(root: String) -> Res<Vec<Hit>> {
 
 /// Modified time (ms since 1970) of each path, or null if it's gone. Lets the
 /// editor notice files changed on disk by other programs.
-#[tauri::command]
-async fn file_stats(paths: Vec<String>) -> Vec<Option<f64>> {
+#[tauri::command(async)]
+fn file_stats(paths: Vec<String>) -> Vec<Option<f64>> {
     paths
         .iter()
         .map(|p| {
@@ -727,7 +917,7 @@ struct Procs {
 
 impl Procs {
     fn with<R>(&self, label: &str, f: impl FnOnce(&mut Win) -> R) -> R {
-        let mut g = self.wins.lock().unwrap();
+        let mut g = self.wins.lock().unwrap_or_else(|e| e.into_inner());
         f(g.entry(label.to_string()).or_default())
     }
     fn id(&self) -> u32 {
@@ -737,12 +927,12 @@ impl Procs {
 
 /// Stops everything a window started. Used when it closes, and at exit.
 fn stop_window(procs: &Procs, label: &str, wait: bool) {
-    let win = procs.wins.lock().unwrap().remove(label);
+    let win = procs.wins.lock().unwrap_or_else(|e| e.into_inner()).remove(label);
     let Some(mut w) = win else { return };
     // Killing takes a moment per process on Windows; don't hold up the UI for it.
     let job = thread::spawn(move || {
         if let Some(c) = w.task.take() {
-            kill_tree(&mut c.lock().unwrap());
+            kill_tree(&mut c.lock().unwrap_or_else(|e| e.into_inner()));
         }
         for (_, mut p) in w.pipes.drain() {
             kill_tree(&mut p.child);
@@ -759,10 +949,10 @@ fn stop_window(procs: &Procs, label: &str, wait: bool) {
 /// Ends every program, language server, terminal and test run Ledger started, in every window.
 /// Called before an update installs: the installer ends Ledger without the usual exit, and
 /// anything left running would hold files the installer has to replace.
-#[tauri::command]
+#[tauri::command(async)]
 fn stop_everything(app: AppHandle) {
     let procs = app.state::<Procs>();
-    let labels: Vec<String> = procs.wins.lock().unwrap().keys().cloned().collect();
+    let labels: Vec<String> = procs.wins.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
     for l in labels {
         stop_window(&procs, &l, true);
     }
@@ -783,7 +973,7 @@ fn stop_everything(app: AppHandle) {
 #[tauri::command]
 async fn new_window(app: AppHandle, procs: State<'_, Procs>, folder: Option<String>) -> Res<String> {
     let label = format!("win-{}", procs.id());
-    procs.pending.lock().unwrap().insert(label.clone(), Args { argv: folder.into_iter().collect(), cwd: String::new() });
+    procs.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(label.clone(), Args { argv: folder.into_iter().collect(), cwd: String::new() });
     open_window(&app, &label)?;
     Ok(label)
 }
@@ -805,6 +995,19 @@ fn set_window_root(window: tauri::WebviewWindow, procs: State<'_, Procs>, root: 
     });
 }
 
+/// If another window already has `root` open, brings it to the front and says so: one folder in
+/// two windows would mean two of every language server and sessions overwriting each other.
+#[tauri::command]
+fn focus_window_with(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_, Procs>, root: String) -> bool {
+    let me = window.label().to_string();
+    let other = procs.wins.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(l, w)| **l != me && w.root.as_deref().is_some_and(|r| trust::norm(r) == trust::norm(&root))).map(|(l, _)| l.clone());
+    let Some(label) = other else { return false };
+    let Some(w) = app.get_webview_window(&label) else { return false };
+    let _ = w.unminimize();
+    let _ = w.set_focus();
+    true
+}
+
 /// The user trusted (or stopped trusting) the window's folder.
 #[tauri::command]
 fn set_window_trust(window: tauri::WebviewWindow, procs: State<'_, Procs>, trusted: bool) {
@@ -813,7 +1016,7 @@ fn set_window_trust(window: tauri::WebviewWindow, procs: State<'_, Procs>, trust
 
 /// A TypeScript installed for the whole computer (npm -g), for the TypeScript server in a restricted
 /// folder: otherwise it would load the project's own node_modules/typescript.
-#[tauri::command]
+#[tauri::command(async)]
 fn global_tsserver() -> Option<String> {
     let mut dirs = vec![];
     if let Ok(a) = std::env::var("APPDATA") {
@@ -1095,12 +1298,12 @@ async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_,
     let er = pump(app.clone(), label.clone(), run, child.stderr.take().unwrap(), "stderr", is_cargo);
     let child = Arc::new(Mutex::new(child));
     procs.with(&label, |w| {
-        *w.task_in.lock().unwrap() = stdin;
+        *w.task_in.lock().unwrap_or_else(|e| e.into_inner()) = stdin;
         w.task = Some(child.clone());
     });
     thread::spawn(move || {
         let code = loop {
-            match child.lock().unwrap().try_wait() {
+            match child.lock().unwrap_or_else(|e| e.into_inner()).try_wait() {
                 Ok(Some(st)) => break st.code(),
                 Ok(None) => {}
                 Err(_) => break None,
@@ -1139,6 +1342,53 @@ fn kill_tree(child: &mut Child) {
         let _ = Command::new("kill").args(["-s", "KILL", "--", &format!("-{pid}")]).status();
     }
     let _ = child.kill();
+}
+
+#[cfg(test)]
+mod encoding_tests {
+    use super::{decode_text, encode_text};
+    #[test]
+    fn round_trips() {
+        for (text, enc) in [("héllo\r\nwörld", "utf8"), ("héllo €", "utf16le"), ("héllo €", "utf16be"), ("plain text here", "utf16le-nobom"), ("plain text here", "utf16be-nobom"), ("café €", "cp1252")] {
+            let bytes = encode_text(text, enc).unwrap();
+            let (back, got) = decode_text(bytes).unwrap();
+            assert_eq!(back, text, "{enc}");
+            assert_eq!(got, enc, "{enc}");
+        }
+    }
+    #[test]
+    fn refuses_what_it_cant_keep() {
+        assert!(decode_text(vec![0xFF, 0xFE, 0x41, 0x00, 0x42]).is_err()); // half a UTF-16 character
+        assert!(decode_text(vec![0x89, b'P', b'N', b'G', 0, 0, 0, 13, 0x49, 0x48]).is_err()); // binary
+        assert!(encode_text("✓", "cp1252").is_err());
+    }
+}
+
+#[cfg(test)]
+mod save_tests {
+    use super::write_atomic;
+    #[test]
+    fn saves_replace_the_file_whole() {
+        let d = std::env::temp_dir().join(format!("ledger-save-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let f = d.join("a.txt");
+        write_atomic(&f, b"new file").unwrap();
+        assert_eq!(std::fs::read(&f).unwrap(), b"new file");
+        write_atomic(&f, b"second version").unwrap();
+        assert_eq!(std::fs::read(&f).unwrap(), b"second version");
+        // No temporary files left behind.
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1);
+        #[cfg(unix)]
+        {
+            let link = d.join("link.txt");
+            std::os::unix::fs::symlink(&f, &link).unwrap();
+            write_atomic(&link, b"through the link").unwrap();
+            assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+            assert_eq!(std::fs::read(&f).unwrap(), b"through the link");
+        }
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }
 
 #[cfg(test)]
@@ -1206,7 +1456,7 @@ async fn run_test(window: tauri::WebviewWindow, procs: State<'_, Procs>, cwd: St
     .map_err(err)?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn test_stop(window: tauri::WebviewWindow) {
     stop_test(window.label());
 }
@@ -1227,9 +1477,9 @@ fn stop_task(procs: &Procs, label: &str) {
     // Kill first: that also unblocks any input write waiting on a full pipe.
     let (c, input) = procs.with(label, |w| (w.task.take(), w.task_in.clone()));
     if let Some(c) = c {
-        kill_tree(&mut c.lock().unwrap());
+        kill_tree(&mut c.lock().unwrap_or_else(|e| e.into_inner()));
     }
-    input.lock().unwrap().take();
+    input.lock().unwrap_or_else(|e| e.into_inner()).take();
 }
 
 #[tauri::command]
@@ -1242,7 +1492,7 @@ async fn task_stop(window: tauri::WebviewWindow, procs: State<'_, Procs>) -> Res
 #[tauri::command]
 async fn task_input(window: tauri::WebviewWindow, procs: State<'_, Procs>, text: String) -> Res<()> {
     let input = procs.with(window.label(), |w| w.task_in.clone());
-    let mut g = input.lock().unwrap();
+    let mut g = input.lock().unwrap_or_else(|e| e.into_inner());
     let stdin = g.as_mut().ok_or("Nothing is running, or its input was already closed.")?;
     let text = text.trim_end_matches(['\r', '\n']);
     writeln!(stdin, "{text}").map_err(|_| "The program isn't reading input any more.".to_string())?;
@@ -1253,7 +1503,7 @@ async fn task_input(window: tauri::WebviewWindow, procs: State<'_, Procs>, text:
 #[tauri::command]
 async fn task_input_end(window: tauri::WebviewWindow, procs: State<'_, Procs>) -> Res<()> {
     let input = procs.with(window.label(), |w| w.task_in.clone());
-    input.lock().unwrap().take();
+    input.lock().unwrap_or_else(|e| e.into_inner()).take();
     Ok(())
 }
 
@@ -1309,7 +1559,7 @@ fn project_in(dir: &Path) -> Option<Project> {
 /// The project `path` belongs to: the nearest folder at or above it, but not
 /// above `root`, holding a Cargo.toml, .csproj, .sln, project.godot or package.json. Lets one
 /// folder (a course folder, say) hold many projects.
-#[tauri::command]
+#[tauri::command(async)]
 fn project_at(path: String, root: String) -> Option<Project> {
     let root = PathBuf::from(&root);
     let p = PathBuf::from(&path);
@@ -1574,7 +1824,7 @@ async fn lsp_start(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_
     let tail2 = tail.clone();
     thread::spawn(move || {
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            let mut t = tail2.lock().unwrap();
+            let mut t = tail2.lock().unwrap_or_else(|e| e.into_inner());
             t.push(line);
             if t.len() > 30 {
                 t.remove(0);
@@ -1592,7 +1842,7 @@ async fn lsp_start(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_
                 match r.read_line(&mut header) {
                     Ok(0) | Err(_) => {
                         thread::sleep(Duration::from_millis(100));
-                        let why = tail.lock().unwrap().join("\n");
+                        let why = tail.lock().unwrap_or_else(|e| e.into_inner()).join("\n");
                         let _ = app.emit_to(&label, "lsp-exit", serde_json::json!({ "id": id, "pid": pid, "stderr": why }));
                         return;
                     }
@@ -1623,7 +1873,7 @@ async fn lsp_start(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_
 #[tauri::command]
 async fn lsp_send(window: tauri::WebviewWindow, procs: State<'_, Procs>, id: String, msg: String) -> Res<()> {
     let stdin = procs.with(window.label(), |w| w.pipes.get(&id).map(|p| p.stdin.clone())).ok_or("not running")?;
-    let mut s = stdin.lock().unwrap();
+    let mut s = stdin.lock().unwrap_or_else(|e| e.into_inner());
     write!(s, "Content-Length: {}\r\n\r\n{}", msg.len(), msg).map_err(err)?;
     s.flush().map_err(err)
 }
@@ -1753,7 +2003,7 @@ async fn term_open(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_
 #[tauri::command]
 async fn term_write(window: tauri::WebviewWindow, procs: State<'_, Procs>, id: u32, data: String) -> Res<()> {
     let w = procs.with(window.label(), |w| w.terms.get(&id).map(|t| t.writer.clone())).ok_or("terminal closed")?;
-    let mut g = w.lock().unwrap();
+    let mut g = w.lock().unwrap_or_else(|e| e.into_inner());
     g.write_all(data.as_bytes()).map_err(err)?;
     g.flush().map_err(err)
 }
@@ -1884,7 +2134,7 @@ fn debugger_layout(app: &AppHandle, kind: &str) -> Res<(PathBuf, PathBuf, &'stat
 }
 
 /// The downloaded debugger, if there is one.
-#[tauri::command]
+#[tauri::command(async)]
 fn debugger_path(app: AppHandle, kind: String) -> Option<String> {
     let (_, exe, _) = debugger_layout(&app, &kind).ok()?;
     exe.is_file().then(|| plain_path(&exe))
@@ -2000,6 +2250,7 @@ pub fn run() {
             db::db_export,
             db::db_create,
             db::db_close,
+            db::db_stop,
             live::live_start,
             live::live_stop,
             live::live_reload,
@@ -2041,6 +2292,9 @@ pub fn run() {
             run_test,
             stop_everything,
             history_add,
+            history_move,
+            cache_get,
+            cache_set,
             find_todos,
             history_list,
             history_read,
@@ -2051,6 +2305,7 @@ pub fn run() {
             new_window,
             set_window_root,
             set_window_trust,
+            focus_window_with,
             global_tsserver
         ])
         .build(tauri::generate_context!())
@@ -2058,7 +2313,7 @@ pub fn run() {
         .run(|app, ev| {
             if let RunEvent::Exit = ev {
                 let procs = app.state::<Procs>();
-                let labels: Vec<String> = procs.wins.lock().unwrap().keys().cloned().collect();
+                let labels: Vec<String> = procs.wins.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
                 for l in labels {
                     stop_window(&procs, &l, true);
                 }

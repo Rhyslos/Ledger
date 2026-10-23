@@ -11,11 +11,11 @@ const SKIP = /^(\w*string\w*|\w*comment\w*|char\w*|regexp?)([.\-].*)?$/i;
 const OPEN = "([{", CLOSE = ")]}";
 const MAX = 1_000_000;
 
-/** Ranges of strings and comments up to `to`, so brackets inside them are left alone. */
-function skipRanges(state, to) {
+/** Ranges of strings and comments between `from` and `to`, so brackets inside them are left alone. */
+function skipRanges(state, from, to) {
   const out = [];
   syntaxTree(state).iterate({
-    to,
+    from, to,
     enter(n) {
       if (n.type.isTop) return;
       if (SKIP.test(n.type.name) && n.to > n.from) { out.push([n.from, n.to]); return false; }
@@ -24,24 +24,19 @@ function skipRanges(state, to) {
   return out;
 }
 
-// ---------- bracket pairs ----------
-const brMarks = [1, 2, 3].map((n) => Decoration.mark({ class: `cm-br${n}` }));
-function bracketDecos(view) {
-  const { state } = view;
-  const b = new RangeSetBuilder();
-  if (state.doc.length > MAX) return b.finish();
-  const end = view.visibleRanges.length ? view.visibleRanges[view.visibleRanges.length - 1].to : 0;
-  const skip = skipRanges(state, end);
-  const text = state.sliceDoc(0, end);
-  const vis = view.visibleRanges;
-  let si = 0, vi = 0;
-  const stack = [];
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i);
+/** Goes over the brackets from `from` to `to`, keeping `stack` (the open ones) up to date;
+ *  `mark(pos, depth)` is called for each one that matches. */
+function scan(state, from, to, stack, mark) {
+  const skip = skipRanges(state, from, to);
+  const text = state.sliceDoc(from, to);
+  let si = 0;
+  for (let k = 0; k < text.length; k++) {
+    const c = text.charCodeAt(k);
     if (c !== 40 && c !== 41 && c !== 91 && c !== 93 && c !== 123 && c !== 125) continue;
+    const i = from + k;
     while (si < skip.length && skip[si][1] <= i) si++;
-    if (si < skip.length && skip[si][0] <= i) { i = skip[si][1] - 1; continue; }
-    const ch = text[i];
+    if (si < skip.length && skip[si][0] <= i) { k = skip[si][1] - 1 - from; continue; }
+    const ch = text[k];
     let depth;
     if (OPEN.includes(ch)) { depth = stack.length; stack.push(ch); }
     else {
@@ -49,14 +44,41 @@ function bracketDecos(view) {
       if (stack[stack.length - 1] === want) { stack.pop(); depth = stack.length; }
       else continue; // unmatched: leave it to the error squiggles
     }
-    while (vi < vis.length && vis[vi].to <= i) vi++;
-    if (vi < vis.length && vis[vi].from <= i) b.add(i, i + 1, brMarks[depth % 3]);
+    mark?.(i, depth);
   }
-  return b.finish();
 }
+
+// ---------- bracket pairs ----------
+// The depth at the top of the screen needs every bracket above it. That's worked out once and
+// kept (a checkpoint at the first visible line); typing below it or scrolling down only scans what's
+// new, so the cost no longer grows with how far down the file you are.
+const brMarks = [1, 2, 3].map((n) => Decoration.mark({ class: `cm-br${n}` }));
 export const bracketColors = ViewPlugin.fromClass(class {
-  constructor(v) { this.decorations = bracketDecos(v); }
-  update(u) { if (u.docChanged || u.viewportChanged || u.transactions.length && syntaxTree(u.startState) !== syntaxTree(u.state)) this.decorations = bracketDecos(u.view); }
+  constructor(v) { this.cp = null; this.decorations = this.build(v); }
+  update(u) {
+    const tree = syntaxTree(u.startState) !== syntaxTree(u.state);
+    if (this.cp && u.docChanged) {
+      if (u.changes.touchesRange(0, this.cp.pos)) this.cp = null;
+    }
+    // A reparse only changes what was above the checkpoint if the old tree didn't reach it.
+    if (this.cp && tree && this.cp.treeLen < this.cp.pos) this.cp = null;
+    if (u.docChanged || u.viewportChanged || tree) this.decorations = this.build(u.view);
+  }
+  build(view) {
+    const { state } = view, b = new RangeSetBuilder();
+    const vis = view.visibleRanges;
+    if (state.doc.length > MAX || !vis.length) return b.finish();
+    const top = state.doc.lineAt(vis[0].from).from, end = vis[vis.length - 1].to;
+    if (!this.cp || this.cp.pos > top) this.cp = { pos: 0, stack: [] };
+    if (this.cp.pos < top) { scan(state, this.cp.pos, top, this.cp.stack); this.cp.pos = top; }
+    this.cp.treeLen = syntaxTree(state).length;
+    let vi = 0;
+    scan(state, top, end, [...this.cp.stack], (i, depth) => {
+      while (vi < vis.length && vis[vi].to <= i) vi++;
+      if (vi < vis.length && vis[vi].from <= i) b.add(i, i + 1, brMarks[depth % 3]);
+    });
+    return b.finish();
+  }
 }, { decorations: (v) => v.decorations });
 
 // ---------- indent guides ----------
