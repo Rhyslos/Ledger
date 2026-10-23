@@ -20,6 +20,23 @@ export const PIECES = {
   slider: { doc: "A bar with a knob that drags a number field between from and to.", example: "slider volume [from 0, to 100, step 5];" },
   image: { doc: "A PNG or JPEG picture.", example: "image \"cat.png\" [width 120];" },
   every: { doc: "Runs its block again and again while it's in the view. Takes no room.", example: "every 1.0 { seconds = seconds + 1; }" },
+  key: { doc: "A keyboard shortcut: its block runs when the keys are pressed, while it's in the view. Ctrl is Cmd on a Mac.", example: "key \"ctrl+s\" { save(); }" },
+  textarea: { doc: "A text box with several lines, bound to a string field. Enter starts a new line; enter { } runs on Ctrl+Enter.", example: "textarea notes [height 160];" },
+  dropdown: { doc: "Shows what's chosen and opens a list to choose from: a state's options, or a list of text after in.", example: "dropdown size in [\"Small\", \"Large\"];" },
+  menu: { doc: "A word that opens a list of items. A row of menus makes a menu bar.", example: "menu \"File\" { item \"Open\" { … } }" },
+  item: { doc: "A row of a menu: its block runs when it's chosen.", example: "item \"Save\" [disabled saved] { save(); }" },
+  divider: { doc: "A line between a menu's items.", example: "divider;" },
+  dialog: { doc: "Pops up in the middle of the window while its bool is true. Escape or a click outside closes it.", example: "dialog confirming { … }" },
+  grid: { doc: "Puts pieces in columns, then onto the next row, like cards. columns 3, or cell 180 to fit as many as there's room for.", example: "grid [cell 180] { … }" },
+  split: { doc: "Panels side by side with a line between them to drag. [down] puts them one above the other.", example: "split { column [width 220] { … } column { … } }" },
+  tabs: { doc: "A bar of tab names, and the tab that shows. Bound to a string field, it shows the tab with that name.", example: "tabs { tab \"Items\" { … } tab \"Stats\" { … } }" },
+  tab: { doc: "One tab of tabs, with its name.", example: "tab \"Items\" { … }" },
+  branch: { doc: "A name with an arrow that opens and shuts what's under it. Branches in branches make a tree.", example: "branch \"Weapons\" [open] { … }" },
+  progress: { doc: "A bar that fills up, from 0 to 100 unless told from and to.", example: "progress done [to total];" },
+  canvas: { doc: "A box to draw in: what's in it goes where its x and y say.", example: "canvas [width 300, height 150] { … }" },
+  box: { doc: "A rectangle in a canvas. A colour word fills it; a { } runs when it's clicked.", example: "box [x 10, y 20, width 40, height 60, blue];" },
+  circle: { doc: "A circle in a canvas, around x and y.", example: "circle [x 150, y 60, radius 20, red];" },
+  line: { doc: "A line in a canvas, from x, y to toX, toY.", example: "line [x 0, y 100, toX 300, toY 20, thick 2];" },
 };
 
 // The view itself: its [ ] is the window's settings.
@@ -86,11 +103,28 @@ export const STYLES = [
   // under the mouse
   { name: "hover", takes: "styles", on: "pieces", doc: "Styles used while the mouse is over the piece.", example: "hover:[background gray1]" },
   // inputs and pictures
-  { name: "placeholder", takes: "text", on: "input", doc: "What an empty input shows.", example: "placeholder \"Your name\"" },
-  { name: "from", takes: "number", on: "slider", doc: "The slider's lowest number.", example: "slider volume [from 0, to 100]" },
-  { name: "to", takes: "number", on: "slider", doc: "The slider's highest number.", example: "slider volume [from 0, to 100]" },
+  { name: "placeholder", takes: "text", on: "input textarea", doc: "What an empty input shows.", example: "placeholder \"Your name\"" },
+  { name: "from", takes: "number", on: "slider progress", doc: "The lowest number of a slider or progress bar.", example: "slider volume [from 0, to 100]" },
+  { name: "to", takes: "number", on: "slider progress", doc: "The highest number of a slider or progress bar.", example: "slider volume [from 0, to 100]" },
   { name: "step", takes: "number", on: "slider", doc: "How far one step moves the slider. step 0 slides smoothly.", example: "step 5" },
   { name: "cover", takes: "none", on: "image", doc: "Fills the width and height it's given, cut to fit, instead of fitting inside them.", example: "image \"cat.png\" [width 48, height 48, cover]" },
+  // tips, dark mode, fonts and motion
+  { name: "tip", takes: "text", on: "pieces", doc: "A small note shown when the mouse rests on the piece.", example: "tip \"Removes it for good\"" },
+  { name: "dark", takes: "none bool styles", on: "pieces view", doc: "On the view, turns the window dark (it can follow a bool). On a piece, dark:[ … ] holds styles it has only in dark mode.", example: "view [dark night], dark:[color blue3]" },
+  { name: "font", takes: "text", on: "pieces view", doc: "Draws the words in a font file of your own. On the view, it's the whole window's font.", example: "font \"fonts/Lora.ttf\"" },
+  { name: "animate", takes: "none", on: "pieces", doc: "Glides to its new place when it moves, and fades in when it shows up.", example: "text n [animate]" },
+  // layouts
+  { name: "columns", takes: "number", on: "grid", doc: "How many columns a grid has.", example: "grid [columns 3]" },
+  { name: "cell", takes: "number", on: "grid", doc: "How wide a grid's cells are at least: it fits as many columns as there's room for.", example: "grid [cell 180]" },
+  { name: "down", takes: "none", on: "split", doc: "A split's panels go one above the other.", example: "split [down]" },
+  { name: "open", takes: "none", on: "branch", doc: "The branch starts open.", example: "branch \"Weapons\" [open]" },
+  // in a canvas
+  { name: "x", takes: "number", on: "pieces", doc: "In a canvas: how far from the left it's drawn (a circle's middle).", example: "x 10" },
+  { name: "y", takes: "number", on: "pieces", doc: "In a canvas: how far from the top it's drawn (a circle's middle).", example: "y 20" },
+  { name: "toX", takes: "number", on: "line", doc: "Where a line goes to, from the left.", example: "line [x 0, y 0, toX 100, toY 50]" },
+  { name: "toY", takes: "number", on: "line", doc: "Where a line goes to, from the top.", example: "line [x 0, y 0, toX 100, toY 50]" },
+  { name: "radius", takes: "number", on: "circle", doc: "How big a circle is, from its middle to its edge.", example: "circle [x 50, y 50, radius 20]" },
+  { name: "thick", takes: "number", on: "line", doc: "How thick a line is.", example: "thick 2" },
   // off
   { name: "disabled", takes: "none bool", on: "pieces", doc: "Greys the piece out and stops it being clicked, typed in or reached with Tab.", example: "disabled, disabled name == \"\"" },
   // the window
@@ -200,7 +234,7 @@ export function scan(text, end = text.length, visit = null) {
       let style = null;
       if (top?.style) {
         // hover:[ … ] inside a style list holds styles for the same piece; any other [ is a value's.
-        if (/\bhover\s*:\s*$/.test(text.slice(top.itemFrom, i))) style = { ...top.style, nested: true };
+        if (/\b(hover|dark)\s*:\s*$/.test(text.slice(top.itemFrom, i))) style = { ...top.style, nested: true };
       } else if (!top || top.ch !== "(") style = ownerOf(text.slice(lineStart(i), i));
       stack.push({ ch: c, at: i, style, itemFrom: i + 1 });
     } else if (c === "{" || c === "(") stack.push({ ch: c, at: i, style: null });

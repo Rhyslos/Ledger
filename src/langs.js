@@ -102,7 +102,7 @@ const godotResource = {
 // the rest plain. Structure, states and the names being declared are a touch heavier (500), never fully bold.
 // In a view, the pieces of the screen (column, text, button…) share the classes' blue, since your own
 // pieces are classes too, and the style words in [ ] are muted like types.
-const LUST_CONTROL = "is then or either loop stop skip return try error like keep";
+const LUST_CONTROL = "is then or either loop stop skip return try error like keep enter";
 const LUST_DEFINE = "class object node assembly schema database route method hook has new create";
 const LUST_MODULE = "fetch get pass end save load saved lua view style native";
 const LUST_TYPES = "int float string bool array cMap map";
@@ -117,7 +117,7 @@ const LUST_COLOURS = Object.keys(COLOURS).join(" ");
 // The standard library and the methods on text and arrays (Lust's src/stdlib.rs), for completing after Maths:, name: and name.
 const LUST_LIB = {
   Maths: ["abs(x)", "min(a, b)", "max(a, b)", "clamp(x, low, high)", "round(x)", "floor(x)", "ceil(x)", "sqrt(x)", "sin(x)", "cos(x)", "tan(x)", "power(x, p)"],
-  Files: ["read(path)", "write(path, text)", "append(path, text)", "exists(path)", "remove(path)", "list(folder)", "makeFolder(path)"],
+  Files: ["read(path)", "write(path, text)", "append(path, text)", "exists(path)", "remove(path)", "list(folder)", "makeFolder(path)", "chooseOpen(title, types)", "chooseSave(title, name)", "chooseFolder(title)"],
   Time: ["now()", "clock()", "date()", "time()", "addDays(date, n)", "daysBetween(from, to)", "weekday(date)", "isDate(text)"],
   Json: ["write(value)", "pretty(value)", "read(text)"],
   Web: ["get(url)", "post(url, body)", "serve(port)", "request(kind, path, body)", "fail(code, message)"],
