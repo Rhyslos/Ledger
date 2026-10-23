@@ -129,7 +129,7 @@ export function initTests(app) {
   let logTimer = 0;
   on("test-out", (e) => {
     if (!running) return;
-    log.push(e.payload);
+    for (const l of [].concat(e.payload)) log.push(l); // a batch of lines
     if (log.length > 300) log = log.slice(-200);
     if (!logTimer) logTimer = setTimeout(() => { logTimer = 0; showLog(); }, 80);
   });

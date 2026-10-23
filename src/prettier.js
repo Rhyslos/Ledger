@@ -103,7 +103,7 @@ export function initPrettier(app, formatters) {
       const P = await app.projectFor(path).catch(() => null);
       const dir = P?.dir || S.root;
       if (dir && app.trusted() && (await projectPrettier(dir))) {
-        const r = await invoke("run_capture", { cwd: dir, program: "node", args: ["-e", SCRIPT, path, String((app.indentOf?.(b) || {}).size || settings.tabSize), app.indentOf?.(b)?.tabs ? "tabs" : "spaces"], input: text }).catch((e) => ({ code: -1, out: "", err: String(e) }));
+        const r = await invoke("run_capture", { cwd: dir, program: "node", timeoutMs: 20000, args: ["-e", SCRIPT, path, String((app.indentOf?.(b) || {}).size || settings.tabSize), app.indentOf?.(b)?.tabs ? "tabs" : "spaces"], input: text }).catch((e) => ({ code: -1, out: "", err: String(e) }));
         let res = null;
         try { res = JSON.parse(r.out); } catch {}
         if (res?.ignored) { toast("This file is in .prettierignore."); return text; }

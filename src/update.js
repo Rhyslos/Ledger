@@ -8,7 +8,7 @@ import { getVersion } from "@tauri-apps/api/app";
 
 let ready = null; // a downloaded update waiting for a restart
 
-export function initUpdate({ $, toast, settings, beforeInstall, isMain }) {
+export function initUpdate({ $, toast, settings, beforeInstall, isMain, aborted }) {
   const btn = $("stUpdate");
   btn.onclick = () => restart();
 
@@ -18,7 +18,7 @@ export function initUpdate({ $, toast, settings, beforeInstall, isMain }) {
     try {
       await ready.install();
       await relaunch();
-    } catch (e) { toast("The update couldn't be installed: " + e, 6000); }
+    } catch (e) { aborted?.(); toast("The update couldn't be installed: " + e, 6000); }
   }
 
   async function run(manual) {

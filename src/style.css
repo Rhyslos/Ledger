@@ -645,7 +645,7 @@ th.db-n { z-index: 2; background: var(--side); }
 .cp-cmyk span, .cp-alpha span { width: 12px; color: var(--muted); font-size: 11px; }
 .cp-alpha span { width: auto; min-width: 36px; }
 .cp-cmyk input[type=range], .cp-alpha input[type=range] { flex: 1; min-width: 0; height: 14px; accent-color: var(--muted); }
-.cp-track-c { accent-color: #3aa7a7 !important; } .cp-track-m { accent-color: #b0508f !important; } .cp-track-y { accent-color: #b89b2a !important; } .cp-track-k { accent-color: var(--muted) !important; }
+.cp-track-h { accent-color: #b0508f !important; } .cp-track-s { accent-color: #3aa7a7 !important; } .cp-track-l { accent-color: var(--muted) !important; }
 .cp-pop input[type=number], .cp-field input { width: 44px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); font: 12px var(--mono); text-align: center; outline: none; -moz-appearance: textfield; }
 .cp-pop input::-webkit-inner-spin-button, .cp-pop input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .cp-pop input:focus { border-color: var(--accent); }
@@ -721,9 +721,10 @@ th.db-n { z-index: 2; background: var(--side); }
 
 /* CSV table and coloured columns (src/csv.js), hex view (src/hex.js). */
 /* Column colours of their own, not the code colours: Quiet code colours make most of those plain. */
-:root { --csv-1: var(--t-ts); --csv-2: var(--good); --csv-3: var(--t-css); --csv-4: var(--t-rs); --csv-5: var(--t-cfg); }
-.cm-csv-0 { color: var(--ink); } .cm-csv-1 { color: var(--csv-1); } .cm-csv-2 { color: var(--csv-2); }
+:root { --csv-0: var(--t-ts); --csv-1: var(--good); --csv-2: var(--t-css); --csv-3: var(--t-rs); --csv-4: var(--t-cfg); --csv-5: var(--t-json); }
+.cm-csv-0 { color: var(--csv-0); } .cm-csv-1 { color: var(--csv-1); } .cm-csv-2 { color: var(--csv-2); }
 .cm-csv-3 { color: var(--csv-3); } .cm-csv-4 { color: var(--csv-4); } .cm-csv-5 { color: var(--csv-5); }
+.csv-table td.csv-c0 { color: var(--csv-0); }
 .csv-view, .hex-view { display: flex; flex-direction: column; height: 100%; }
 .csv-filter, .hex-go { padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); color: var(--ink); font-size: 12.5px; width: 190px; }
 .csv-scroll { flex: 1; overflow: auto; outline: none; }
@@ -810,5 +811,32 @@ th.db-n { z-index: 2; background: var(--side); }
 .sfind { position: sticky; top: 0; z-index: 2; width: 100%; max-width: 520px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 7px 10px; margin: 4px 0 10px; box-shadow: 0 0 0 6px var(--bg); }
 .settings [hidden] { display: none !important; }
 /* Zen mode: the code in the middle of a wide window, not against the left edge. */
-.app.zen .cm-editor .cm-scroller { padding-left: max(0px, calc(50% - 52ch)); }
+.app.zen .cm-editor { width: min(100%, calc(var(--code-size) * 0.62 * 120 + 70px)); margin-inline: auto; } /* about 120 columns, in the middle */
 .commit { grid-template-columns: minmax(0, 1fr); }
+/* The Search view's fields fit the side bar at any width. */
+.sform { grid-template-columns: minmax(0, 1fr); }
+.sform > input { min-width: 0; }
+.sinput .stog { flex: none; }
+.srow1 { min-width: 0; }
+.sfile, .shit { position: relative; }
+.sacts { display: none; gap: 1px; margin-left: auto; order: 9; }
+.sfile:hover .sacts, .shit:hover .sacts { display: flex; }
+.sacts .ga { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 3px; color: var(--muted); cursor: pointer; }
+.sacts .ga:hover { background: var(--hover); color: var(--ink); }
+.sacts { flex: none; }
+/* Tab bar overflow: fading edges and the list of open tabs. */
+.tabs.ofl-r { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 70px), transparent calc(100% - 34px), #000 calc(100% - 34px)); }
+.tabs.ofl-l { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px); }
+.tabs.ofl-l.ofl-r { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 70px), transparent calc(100% - 34px), #000 calc(100% - 34px)); }
+.tabs-more { position: sticky; right: 0; flex: none; margin-left: auto; min-width: 34px; padding: 0 6px; border: 0; border-left: 1px solid var(--line); background: var(--tabbar); color: var(--muted); font-size: 12px; cursor: pointer; z-index: 2; }
+.tabs-more:hover { color: var(--ink); background: var(--hover); }
+.palsep { margin: 0; padding: 6px 12px 2px; font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
+/* Git history page */
+.logpage { display: flex; flex-direction: column; overflow: hidden; }
+.logrows { overflow: auto; flex: 1; }
+.logrow { display: grid; grid-template-columns: 64px minmax(0, 1fr) 150px 110px; gap: 10px; align-items: center; padding: 5px 18px; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--line-hl); }
+.logrow:hover, .logrow:focus { background: var(--hover); outline: none; }
+.logrow code { color: var(--faint); font: 12px var(--mono); }
+.logrow .ls { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logrow .la, .logrow .lw { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logrow .lref { font-size: 11px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 8px; padding: 0 6px; margin-left: 4px; }

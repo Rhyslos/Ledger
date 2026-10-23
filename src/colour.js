@@ -1,10 +1,10 @@
 // Colours in code: a small swatch before every colour (#hex, rgb(), hsl(), Godot's Color(r, g, b)),
 // and clicking it opens Ledger's colour picker, the one from Nodelit made quieter: a hue ring with
-// a circle or triangle inside, or a detailed hexagon grid with CMYK, plus Hex and RGB fields, the
+// a circle or triangle inside, or a detailed hexagon grid with HSL sliders, plus Hex and RGB fields, the
 // colours already in the file, and your saved colours. Edits go straight into the code, written
 // the way the colour was written (#abc stays short, rgb() stays rgb()).
 import { ViewPlugin, Decoration, WidgetType, EditorView } from "@codemirror/view";
-import { RangeSetBuilder } from "@codemirror/state";
+import { RangeSetBuilder, Transaction } from "@codemirror/state";
 
 // ---------- colour maths ----------
 export const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
@@ -44,15 +44,6 @@ function rgbToHsl({ r, g, b }) {
 function hslToRgb({ h, s, l }) {
   const c = (1 - Math.abs(2 * l - 1)) * s, v = l + c / 2;
   return hsvToRgb({ h, s: v ? c / v : 0, v });
-}
-function rgbToCmyk({ r, g, b }) {
-  const R = r / 255, G = g / 255, B = b / 255, k = 1 - Math.max(R, G, B);
-  if (k === 1) return { c: 0, m: 0, y: 0, k: 100 };
-  return { c: ((1 - R - k) / (1 - k)) * 100, m: ((1 - G - k) / (1 - k)) * 100, y: ((1 - B - k) / (1 - k)) * 100, k: k * 100 };
-}
-function cmykToRgb({ c, m, y, k }) {
-  const K = 1 - clamp(k, 0, 100) / 100;
-  return { r: Math.round(255 * (1 - clamp(c, 0, 100) / 100) * K), g: Math.round(255 * (1 - clamp(m, 0, 100) / 100) * K), b: Math.round(255 * (1 - clamp(y, 0, 100) / 100) * K) };
 }
 function readableOn(hex) {
   const lin = Object.values(hexToRgb(hex)).map((c) => c / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
@@ -310,7 +301,7 @@ export function openPicker({ anchor, colour, inFile = [], onChange, onClose }) {
           <svg class="cp-cells" viewBox="-110 -110 220 220">${CELLS.map((c, i) => `<polygon data-cell="${i}" points="${cellPoints(c.x * 10.4, c.y * 10.4, 10.2)}"/>`).join("")}</svg>
           <input type="range" class="cp-bright" min="0" max="100" aria-label="Brightness" orient="vertical">
         </div>
-        <div class="cp-cmyk">${["c", "m", "y", "k"].map((k) => `<label><span>${k.toUpperCase()}</span><input type="range" min="0" max="100" data-cmyk="${k}" class="cp-track-${k}"><input type="number" min="0" max="100" data-cmykn="${k}"></label>`).join("")}</div>
+        <div class="cp-cmyk">${[["h", 360, "Hue"], ["s", 100, "Saturation"], ["l", 100, "Lightness"]].map(([k, max, t]) => `<label title="${t}"><span>${k.toUpperCase()}</span><input type="range" min="0" max="${max}" data-hsl="${k}" class="cp-track-${k}" aria-label="${t}"><input type="number" min="0" max="${max}" data-hsln="${k}" aria-label="${t}"></label>`).join("")}</div>
       </div>
     </div>
     <label class="cp-alpha"><span>Alpha</span><input type="range" min="0" max="100" data-alpha><input type="number" min="0" max="100" data-alphan></label>
@@ -318,7 +309,7 @@ export function openPicker({ anchor, colour, inFile = [], onChange, onClose }) {
     <div class="cp-row"><span class="cp-label">Saved</span><div class="cp-dots" data-list="saved"></div></div>
     <div class="cp-readout">
       <div class="cp-line">
-        <span class="cp-preview">Aa</span>
+        <span class="cp-preview" title="How text looks on this colour (it switches between dark and light text to stay readable)">Aa</span>
         <label class="cp-field cp-hexf"><span>Hex</span><input data-hex maxlength="7" spellcheck="false"></label>
         <button class="cp-copy" data-copy="hex" title="Copy hex" aria-label="Copy hex">${ICON.copy}</button>
       </div>
@@ -368,10 +359,11 @@ export function openPicker({ anchor, colour, inFile = [], onChange, onClose }) {
         poly.classList.toggle("on", Math.abs(c.sat - hsv.s) < 0.08 && (c.sat < 0.08 || Math.abs(c.hue - hsv.h) < 14 || Math.abs(c.hue - hsv.h) > 346));
       }
       if (from !== "bright") q(".cp-bright").value = Math.round(hsv.v * 100);
-      const cm = rgbToCmyk(rgb);
-      for (const k of ["c", "m", "y", "k"]) {
-        if (from !== "cmyk:" + k) q(`[data-cmyk="${k}"]`).value = Math.round(cm[k]);
-        if (from !== "cmykn:" + k) q(`[data-cmykn="${k}"]`).value = Math.round(cm[k]);
+      // HSL, the way CSS writes it (hsl(210 50% 40%)).
+      const hl = rgbToHsl(rgb), shown = { h: Math.round(hsv.h), s: Math.round(hl.s * 100), l: Math.round(hl.l * 100) };
+      for (const k of ["h", "s", "l"]) {
+        if (from !== "hsl:" + k) q(`[data-hsl="${k}"]`).value = shown[k];
+        if (from !== "hsln:" + k) q(`[data-hsln="${k}"]`).value = shown[k];
       }
     }
     // alpha, readout
@@ -432,7 +424,11 @@ export function openPicker({ anchor, colour, inFile = [], onChange, onClose }) {
     const t = e.target, d = t.dataset;
     if (d.hex !== undefined) { const h = normalizeHex(t.value); if (h) set(rgbToHsv(hexToRgb(h)), "hex"); }
     else if (d.rgb) { const rgb = { ...hsvToRgb(hsv), [d.rgb]: clamp(+t.value || 0, 0, 255) }; set(rgbToHsv(rgb), "rgb:" + d.rgb); }
-    else if (d.cmyk || d.cmykn) { const k = d.cmyk || d.cmykn; const cm = { ...rgbToCmyk(hsvToRgb(hsv)), [k]: clamp(+t.value || 0, 0, 100) }; set(rgbToHsv(cmykToRgb(cm)), (d.cmyk ? "cmyk:" : "cmykn:") + k); }
+    else if (d.hsl || d.hsln) {
+      const k = d.hsl || d.hsln, hl = { ...rgbToHsl(hsvToRgb(hsv)), h: hsv.h }, v = +t.value || 0; // the picker's hue survives grey
+      const next = { ...hl, [k]: k === "h" ? clamp(v, 0, 360) : clamp(v, 0, 100) / 100 };
+      set(rgbToHsv(hslToRgb(next)), (d.hsl ? "hsl:" : "hsln:") + k);
+    }
     else if (t.classList.contains("cp-bright")) set({ ...hsv, v: +t.value / 100 }, "bright");
     else if (d.alpha !== undefined || d.alphan !== undefined) { alpha = clamp(+t.value || 0, 0, 100) / 100; emit(); paint(d.alpha !== undefined ? "alpha" : "alphan"); }
   });
@@ -503,6 +499,7 @@ export function initColours(app) {
     if (s && e) anchor = { left: Math.min(s.left, r0?.left ?? s.left), right: Math.max(e.right, r0?.right ?? e.right), top: Math.min(s.top, e.top, r0?.top ?? s.top), bottom: Math.max(s.bottom, e.bottom, r0?.bottom ?? s.bottom) };
     const fmt = found.c.fmt;
     let first = true, expected = view.state.doc;
+    const original = view.state.sliceDoc(from, to);
     const close = openPicker({
       anchor,
       colour: found.c,
@@ -513,12 +510,21 @@ export function initColours(app) {
         if (view.state.doc !== expected || !view.dom.isConnected) { close(); return; }
         const text = formatColour(c, fmt);
         if (text === view.state.sliceDoc(from, to)) return;
-        view.dispatch({ changes: { from, to, insert: text }, userEvent: first ? "input.colour" : "input.colour.drag", scrollIntoView: false });
+        // While the picker is open the changes stay out of undo; closing it records one step from
+        // the colour you started with to the one you ended on.
+        view.dispatch({ changes: { from, to, insert: text }, annotations: Transaction.addToHistory.of(false), scrollIntoView: false });
         first = false;
         to = from + text.length;
         expected = view.state.doc;
       },
-      onClose: () => view.focus(),
+      onClose: () => {
+        if (!first && view.state.doc === expected && view.dom.isConnected) {
+          const now = view.state.sliceDoc(from, to);
+          view.dispatch({ changes: { from, to, insert: original }, annotations: Transaction.addToHistory.of(false) });
+          view.dispatch({ changes: { from, to: from + original.length, insert: now }, userEvent: "input.colour", scrollIntoView: false });
+        }
+        view.focus();
+      },
     });
   }
   const open = (lang) => (view, pos, swatchEl) => {

@@ -185,16 +185,25 @@ export class Lsp {
   send(obj) {
     return invoke("lsp_send", { id: this.id, msg: JSON.stringify({ jsonrpc: "2.0", ...obj }) }).catch(() => {});
   }
-  raw(method, params) {
+  /** `ms`: give up (and tell the server to cancel) after this long; a hung server mustn't hold
+   *  a save or a completion forever. */
+  raw(method, params, ms) {
     const id = ++this.seq;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject, method });
-      this.send({ id, method, params });
+      let timer = 0;
+      const done = (f) => (v) => { clearTimeout(timer); this.pending.delete(id); f(v); };
+      this.pending.set(id, { resolve: done(resolve), reject: done(reject), method });
+      if (ms) timer = setTimeout(() => {
+        if (!this.pending.has(id)) return;
+        this.pending.get(id).reject(Object.assign(new Error(`${this.label} didn't answer ${method} in ${Math.round(ms / 1000)} s`), { timeout: true }));
+        this.send({ method: "$/cancelRequest", params: { id } });
+      }, ms);
+      invoke("lsp_send", { id: this.id, msg: JSON.stringify({ jsonrpc: "2.0", id, method, params }) }).catch((e) => this.pending.get(id)?.reject(e));
     });
   }
-  async request(method, params) {
+  async request(method, params, ms = 30000) {
     if (!(await this.ready) || !this.alive) return null;
-    try { return await this.raw(method, params); } catch { return null; }
+    try { return await this.raw(method, params, ms); } catch { return null; }
   }
   async notify(method, params, now) {
     if (!now && !(await this.ready)) return;
