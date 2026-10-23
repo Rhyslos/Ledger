@@ -180,6 +180,18 @@ npm run rename -- "New Name"
 
 This changes the window title, the Start menu entry, the installer, the program (`NewName.exe`) and this README. Settings stay where they are. Then rebuild.
 
+## Trusting a folder (restricted mode)
+
+Opening a downloaded project shouldn't run its code. The first time Ledger opens a folder with a project or a Git repository in it, it asks whether you trust the code in it, like VS Code does. Until you do, the folder is in **restricted mode** (shown as **Restricted** in the status bar; click it to trust the folder):
+
+- You can read, edit, search, format and commit as usual. HTML, CSS, JSON and TypeScript help work, with the computer's own TypeScript rather than the project's.
+- Run, Build, Test and Debug ask for trust first, since they run the project's code.
+- Rust, C# and Lua analysis wait: rust-analyzer runs build scripts and reads the project's `.cargo/config`, csharp-ls runs MSBuild, and the Lua server loads plugins.
+- The project's own Tailwind and Prettier aren't used (Ledger's built-in Prettier is).
+- Git runs with the repository's hooks switched off, and not at all if the repository's settings would start other programs (filters, textconv, includes and the like).
+
+Lust checking works in restricted mode, since `lust check` only reads the code. Projects you make in Ledger are trusted. **Trust this folder, or go back to restricted mode** in the command list changes your answer. Ledger's backend enforces all this (src-tauri/src/trust.rs), not just the interface.
+
 ## Things to know
 
 - Running saves all open files first.
@@ -230,6 +242,8 @@ src/todo.js           the TODO panel
 src/csv.js            CSV columns and the table view
 src/hex.js            the hex view
 src/history.js        local history
+src-tauri/src/trust.rs restricted mode: what an untrusted folder may run
+src-tauri/src/job.rs  child processes end with Ledger (a Windows Job Object)
 src/tests.js          the Tests panel
 src/icons.js          file icons (public/fileicons, made by scripts/fileicons.mjs)
 src/scaffold.js       Vite and Next.js projects

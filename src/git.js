@@ -26,8 +26,13 @@ export function initGit(app) {
         G.forRoot = root;
         headCache.clear();
         let r;
+        G.blocked = "";
         try { r = await git(["rev-parse", "--show-toplevel"], root); }
-        catch { G.missing = true; G.ok = false; G.root = null; render(); return; }
+        catch (e) {
+          // Restricted mode: this repository's own settings would make git run programs.
+          if (app.isUntrustedError?.(e)) { G.blocked = String(e).replace(/^untrusted:[^.]*\.\s*/, ""); G.forRoot = null; G.ok = false; G.root = null; render(); return; }
+          G.missing = true; G.ok = false; G.root = null; render(); return;
+        }
         G.missing = false;
         G.ok = r.code === 0;
         G.root = G.ok ? app.norm(r.out.trim()) : null;
@@ -365,6 +370,7 @@ export function initGit(app) {
     const msg = $("commitMsg")?.value || G.draft || "";
     if (!S.root) { box.innerHTML = '<p class="hint" style="padding:10px 14px">Open a folder first.</p>'; return; }
     if (G.missing) { box.innerHTML = `<div class="pad" style="padding:10px 14px;display:grid;gap:8px"><p class="hint" style="margin:0">Git isn't installed, or Ledger can't find it.</p><p class="hint" style="margin:0">Install it from <a href="https://git-scm.com/download/win" target="_blank">git-scm.com</a>, then reopen the folder.</p></div>`; return; }
+    if (G.blocked) { box.innerHTML = `<div style="padding:10px 14px;display:grid;gap:8px"><p class="hint" style="margin:0">${esc(G.blocked)}</p><div class="bar"><button class="btn primary" data-gact="trust">Trust this folder</button></div></div>`; return; }
     if (G.ok === null) { box.innerHTML = '<p class="hint" style="padding:10px 14px">Checking…</p>'; return; }
     if (!G.ok) { box.innerHTML = `<div style="padding:10px 14px;display:grid;gap:8px"><p class="hint" style="margin:0">This folder isn't a Git repository.</p><div class="bar"><button class="btn primary" data-gact="init">Start a repository here</button></div></div>`; return; }
     const all = [...G.files.entries()].sort((a, b) => app.rel(a[0]).localeCompare(app.rel(b[0])));
@@ -499,6 +505,7 @@ export function initGit(app) {
       if (act === "pull") pull();
       if (act === "push") push();
       if (act === "refresh") refresh();
+      if (act === "trust") { app.askTrust?.(S.root, true).then((yes) => { if (yes) { G.forRoot = null; refresh(); } }); return; }
       if (act === "init") git(["init"], S.root).then(() => { G.forRoot = null; refresh(); });
       if (act === "branch") switchBranch();
       if (act === "more") { const r = a.getBoundingClientRect(); moreMenu(r.left, r.bottom + 2); }
@@ -723,6 +730,7 @@ export function initGit(app) {
   app.bufListeners.push((path) => scheduleBars(path));
   app.activeHooks.push((key) => { if (S.bufs.has(key)) scheduleBars(key, 50); });
   app.saveHooks.push(() => { clearTimeout(G.saveT); G.saveT = setTimeout(refresh, 400); });
+  app.trustHooks?.push(() => { G.forRoot = null; headCache.clear(); refresh(); });
   app.folderHooks.push(() => { G.forRoot = null; G.ok = null; G.files = new Map(); G.oid = ""; headCache.clear(); refresh(); });
   app.decorationCopiers.push((path, b) => {
     const v = b.state.field(barField, false);

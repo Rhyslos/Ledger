@@ -121,12 +121,14 @@ export class Lsp {
       if (gen !== this.gen) return false;
       this.pid = r.pid;
       this.exe = r.exe;
+      this.host = r.host ?? null;
       const died = this.early.get(r.pid);
       this.early.clear();
       if (died) { this.alive = true; this.exited(died); ok(false); return false; }
     } catch (e) {
       const s = String(e);
-      this.setStatus("not installed", false, true, s.startsWith("not found") ? spec.missing : s);
+      if (s.startsWith("untrusted")) this.setStatus("restricted", false, false, `${this.label} loads the project's own code, so it only runs in folders you trust. Click Restricted in the status bar to trust this folder.`);
+      else this.setStatus("not installed", false, true, s.startsWith("not found") ? spec.missing : s);
       ok(false);
       return false;
     }
@@ -135,7 +137,7 @@ export class Lsp {
       const uri = pathToUri(root);
       const timeout = new Promise((_, no) => setTimeout(() => no(new Error(`${this.label} didn't answer within two minutes.`)), 120000));
       const init = await Promise.race([timeout, this.raw("initialize", {
-        processId: null,
+        processId: this.host ?? null,
         clientInfo: { name: "Ledger" },
         rootUri: uri,
         rootPath: root,

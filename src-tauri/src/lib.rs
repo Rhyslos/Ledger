@@ -701,6 +701,8 @@ struct Win {
     pipes: HashMap<String, Pipe>,
     terms: HashMap<u32, Term>,
     root: Option<String>,
+    /// The folder is trusted: its code may run (see trust.rs). Off until the frontend says so.
+    trusted: bool,
 }
 
 /// A process spoken to over stdio with Content-Length framing: language
@@ -796,8 +798,65 @@ fn open_window(app: &AppHandle, label: &str) -> Res<()> {
 
 /// The folder a window has open, so launches from Godot reach the right window.
 #[tauri::command]
-fn set_window_root(window: tauri::WebviewWindow, procs: State<'_, Procs>, root: Option<String>) {
-    procs.with(window.label(), |w| w.root = root);
+fn set_window_root(window: tauri::WebviewWindow, procs: State<'_, Procs>, root: Option<String>, trusted: Option<bool>) {
+    procs.with(window.label(), |w| {
+        w.root = root;
+        w.trusted = trusted.unwrap_or(false);
+    });
+}
+
+/// The user trusted (or stopped trusting) the window's folder.
+#[tauri::command]
+fn set_window_trust(window: tauri::WebviewWindow, procs: State<'_, Procs>, trusted: bool) {
+    procs.with(window.label(), |w| w.trusted = trusted);
+}
+
+/// A TypeScript installed for the whole computer (npm -g), for the TypeScript server in a restricted
+/// folder: otherwise it would load the project's own node_modules/typescript.
+#[tauri::command]
+fn global_tsserver() -> Option<String> {
+    let mut dirs = vec![];
+    if let Ok(a) = std::env::var("APPDATA") {
+        dirs.push(PathBuf::from(a).join("npm").join("node_modules"));
+    }
+    if let Ok(p) = std::env::var("ProgramFiles") {
+        dirs.push(PathBuf::from(p).join("nodejs").join("node_modules"));
+    }
+    if let Some(h) = std::env::var_os("HOME") {
+        dirs.push(PathBuf::from(&h).join(".npm-global/lib/node_modules"));
+    }
+    dirs.push(PathBuf::from("/usr/local/lib/node_modules"));
+    dirs.push(PathBuf::from("/usr/lib/node_modules"));
+    for d in dirs {
+        for lib in [d.join("typescript").join("lib"), d.join("typescript-language-server").join("node_modules").join("typescript").join("lib")] {
+            if lib.join("tsserver.js").is_file() {
+                return Some(plain_path(&lib));
+            }
+        }
+    }
+    None
+}
+
+/// Whether `cwd` is in the window's folder and that folder isn't trusted.
+fn restricted(procs: &Procs, label: &str, cwd: &str) -> bool {
+    procs.with(label, |w| !w.trusted && w.root.as_deref().is_some_and(|r| trust::inside(cwd, r)))
+}
+
+/// git with Ledger's settings: no fsmonitor, no prompts, English messages, and in a restricted
+/// folder no hooks (or no git at all when the repository's settings would run programs).
+fn git_command(cwd: &str, restricted: bool) -> Res<Command> {
+    let guard = trust::git_guard(cwd, restricted)?;
+    let mut c = command_at(&find_tool("git"));
+    c.args(["-c", "core.quotepath=false", "-c", "core.fsmonitor=false"])
+        .args(guard)
+        .current_dir(cwd)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        // Git's messages in English whatever Windows' language, so Ledger can recognise them
+        // ("would be overwritten", "not fully merged", "CONFLICT").
+        .env("LC_ALL", "C")
+        .env("LANGUAGE", "C")
+        .env("GIT_OPTIONAL_LOCKS", "0");
+    Ok(c)
 }
 
 fn norm_path(s: &str) -> String {
@@ -869,12 +928,25 @@ fn cargo_json(sub: &str) -> bool {
     matches!(sub, "build" | "b" | "check" | "c" | "run" | "r" | "test" | "t" | "bench" | "clippy" | "doc")
 }
 
+// Output reaches the window in batches: a program printing thousands of lines a second would
+// otherwise send an event per line and the window couldn't keep up (or stop it). While a program
+// prints faster than it's read, lines are gathered for up to 40 ms or 512 lines; as soon as it
+// pauses, what's there goes out, so a question waiting for an answer shows at once.
+const BATCH_MS: u128 = 40;
+const BATCH_LINES: usize = 512;
+/// A line with no line ending longer than this is sent anyway (minified JSON, a progress bar
+/// that never ends its line), so it can't grow without limit.
+const LONG_LINE: usize = 16 * 1024;
+
 fn pump(app: AppHandle, label: String, run: u64, stream: impl Read + Send + 'static, name: &'static str, cargo: bool) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut r = stream;
         let mut chunk = [0u8; 8192];
         // Bytes of the line being read, until its line ending arrives.
         let mut pending: Vec<u8> = Vec::new();
+        let mut batch: Vec<Line> = Vec::new();
+        let mut since = std::time::Instant::now();
+        let mut last_partial: Vec<u8> = Vec::new();
         loop {
             let n = match r.read(&mut chunk) {
                 Ok(0) | Err(_) => break,
@@ -883,31 +955,70 @@ fn pump(app: AppHandle, label: String, run: u64, stream: impl Read + Send + 'sta
             pending.extend_from_slice(&chunk[..n]);
             while let Some(i) = pending.iter().position(|&b| b == b'\n') {
                 let line: Vec<u8> = pending.drain(..=i).collect();
-                emit_line(&app, &label, run, name, cargo, &line, false);
+                push_line(&app, &label, run, name, cargo, &line, false, &mut batch);
+                last_partial.clear();
+            }
+            if pending.len() > LONG_LINE {
+                let line = std::mem::take(&mut pending);
+                push_line(&app, &label, run, name, cargo, &line, false, &mut batch);
+                last_partial.clear();
+            }
+            // More is coming right away (the read filled the buffer): keep gathering for a while.
+            let busy = n == chunk.len();
+            if busy && batch.len() < BATCH_LINES && since.elapsed().as_millis() < BATCH_MS {
+                continue;
             }
             // What's left has no line ending yet. Show it anyway (a program asking a question
-            // waits right here), except for cargo's JSON, which only makes sense whole.
-            if !pending.is_empty() && !cargo {
+            // waits right here), except for cargo's JSON, which only makes sense whole. Only when
+            // it changed, so a long line isn't sent again and again.
+            if !pending.is_empty() && !cargo && pending != last_partial {
                 let valid = match std::str::from_utf8(&pending) {
                     Ok(_) => pending.len(),
                     Err(e) => e.valid_up_to(),
                 };
                 if valid > 0 {
-                    emit_line(&app, &label, run, name, cargo, &pending[..valid], true);
+                    push_line(&app, &label, run, name, cargo, &pending[..valid], true, &mut batch);
+                    last_partial = pending.clone();
                 }
             }
+            flush(&app, &label, run, &mut batch);
+            since = std::time::Instant::now();
         }
         if !pending.is_empty() {
             let rest = std::mem::take(&mut pending);
-            emit_line(&app, &label, run, name, cargo, &rest, false);
+            push_line(&app, &label, run, name, cargo, &rest, false, &mut batch);
         }
+        flush(&app, &label, run, &mut batch);
     })
 }
 
-/// Sends one line of output to the window (cargo's JSON is turned into its readable message first).
-fn emit_line(app: &AppHandle, label: &str, run: u64, name: &'static str, cargo: bool, bytes: &[u8], partial: bool) {
+#[derive(Serialize, Clone)]
+struct Lines {
+    run: u64,
+    lines: Vec<Line>,
+}
+
+fn flush(app: &AppHandle, label: &str, run: u64, batch: &mut Vec<Line>) {
+    if !batch.is_empty() {
+        let _ = app.emit_to(label, "task-lines", Lines { run, lines: std::mem::take(batch) });
+    }
+}
+
+/// What a line shows: a carriage return without a line feed (a progress counter going
+/// "10%\r20%\r…") starts the line again, like in a terminal.
+fn visible(text: &str) -> &str {
+    let t = text.trim_end_matches(['\n', '\r']);
+    match t.rfind('\r') {
+        Some(i) if i + 1 < t.len() => &t[i + 1..],
+        _ => t,
+    }
+}
+
+/// Adds one line of output to the batch (cargo's JSON is turned into its readable message first).
+#[allow(clippy::too_many_arguments)]
+fn push_line(app: &AppHandle, label: &str, run: u64, name: &'static str, cargo: bool, bytes: &[u8], partial: bool, batch: &mut Vec<Line>) {
     let s = String::from_utf8_lossy(bytes);
-    let mut text = s.trim_end_matches(['\n', '\r']).to_string();
+    let mut text = visible(&s).to_string();
     if cargo && name == "stdout" && text.starts_with('{') {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
             match v.get("reason").and_then(|r| r.as_str()) {
@@ -935,16 +1046,21 @@ fn emit_line(app: &AppHandle, label: &str, run: u64, name: &'static str, cargo: 
             }
         }
     }
-    let _ = app.emit_to(label, "task-line", Line { run, stream: name, text, partial });
+    batch.push(Line { run, stream: name, text, partial });
 }
 
-/// Runs `program args` in `root`, streaming output as `task-line` events and
+/// Runs `program args` in `root`, streaming output as `task-lines` events and
 /// finishing with `task-done`. `program` is "cargo", "dotnet" or a path (Godot).
 /// Anything already running in this window is stopped first.
 /// `run` is chosen by the frontend, so it knows the id before any event arrives.
 #[tauri::command]
-async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_, Procs>, run: u64, root: String, program: String, args: Vec<String>) -> Res<u64> {
+async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_, Procs>, run: u64, root: String, program: String, args: Vec<String>, scaffold: Option<bool>) -> Res<u64> {
     let label = window.label().to_string();
+    // Running, building and testing run the project's code. Making a new project (npm create,
+    // cargo new) runs only the tool, so it works in a restricted folder too.
+    if !scaffold.unwrap_or(false) && restricted(&procs, &label, &root) && !trust::safe_task(&program, &args) {
+        return Err(trust::UNTRUSTED.into());
+    }
     stop_task(&procs, &label);
     let tool = if is_bare(&program) { program.to_lowercase() } else { String::new() };
     let is_cargo = tool == "cargo" || tool == "cargo.exe";
@@ -973,6 +1089,7 @@ async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_,
         let what = if is_bare(&program) { program.clone() } else { exe.display().to_string() };
         format!("Couldn't start {what} ({e}).")
     })?;
+    job::adopt(child.id());
     let stdin = child.stdin.take();
     let out = pump(app.clone(), label.clone(), run, child.stdout.take().unwrap(), "stdout", is_cargo);
     let er = pump(app.clone(), label.clone(), run, child.stderr.take().unwrap(), "stderr", is_cargo);
@@ -990,11 +1107,23 @@ async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_,
             }
             thread::sleep(Duration::from_millis(40));
         };
-        let _ = out.join();
-        let _ = er.join();
+        // The output ends when the pipes close. A program the task started that keeps them open
+        // (a dev server cargo run launched, say) would hold "finished" back forever, so give it
+        // two seconds.
+        let _ = finish_within(out, Duration::from_secs(2));
+        let _ = finish_within(er, Duration::from_secs(2));
         let _ = app.emit_to(&label, "task-done", Done { run, code });
     });
     Ok(run)
+}
+
+/// Waits for a thread up to `limit`; its result if it finished.
+fn finish_within<T>(h: thread::JoinHandle<T>, limit: Duration) -> Option<T> {
+    let until = std::time::Instant::now() + limit;
+    while !h.is_finished() && std::time::Instant::now() < until {
+        thread::sleep(Duration::from_millis(20));
+    }
+    if h.is_finished() { h.join().ok() } else { None }
 }
 
 /// Kills a process and everything it started (cargo run / dotnet run start the
@@ -1012,6 +1141,18 @@ fn kill_tree(child: &mut Child) {
     let _ = child.kill();
 }
 
+#[cfg(test)]
+mod output_tests {
+    use super::visible;
+    #[test]
+    fn carriage_returns_start_the_line_again() {
+        assert_eq!(visible("plain\r\n"), "plain");
+        assert_eq!(visible("10%\r20%\r30%"), "30%");
+        assert_eq!(visible("done\r"), "done");
+        assert_eq!(visible("a\rb\n"), "b");
+    }
+}
+
 // ---------- test runs (the Tests panel) ----------
 // Output streams to the window line by line ("test-out") while the tests run, all of it comes back
 // at the end for reading the results, and test_stop ends the run with every process it started
@@ -1019,8 +1160,11 @@ fn kill_tree(child: &mut Child) {
 static TEST_PIDS: std::sync::LazyLock<Mutex<HashMap<String, u32>>> = std::sync::LazyLock::new(Default::default);
 
 #[tauri::command]
-async fn run_test(window: tauri::WebviewWindow, cwd: String, program: String, args: Vec<String>) -> Res<Captured> {
+async fn run_test(window: tauri::WebviewWindow, procs: State<'_, Procs>, cwd: String, program: String, args: Vec<String>) -> Res<Captured> {
     let label = window.label().to_string();
+    if restricted(&procs, &label, &cwd) {
+        return Err(trust::UNTRUSTED.into());
+    }
     let app = window.app_handle().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let exe = if is_bare(&program) { find_tool(&program) } else { PathBuf::from(&program) };
@@ -1032,6 +1176,7 @@ async fn run_test(window: tauri::WebviewWindow, cwd: String, program: String, ar
             cmd.process_group(0); // so test_stop can end the whole group
         }
         let mut child = cmd.spawn().map_err(|e| format!("Couldn't run {program} ({e})."))?;
+        job::adopt(child.id());
         TEST_PIDS.lock().unwrap_or_else(|e| e.into_inner()).insert(label.clone(), child.id());
         let pump = |r: Box<dyn Read + Send>| {
             let (app, label) = (app.clone(), label.clone());
@@ -1053,8 +1198,8 @@ async fn run_test(window: tauri::WebviewWindow, cwd: String, program: String, ar
         TEST_PIDS.lock().unwrap_or_else(|e| e.into_inner()).remove(&label);
         Ok(Captured {
             code: status.ok().and_then(|s| s.code()).unwrap_or(-1),
-            out: out.join().unwrap_or_default(),
-            err: err.join().unwrap_or_default(),
+            out: finish_within(out, Duration::from_secs(3)).unwrap_or_default(),
+            err: finish_within(err, Duration::from_secs(3)).unwrap_or_default(),
         })
     })
     .await
@@ -1063,7 +1208,11 @@ async fn run_test(window: tauri::WebviewWindow, cwd: String, program: String, ar
 
 #[tauri::command]
 fn test_stop(window: tauri::WebviewWindow) {
-    let Some(pid) = TEST_PIDS.lock().unwrap_or_else(|e| e.into_inner()).remove(window.label()) else { return };
+    stop_test(window.label());
+}
+
+fn stop_test(label: &str) {
+    let Some(pid) = TEST_PIDS.lock().unwrap_or_else(|e| e.into_inner()).remove(label) else { return };
     #[cfg(windows)]
     {
         let _ = command_at(Path::new("taskkill")).args(["/T", "/F", "/PID", &pid.to_string()]).status();
@@ -1376,6 +1525,8 @@ struct LspMsg {
 struct Started {
     exe: String,
     pid: u32,
+    /// Ledger's own process, for the server's initialize (it can watch for Ledger going away).
+    host: u32,
 }
 
 fn stop_pipe(procs: &Procs, label: &str, id: &str) {
@@ -1390,6 +1541,11 @@ fn stop_pipe(procs: &Procs, label: &str, id: &str) {
 #[allow(clippy::too_many_arguments)]
 async fn lsp_start(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_, Procs>, id: String, root: String, exe: String, args: Vec<String>, probe: Option<bool>) -> Res<Started> {
     let label = window.label().to_string();
+    // These load the project itself: rust-analyzer runs build scripts and cargo reads the repo's
+    // .cargo/config, csharp-ls runs MSBuild, the Lua server loads plugins, and debugging runs the program.
+    if matches!(id.as_str(), "rust" | "csharp" | "lua" | "dap") && restricted(&procs, &label, &root) {
+        return Err(trust::UNTRUSTED.into());
+    }
     stop_pipe(&procs, &label, &id);
     let path = if probe.unwrap_or(true) {
         find_working(&exe)
@@ -1407,6 +1563,7 @@ async fn lsp_start(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_
         cmd.process_group(0);
     }
     let mut child = cmd.spawn().map_err(|e| format!("Couldn't start {} ({e})", path.display()))?;
+    job::adopt(child.id());
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
     let stdin = Arc::new(Mutex::new(child.stdin.take().unwrap()));
@@ -1460,7 +1617,7 @@ async fn lsp_start(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_
             let _ = app.emit_to(&label, "lsp-message", LspMsg { id: id.clone(), pid, msg: String::from_utf8_lossy(&body).to_string() });
         }
     });
-    Ok(Started { exe: plain_path(&path), pid })
+    Ok(Started { exe: plain_path(&path), pid, host: std::process::id() })
 }
 
 #[tauri::command]
@@ -1553,6 +1710,9 @@ async fn term_open(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| format!("Couldn't start {shell} ({e})"))?;
+    if let Some(pid) = child.process_id() {
+        job::adopt(pid);
+    }
     drop(pair.slave);
     let mut reader = pair.master.try_clone_reader().map_err(err)?;
     let writer = pair.master.take_writer().map_err(err)?;
@@ -1627,22 +1787,11 @@ struct Captured {
 /// Runs git and returns what it printed. Never asks on a console; sign-ins go
 /// through Git Credential Manager's own window on Windows.
 #[tauri::command]
-async fn git(cwd: String, args: Vec<String>) -> Res<Captured> {
+async fn git(window: tauri::WebviewWindow, procs: State<'_, Procs>, cwd: String, args: Vec<String>) -> Res<Captured> {
+    let limited = restricted(&procs, window.label(), &cwd);
     tauri::async_runtime::spawn_blocking(move || {
-        let out = command_at(&find_tool("git"))
-            .arg("-c")
-            .arg("core.quotepath=false")
-            // A repository's own config can't make Ledger's background git run a command (fsmonitor).
-            .arg("-c")
-            .arg("core.fsmonitor=false")
+        let out = git_command(&cwd, limited)?
             .args(&args)
-            .current_dir(&cwd)
-            .env("GIT_TERMINAL_PROMPT", "0")
-            // Git's messages in English whatever Windows' language, so Ledger can recognise them
-            // ("would be overwritten", "not fully merged", "CONFLICT").
-            .env("LC_ALL", "C")
-            .env("LANGUAGE", "C")
-            .env("GIT_OPTIONAL_LOCKS", "0")
             .stdin(Stdio::null())
             .output()
             .map_err(|e| format!("Couldn't run git ({e}). Is Git installed?"))?;
@@ -1659,13 +1808,23 @@ async fn git(cwd: String, args: Vec<String>) -> Res<Captured> {
 /// Runs a tool and returns what it printed, without a console window.
 /// Used to check Lust files (.lst, .lsc) with `lust check` after they're saved.
 #[tauri::command]
-async fn run_capture(cwd: String, program: String, args: Vec<String>, input: Option<String>) -> Res<Captured> {
+async fn run_capture(window: tauri::WebviewWindow, procs: State<'_, Procs>, cwd: String, program: String, args: Vec<String>, input: Option<String>) -> Res<Captured> {
+    let limited = restricted(&procs, window.label(), &cwd);
+    if limited && !trust::safe_program(&program, &args) {
+        return Err(trust::UNTRUSTED.into());
+    }
     tauri::async_runtime::spawn_blocking(move || {
-        let exe = if is_bare(&program) { find_tool(&program) } else { PathBuf::from(&program) };
-        let mut cmd = command_at(&exe);
+        let is_git = Path::new(&program).file_stem().is_some_and(|s| s.eq_ignore_ascii_case("git"));
+        let mut cmd = if is_git {
+            git_command(&cwd, limited)?
+        } else {
+            let exe = if is_bare(&program) { find_tool(&program) } else { PathBuf::from(&program) };
+            command_at(&exe)
+        };
         cmd.args(&args).current_dir(&cwd).stdout(Stdio::piped()).stderr(Stdio::piped());
         cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
         let mut child = cmd.spawn().map_err(|e| format!("Couldn't run {program} ({e})."))?;
+        job::adopt(child.id());
         // Text for the program's stdin (Prettier reads the file from there), written on its own
         // thread so a program that answers while it reads can't block on a full pipe.
         let feeder = match (input, child.stdin.take()) {
@@ -1790,6 +1949,8 @@ async fn install_debugger(app: AppHandle, kind: String) -> Res<String> {
 }
 
 mod db;
+mod trust;
+mod job;
 mod live;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1822,6 +1983,7 @@ pub fn run() {
         .on_window_event(|window, ev| {
             if let tauri::WindowEvent::Destroyed = ev {
                 stop_window(&window.state::<Procs>(), window.label(), false);
+                stop_test(window.label());
                 live::stop(&window.state::<live::LiveServers>(), window.label());
                 db::close_window(window.label());
             }
@@ -1887,7 +2049,9 @@ pub fn run() {
             debugger_path,
             install_debugger,
             new_window,
-            set_window_root
+            set_window_root,
+            set_window_trust,
+            global_tsserver
         ])
         .build(tauri::generate_context!())
         .expect("error while building Ledger")

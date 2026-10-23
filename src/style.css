@@ -740,3 +740,4 @@ th.db-n { z-index: 2; background: var(--side); }
 .hx-0 { color: var(--faint); } .hx-p { color: var(--ink); } .hx-b { color: var(--syn-num); }
 .hx-hover { background: var(--hover); } .hx-sel { background: var(--select); outline: 1px solid var(--accent); }
 .hex-at { color: var(--muted); font-size: 12px; }
+.trustpill { color: var(--warn) !important; border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent) !important; border-radius: 10px !important; padding: 0 8px !important; margin: 0 4px; font-weight: 500; }

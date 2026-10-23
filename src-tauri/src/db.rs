@@ -229,7 +229,7 @@ fn clauses(c: &Connection, v: &View) -> Res<(String, Vec<Sql>)> {
     }
     if !v.search.trim().is_empty() {
         let cols: Vec<String> = {
-            let mut st = c.prepare(&format!("SELECT * FROM {} LIMIT 0", ident(&v.table))).map_err(|e| e.to_string())?;
+            let st = c.prepare(&format!("SELECT * FROM {} LIMIT 0", ident(&v.table))).map_err(|e| e.to_string())?;
             st.column_names().into_iter().map(String::from).collect()
         };
         if !cols.is_empty() {

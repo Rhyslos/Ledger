@@ -195,10 +195,12 @@ export function initDebugger(app) {
   const artifacts = [];
   on("task-artifact", (e) => { artifacts.push(e.payload); if (artifacts.length > 200) artifacts.shift(); });
   const dllLines = [];
-  on("task-line", (e) => {
-    if (e.payload.partial) return;
-    const m = /^\s*([\w.-]+) -> (.+\.(?:dll|exe))\s*$/i.exec(e.payload.text.replace(/\x1b\[[0-9;]*m/g, ""));
-    if (m) { dllLines.push({ run: e.payload.run, name: m[1], path: m[2].trim() }); if (dllLines.length > 200) dllLines.shift(); }
+  on("task-lines", (e) => {
+    for (const l of e.payload.lines) {
+      if (l.partial) continue;
+      const m = /^\s*([\w.-]+) -> (.+\.(?:dll|exe))\s*$/i.exec(l.text.replace(/\x1b\[[0-9;]*m/g, ""));
+      if (m) { dllLines.push({ run: e.payload.run, name: m[1], path: m[2].trim() }); if (dllLines.length > 200) dllLines.shift(); }
+    }
   });
   const buildThen = (steps) => new Promise((resolve) => {
     app.startSteps(steps, () => resolve(app.S.run), () => resolve(null));
@@ -210,6 +212,7 @@ export function initDebugger(app) {
     if (ses) { if (ses.state === "paused") return cont(); app.toast("Already debugging. Shift F5 stops it."); return; }
     again = start;
     if (!S.root) { app.toast("Open a folder first."); return; }
+    if (!(await app.ensureTrusted("Debugging"))) return;
     const P = await app.updateCtx();
     const kind = app.taskKind(P);
     if (!kind) { app.toast("Open a file from the project you want to debug."); return; }
