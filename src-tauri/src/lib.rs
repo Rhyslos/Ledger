@@ -832,6 +832,94 @@ fn search_text_now(root: String, query: String, case_sensitive: bool) -> Res<Vec
     Ok(hits)
 }
 
+#[derive(Serialize)]
+struct Found {
+    path: String,
+    line: usize,
+    /// Where the match starts and how long it is, in UTF-16 units (what the editor counts).
+    col: usize,
+    len: usize,
+    text: String,
+}
+
+#[derive(Serialize)]
+struct SearchResult {
+    hits: Vec<Found>,
+    files: usize,
+    truncated: bool,
+}
+
+/// Turns "src/**, *.ts" into a glob set; a name without a slash matches anywhere.
+fn globs(list: &str) -> Res<Option<globset::GlobSet>> {
+    let mut b = globset::GlobSetBuilder::new();
+    let mut any = false;
+    for p in list.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        let p = p.trim_start_matches("./").replace('\\', "/");
+        let p = if p.contains('/') { p.trim_start_matches('/').to_string() } else { format!("**/{p}") };
+        // A folder name on its own means everything in it too.
+        for q in [p.clone(), format!("{p}/**")] {
+            b.add(globset::GlobBuilder::new(&q).literal_separator(false).build().map_err(|e| format!("“{p}” isn't a pattern Ledger understands ({e})."))?);
+        }
+        any = true;
+    }
+    Ok(if any { Some(b.build().map_err(err)?) } else { None })
+}
+
+/// Search in files: every match on every line, as plain text or a regular expression, matching
+/// case or not, whole words or not, in the files `include` names (all when empty) except those
+/// `exclude` names. Files .gitignore leaves out are skipped, as everywhere in Ledger.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn search_files(root: String, query: String, regex: bool, case_sensitive: bool, whole_word: bool, include: String, exclude: String) -> Res<SearchResult> {
+    blocking(move || search_now(&root, &query, regex, case_sensitive, whole_word, &include, &exclude)).await?
+}
+fn search_now(root: &str, query: &str, regex: bool, case_sensitive: bool, whole_word: bool, include: &str, exclude: &str) -> Res<SearchResult> {
+    {
+        if query.is_empty() {
+            return Ok(SearchResult { hits: vec![], files: 0, truncated: false });
+        }
+        let pat = if regex { query.to_string() } else { regex::escape(query) };
+        let pat = if whole_word { format!(r"\b(?:{pat})\b") } else { pat };
+        let re = regex::RegexBuilder::new(&pat).case_insensitive(!case_sensitive).build().map_err(|e| format!("That regular expression has a mistake: {}", e.to_string().lines().last().unwrap_or("")))?;
+        let (inc, exc) = (globs(include)?, globs(exclude)?);
+        let base = PathBuf::from(dir_arg(root));
+        let (mut hits, mut files) = (Vec::new(), 0usize);
+        const MAX: usize = 5000;
+        'files: for ent in walker(root).flatten() {
+            if !ent.file_type().is_some_and(|t| t.is_file()) || ent.metadata().map(|m| m.len() > 4 * 1024 * 1024).unwrap_or(true) {
+                continue;
+            }
+            let rel = ent.path().strip_prefix(&base).unwrap_or(ent.path()).to_string_lossy().replace('\\', "/");
+            if inc.as_ref().is_some_and(|g| !g.is_match(&rel)) || exc.as_ref().is_some_and(|g| g.is_match(&rel)) {
+                continue;
+            }
+            let Ok(Ok((text, _))) = std::fs::read(ent.path()).map(decode_text) else { continue };
+            if !re.is_match(&text) {
+                continue;
+            }
+            files += 1;
+            for (i, line) in text.lines().enumerate() {
+                for m in re.find_iter(line) {
+                    if m.start() == m.end() {
+                        continue; // a pattern that matches nothing (^, a*)
+                    }
+                    let col = line[..m.start()].encode_utf16().count();
+                    let len = m.as_str().encode_utf16().count();
+                    let t: String = line.trim_end().chars().take(400).collect();
+                    hits.push(Found { path: ent.path().to_string_lossy().into(), line: i, col, len, text: t });
+                    if hits.len() >= MAX {
+                        return Ok(SearchResult { hits, files, truncated: true });
+                    }
+                }
+            }
+            if files > 20000 {
+                break 'files;
+            }
+        }
+        Ok(SearchResult { hits, files, truncated: false })
+    }
+}
+
 /// Lines with TODO, FIXME, HACK, XXX or BUG in them, in one walk of the folder (the TODO panel
 /// keeps the ones where the word is in a comment).
 #[tauri::command]
@@ -1388,6 +1476,39 @@ mod save_tests {
             assert_eq!(std::fs::read(&f).unwrap(), b"through the link");
         }
         let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::globs;
+    #[test]
+    fn include_and_exclude_patterns() {
+        let g = globs("*.ts, src/lib, docs/**/*.md").unwrap().unwrap();
+        assert!(g.is_match("a/b/c.ts"));
+        assert!(g.is_match("src/lib/x/y.rs"));
+        assert!(g.is_match("docs/a/b.md"));
+        assert!(!g.is_match("src/main.rs"));
+        assert!(globs("  ").unwrap().is_none());
+    }
+    #[test]
+    fn finds_every_match_with_utf16_columns() {
+        let d = std::env::temp_dir().join(format!("ledger-search-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("src")).unwrap();
+        std::fs::write(d.join("src/a.rs"), "let colour = 1; // Colour\nlet é = colour;\n").unwrap();
+        std::fs::write(d.join("b.md"), "colours\n").unwrap();
+        let root = d.to_string_lossy().to_string();
+        let r = super::search_now(&root, "colour", false, false, false, "", "").unwrap();
+        assert_eq!(r.hits.len(), 4);
+        let r = super::search_now(&root, "colour", false, true, true, "", "").unwrap();
+        assert_eq!(r.hits.len(), 2);
+        assert_eq!(r.hits.iter().find(|h| h.line == 1).unwrap().col, 8);
+        let r = super::search_now(&root, "col.ur", true, false, false, "*.md", "").unwrap();
+        assert_eq!(r.hits.len(), 1);
+        let r = super::search_now(&root, "colour", false, false, false, "", "src").unwrap();
+        assert_eq!(r.hits.len(), 1);
+        assert!(super::search_now(&root, "(", true, false, false, "", "").is_err());
+        std::fs::remove_dir_all(&d).ok();
     }
 }
 
@@ -2292,6 +2413,7 @@ pub fn run() {
             run_test,
             stop_everything,
             history_add,
+            search_files,
             history_move,
             cache_get,
             cache_set,

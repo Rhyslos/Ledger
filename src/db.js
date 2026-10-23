@@ -333,7 +333,7 @@ export function initDb(app) {
     const op = OPS[oi][0];
     let value = "";
     if (!NO_VALUE.has(op)) {
-      value = await app.promptText(`${cols[ci]} ${OPS[oi][1]}…`, "", "value");
+      value = await app.promptText(`${cols[ci]} ${OPS[oi][1]}…`, "", "a value");
       if (value == null) return;
     }
     d.view.filters.push({ col: cols[ci], op, value });

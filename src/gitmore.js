@@ -280,11 +280,28 @@ export function initGitMore(app, gitApi) {
     app.dispatchBuf(path, { effects: setBlame.of({ lines: parseBlame(r.out), doc }) });
   }
   const soon = (path, ms) => { clearTimeout(pending.get(path)); pending.set(path, setTimeout(() => blame(path), ms)); };
-  async function showCommit(info) {
-    const path = S.active, rel = relTo(path);
-    const get = async (rev) => { const r = await gitApi.git(["show", `${rev}:${rel}`]).catch(() => null); return r?.code === 0 ? r.out.replace(/\r\n/g, "\n") : ""; };
-    const [before, after] = await Promise.all([get(info.sha + "^"), get(info.sha)]);
-    app.openDiff?.({ path, title: `${app.base(path)} · ${info.sha.slice(0, 7)}`, left: before, right: after, leftLabel: "Before " + info.sha.slice(0, 7), rightLabel: `${info.sha.slice(0, 7)} · ${info.summary || ""}` });
+  // Clicking a line's blame: that commit's change to this file, with who, when, the whole
+  // message and the other files it touched (click one to see its change too).
+  async function showCommit(info, path = S.active) {
+    const rel = relTo(path), sha = info.sha, short = sha.slice(0, 7);
+    const get = async (rev, file) => { const r = await gitApi.git(["show", `${rev}:${file}`]).catch(() => null); return r?.code === 0 ? r.out.replace(/\r\n/g, "\n") : ""; };
+    const [before, after, meta, names] = await Promise.all([
+      get(sha + "^", rel), get(sha, rel),
+      gitApi.git(["show", "-s", "--format=%an%x00%ae%x00%aI%x00%B", sha]).catch(() => null),
+      gitApi.git(["show", "--name-status", "--format=", "-M", sha]).catch(() => null),
+    ]);
+    const [an, ae, when, body] = meta?.code === 0 ? meta.out.split("\0") : [info.author || "", "", "", info.summary || ""];
+    const files = names?.code === 0 ? names.out.split("\n").filter(Boolean).map((l) => { const f = l.split("\t"); return { st: f[0][0], file: f[f.length - 1] }; }) : [];
+    const date = when ? new Date(when) : null;
+    app.openDiff?.({
+      path, title: `${app.base(path)} · ${short}`, left: before, right: after, leftLabel: "Before " + short, rightLabel: `${short} · ${info.summary || ""}`,
+      info: {
+        head: `${an}${ae ? ` <${ae}>` : ""}${date && !isNaN(date) ? " · " + date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : ""} · ${sha}`,
+        body: (body || "").trim(),
+        files: files.map((f) => ({ label: f.file, st: f.st, on: f.file === rel, run: () => showCommit(info, (G.root || S.root) + "/" + f.file) })),
+        copy: sha,
+      },
+    });
   }
   const plugin = blamePlugin(showCommit);
   app.extraExt.push((path, b) => (settings.gitBlame && !b.virtual ? [blameField, plugin] : []));

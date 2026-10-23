@@ -45,7 +45,7 @@ export function initImages(app) {
     const im = cur();
     if (!im) return;
     const svg = extOf(im.path) === "svg";
-    const z = im.zoom === "fit" ? "Fit" : Math.round(im.zoom * 100) + "%";
+    const z = im.zoom === "fit" ? "" : Math.round(im.zoom * 100) + "%"; // Fit: filled in with the size it ends up at
     el.innerHTML = `<div class="img-view">
       <div class="img-bar">
         <b title="${esc(im.path)}">${esc(base(im.path))}</b>

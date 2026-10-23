@@ -241,7 +241,7 @@ export function initGit(app) {
     const key = existing ? existing[0] : "@diff:" + ++diffSeq;
     diffs.set(key, d);
     if (mvKey === key) mvKey = null; // redraw with the new text
-    app.addTab(key);
+    app.addTab(key, { preview: true });
     app.activate(key);
   }
   async function showDiff(path = S.active, line) {
@@ -297,7 +297,7 @@ export function initGit(app) {
     if (mvKey === key && el.querySelector(".cm-mergeView")) return;
     mv?.destroy();
     mvKey = key;
-    el.innerHTML = `<div class="diffhead"><b>${esc(d.title)}</b><span class="sp"></span><span class="hint">${esc(d.leftLabel)} ↔ ${esc(d.rightLabel)} · F7 / Shift F7 next and previous change</span><button class="btn" data-dact="prev">Previous</button><button class="btn" data-dact="next">Next</button>${(d.actions || []).map((a, i) => `<button class="btn primary" data-dact="x${i}">${esc(a.label)}</button>`).join("")}${S.root && d.path ? '<button class="btn" data-dact="open">Open file</button>' : ""}</div><div class="diffbody"></div>`;
+    el.innerHTML = `<div class="diffhead"><b>${esc(d.title)}</b><span class="sp"></span><span class="hint">${esc(d.leftLabel)} ↔ ${esc(d.rightLabel)} · F7 / Shift F7 next and previous change</span><button class="btn" data-dact="prev">Previous</button><button class="btn" data-dact="next">Next</button>${(d.actions || []).map((a, i) => `<button class="btn primary" data-dact="x${i}">${esc(a.label)}</button>`).join("")}${S.root && d.path ? '<button class="btn" data-dact="open">Open file</button>' : ""}</div>${d.info ? `<details class="diffinfo" open><summary>${esc(d.info.head)}<button class="ibtn" data-dact="copySha" title="Copy the commit's id" aria-label="Copy the commit's id">⧉</button></summary>${d.info.body ? `<pre>${esc(d.info.body)}</pre>` : ""}${d.info.files.length > 1 ? `<div class="difffiles"><span class="hint">${d.info.files.length} files:</span> ${d.info.files.map((f, i) => `<button class="glink${f.on ? " on" : ""}" data-dact="f${i}"><span class="gs ${esc(f.st)}">${esc(f.st)}</span> ${esc(f.label)}</button>`).join("")}</div>` : ""}</details>` : ""}<div class="diffbody"></div>`;
     mv = new MergeView({
       a: { doc: d.left, extensions: sideExt(d.path) },
       b: { doc: d.right, extensions: sideExt(d.path) },
@@ -318,6 +318,8 @@ export function initGit(app) {
     if (a === "next") { goToNextChunk(mv.b); mv.b.focus(); }
     if (a === "prev") { goToPreviousChunk(mv.b); mv.b.focus(); }
     if (/^x\d+$/.test(a)) { diffs.get(mvKey)?.actions?.[+a.slice(1)]?.run(); return; }
+    if (/^f\d+$/.test(a)) { diffs.get(mvKey)?.info?.files[+a.slice(1)]?.run(); return; }
+    if (a === "copySha") { ev.preventDefault(); app.copy(diffs.get(mvKey)?.info?.copy || ""); return; }
     if (a === "open") { const d = diffs.get(mvKey); const line = mv.b.state.doc.lineAt(mv.b.state.selection.main.head).number - 1; app.openFile(d.path, { line, character: 0 }); }
   });
   $("diff").addEventListener("keydown", (ev) => {
@@ -362,7 +364,7 @@ export function initGit(app) {
   function fileRow(path, st, kind, i) {
     const r = app.rel(path), dir = r.includes("/") ? r.slice(0, r.lastIndexOf("/")) : "";
     const l = kind === "staged" ? (st.x === "?" ? "U" : st.x) : letter(st);
-    return `<button class="node g-${l === "!" ? "X" : l}" role="treeitem" tabindex="${i === 0 ? 0 : -1}" data-gp="${esc(path)}" data-gk="${kind}" style="padding-left:12px;--tc:var(--t-${dotOf(path)})" title="${esc(r)} · ${esc(describe(st))}">${app.fileIcon(path)}<span class="lbl" style="flex:0 1 auto">${esc(app.base(path))}</span><span class="sub" style="flex:1">${esc(dir)}</span><span class="gs ${l === "!" ? "X" : l}">${l}</span></button>`;
+    return `<button class="node g-${l === "!" ? "X" : l}" role="treeitem" tabindex="${i === 0 ? 0 : -1}" data-gp="${esc(path)}" data-gk="${kind}" style="padding-left:12px;--tc:var(--t-${dotOf(path)})" title="${esc(r)} · ${esc(describe(st))}">${app.fileIcon(path)}<span class="lbl" style="flex:0 1 auto">${esc(app.base(path))}</span><span class="sub" style="flex:1">${esc(dir)}</span><span class="gacts" aria-hidden="true"><span class="ga" data-grow="open" title="Open the file (Shift Enter)">↗</span>${kind === "staged" ? "" : '<span class="ga" data-grow="discard" title="Throw away the changes (Delete)">↶</span>'}<span class="ga" data-grow="stage" title="${kind === "staged" ? "Unstage" : "Stage"} (Space)">${kind === "staged" ? "−" : "+"}</span></span><span class="gs ${l === "!" ? "X" : l}">${l}</span></button>`;
   }
   function renderView() {
     const box = $("git");
@@ -518,6 +520,14 @@ export function initGit(app) {
     const sh = ev.target.closest("[data-gstash]");
     if (sh) { const r = sh.getBoundingClientRect(); stashMenu(sh.dataset.gstash, r.left + 24, r.bottom); return; }
     const n = ev.target.closest("[data-gp]");
+    const ga = ev.target.closest("[data-grow]");
+    if (n && ga) {
+      const w = ga.dataset.grow;
+      if (w === "open") app.openFile(n.dataset.gp);
+      else if (w === "discard") discard(n.dataset.gp);
+      else stage(n.dataset.gp, n.dataset.gk);
+      return;
+    }
     if (n) openRow(n.dataset.gp);
   });
   $("git").addEventListener("contextmenu", (ev) => {
@@ -627,7 +637,7 @@ export function initGit(app) {
     let name = "", head = "New branch name (it starts from where you are now, and you switch to it)";
     // A name Git won't take asks again, with what you typed still there.
     for (;;) {
-      name = (await app.promptText(head, name, "feature/my-change"))?.trim();
+      name = (await app.promptText(head, name, "e.g. feature/my-change"))?.trim();
       if (!name) return;
       if (!/[\s~^:?*[\\]|\.\.|@\{|^[-/]|[/.]$|\.lock$/.test(name)) break;
       head = "That won't work as a branch name: no spaces, and none of ~ ^ : ? * [ \\ or two dots. Try again:";
@@ -673,7 +683,7 @@ export function initGit(app) {
   // ---------- stashes ----------
   async function stash() {
     if (!G.files.size) { app.toast("Nothing to stash: no changes since the last commit."); return; }
-    const msg = await app.promptText("Stash your changes (they're put aside, and the files go back to the last commit). A note, so you know what it was:", "", "half-done header");
+    const msg = await app.promptText("Stash your changes: a note to recognise them by", "", "e.g. half-done header");
     if (msg == null) return;
     await app.saveAll();
     await op("Stashing", ["stash", "push", "-u", ...(msg.trim() ? ["-m", msg.trim()] : [])], () => app.toast("Stashed. Pop it back from Source control."));

@@ -7,7 +7,7 @@ import { EditorView, Decoration, WidgetType, showTooltip, keymap } from "@codemi
 import { norm, uriToPath, pathToUri, toOffset, toPos } from "./lsp.js";
 import { dotOf } from "./langs.js";
 
-const KINDS = { 1: "file", 2: "mod", 3: "ns", 4: "pkg", 5: "class", 6: "fn", 7: "prop", 8: "field", 9: "new", 10: "enum", 11: "trait", 12: "fn", 13: "let", 14: "const", 15: "str", 16: "num", 17: "bool", 18: "arr", 19: "obj", 20: "key", 21: "null", 22: "case", 23: "struct", 24: "event", 25: "op", 26: "T" };
+const KINDS = { 1: "file", 2: "mod", 3: "ns", 4: "pkg", 5: "class", 6: "fn", 7: "prop", 8: "field", 9: "new", 10: "enum", 11: "trait", 12: "fn", 13: "let", 14: "const", 15: "str", 16: "num", 17: "bool", 18: "arr", 19: "obj", 20: "key", 21: "null", 22: "case", 23: "struct", 24: "event", 25: "op", 26: "T", 101: "h1", 102: "h2", 103: "h3", 104: "h4", 105: "h5", 106: "h6" }; // 10x: Markdown headings
 const kindLabel = (k) => KINDS[k] || "";
 
 export function initNav(app) {
@@ -71,8 +71,39 @@ export function initNav(app) {
       .sort((a, c) => a.range.start.line - c.range.start.line);
   }
   const flatten = (list) => list.flatMap((s) => [s, ...flatten(s.children)]);
+  // Markdown's outline is its headings (# and underlined ones), nested by level; no server needed.
+  function mdHeadings(doc) {
+    const out = [], stack = [];
+    let fence = null;
+    for (let n = 1; n <= doc.lines; n++) {
+      const t = doc.line(n).text;
+      const f = /^\s{0,3}(`{3,}|~{3,})/.exec(t);
+      if (f) { if (!fence) fence = f[1][0]; else if (f[1][0] === fence) fence = null; continue; }
+      if (fence) continue;
+      let m = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/.exec(t), level, name;
+      if (m) { level = m[1].length; name = m[2]; }
+      else if (n > 1 && /^\s{0,3}(=+|-+)\s*$/.test(t) && doc.line(n - 1).text.trim() && !/^\s*([-*+]|\d+\.)\s/.test(doc.line(n - 1).text)) { level = t.trim()[0] === "=" ? 1 : 2; name = doc.line(n - 1).text.trim(); }
+      if (!level || !name) continue;
+      const line = m ? n - 1 : n - 2;
+      const s = { name: name.replace(/[*_`]/g, ""), detail: "", kind: 100 + level, depth: 0, container: "", range: { start: { line, character: 0 }, end: { line, character: 0 } }, sel: { line, character: 0 }, children: [], level };
+      while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
+      const up = stack[stack.length - 1];
+      s.depth = up ? up.depth + 1 : 0;
+      s.container = up?.name || "";
+      (up ? up.children : out).push(s);
+      stack.push(s);
+    }
+    // Each heading's section runs to the next heading at its level or above.
+    const all = flatten(out), last = Math.max(0, doc.lines - 1);
+    all.forEach((h, i) => { const next = all.slice(i + 1).find((x) => x.level <= h.level); h.range.end = { line: next ? Math.max(h.range.start.line, next.range.start.line - 1) : last, character: 1e9 }; });
+    return out;
+  }
   async function loadSymbols(force) {
     const path = S.active, b = S.bufs.get(path);
+    if (b && b.lang === "markdown") {
+      if (force || sym.path !== path || sym.doc !== b.state.doc) { const list = mdHeadings(b.state.doc); Object.assign(sym, { path, doc: b.state.doc, list, flat: flatten(list), none: null }); }
+      return sym;
+    }
     const srv = b && app.serverOf(b);
     // No server: remember that for this text, so the @ list doesn't ask again on every redraw.
     if (!b || !srv?.alive) { Object.assign(sym, { path, doc: b ? b.state.doc : null, list: [], flat: [], none: !srv ? "nolang" : "noserver" }); return sym; }

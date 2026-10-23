@@ -33,6 +33,7 @@ export const DEFAULTS = {
   inlayHints: true,
   tabSize: 4,
   detectIndent: true,
+  followActive: true,
   formatOnSave: false,
   webFormatter: "prettier",
   emmet: true,
@@ -179,6 +180,23 @@ const found = (p, missing) => (p ? `<span class="ok">Found</span> <code>${esc(p)
 const copyRow = (label, value) =>
   `<div class="copyrow"><span class="k">${label}</span><code>${esc(value)}</code><button class="btn" data-copy="${esc(value)}">Copy</button></div>`;
 
+// The search box at the top: hides the rows (and shortcut lines) that don't mention what you typed.
+let find = "";
+export function applySettingsFind(root) {
+  const q = find.trim().toLowerCase();
+  let any = false;
+  for (const sec of root.querySelectorAll(".settings > section")) {
+    const head = sec.querySelector("h2")?.textContent.toLowerCase() || "";
+    const all = !q || head.includes(q);
+    let shown = 0;
+    for (const r of sec.querySelectorAll(".srow, .krow, .copyrow")) { const on = all || r.textContent.toLowerCase().includes(q); r.hidden = !on; if (on) shown++; }
+    sec.hidden = !all && !shown;
+    if (!sec.hidden) any = true;
+  }
+  const none = root.querySelector(".sfind-none");
+  if (none) none.hidden = any;
+}
+
 export function settingsHtml() {
   const km = ctx.keymap;
   const flags = "{project} --goto {file}:{line}:{col}";
@@ -188,12 +206,14 @@ export function settingsHtml() {
   return `<div class="wi settings">
         <h1>Settings</h1>
     <p class="lede">Changes apply right away. Tab moves between fields; Ctrl+W closes this page.</p>
+    <input type="search" id="sFind" class="sfind" placeholder="Search settings and shortcuts" value="${esc(find)}" aria-label="Search settings" spellcheck="false">
+    <p class="hint sfind-none" hidden>No setting matches that.</p>
 
     <section aria-labelledby="sAppear"><h2 id="sAppear">Appearance</h2>
       ${row("Theme", select("sTheme", "theme", [["system", "Match Windows"], ["light", "Light"], ["dark", "Dark"]]), "", "sTheme")}
       ${row("Editor font size", text("sFont", "fontSize", "14", "number", 'min="9" max="32" step="0.5"'), "Ctrl + and Ctrl - change it too; Ctrl 0 resets.", "sFont")}
-      ${row("Editor font", text("sFamily", "fontFamily", "IBM Plex Mono", "text", 'list="codeFonts"') + `<datalist id="codeFonts">${["Noto Sans Mono", "Noto Sans", "Cascadia Code", "Consolas", "JetBrains Mono", "Fira Code"].map((f) => `<option value="${f}">`).join("")}</datalist>`, "Pick one or type any installed font. Fonts made for code (Mono) keep columns lined up. Leave empty for the default.", "sFamily")}
-      ${row("Interface font", text("sUiFont", "uiFont", "IBM Plex Sans", "text", 'list="uiFonts"') + `<datalist id="uiFonts">${["Noto Sans", "Segoe UI", "Inter", "Arial"].map((f) => `<option value="${f}">`).join("")}</datalist>`, "The menus, tabs, side bar and settings. Pick one or type any installed font. Leave empty for the default.", "sUiFont")}
+      ${row("Editor font", text("sFamily", "fontFamily", "Default: IBM Plex Mono", "text", 'list="codeFonts"') + `<datalist id="codeFonts">${["Noto Sans Mono", "Noto Sans", "Cascadia Code", "Consolas", "JetBrains Mono", "Fira Code"].map((f) => `<option value="${f}">`).join("")}</datalist>`, "Pick one or type any installed font. Fonts made for code (Mono) keep columns lined up. Leave empty for the default.", "sFamily")}
+      ${row("Interface font", text("sUiFont", "uiFont", "Default: IBM Plex Sans", "text", 'list="uiFonts"') + `<datalist id="uiFonts">${["Noto Sans", "Segoe UI", "Inter", "Arial"].map((f) => `<option value="${f}">`).join("")}</datalist>`, "The menus, tabs, side bar and settings. Pick one or type any installed font. Leave empty for the default.", "sUiFont")}
       ${row("Interface text size", text("sUi", "uiSize", "14", "number", 'min="11" max="20" step="0.5"'), "", "sUi")}
       ${row("Code colours", select("sCode", "codeColours", [["quiet", "Quiet, like Lust"], ["colourful", "Colourful"]]), "Quiet keeps code calm: keywords in red, classes in blue, types in a soft green, values in gold and constants in teal, with the rest plain. Lust files are always quiet.", "sCode")}
       ${row("File icons", check("sFileIcons", "fileIcons", "An icon for each kind of file (JavaScript, C#, package.json…) in the explorer, tabs and lists"), "Icons from the Material Icon Theme. Off shows the coloured dots instead.")}
@@ -209,6 +229,7 @@ export function settingsHtml() {
       ${row("Web formatting", select("sWebFmt", "webFormatter", [["prettier", "Prettier"], ["server", "The language servers"]]), "Prettier formats JavaScript, TypeScript, HTML, CSS, JSON, Markdown and YAML: the project's own Prettier when it has one (in a trusted folder), otherwise the one built into Ledger, with your .prettierrc either way.", "sWebFmt")}
       ${row("Emmet", check("sEmmet", "emmet", "Expand Emmet abbreviations with Tab in HTML, JSX and CSS (ul>li*3, div.card, m10, df…)"))}
       ${row("Preview tabs", check("sPreview", "previewTabs", "Clicking through files in the explorer reuses one tab"), "The file shows in a tab in italics, and the next file you click takes its place. Editing, saving, double-clicking or pinning it (right-click the tab) keeps it open.")}
+      ${row("Explorer", check("sFollow", "followActive", "Show the open file in the explorer, opening the folders it's in"), "Ctrl Shift R does it once when this is off.")}
       ${row("Auto save", select("sAuto", "autoSave", [["off", "Off"], ["delay", "A second after typing stops"], ["focus", "When switching tabs or apps"]]), "", "sAuto")}
       ${row("Brackets", check("sBr", "bracketColors", "Colour matching bracket pairs by depth"))}
       ${row("Indentation", check("sIg", "indentGuides", "Show indent guides"))}
@@ -331,6 +352,7 @@ export function wireSettings(root, rerender) {
     if (["rustAnalyzer", "csharpServer", "godot", "debugRust", "debugCsharp", "lust"].includes(key)) refreshTools().then(() => rerender(true));
   };
   root.oninput = (ev) => {
+    if (ev.target.id === "sFind") { find = ev.target.value; applySettingsFind(root); return; }
     if (ev.target.id === "sKeyFilter") { filter = ev.target.value; rerender(true); refocus("#sKeyFilter"); }
   };
   root.onclick = async (ev) => {

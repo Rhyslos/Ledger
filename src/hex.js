@@ -26,7 +26,7 @@ export function initHex(app) {
     if (!path || path.startsWith("@")) { app.toast("Open a file first."); return false; }
     const key = keyOf(path);
     if (!files.has(key)) { files.set(key, { path: app.norm(path), sel: -1 }); await load(files.get(key)); }
-    app.addTab(key);
+    app.addTab(key, { preview: !opts.background });
     if (!opts.background) app.activate(key);
     return true;
   }

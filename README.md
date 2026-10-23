@@ -32,19 +32,20 @@ To change the name, see [Renaming](#renaming).
 - **Zen mode**: Ctrl Alt Z hides everything but the editor and goes full screen; the same key brings it all back.
 - **Local history**: every save keeps a copy (the last 50 per file, in Ledger's own folder, not your project), plus the file as it was before you started editing. **Local history: this file's saved versions** (or right-click a file) shows any of them next to the file now, with **Restore this version**. Works in folders without Git.
 - **Indentation**: each file is indented the way it already is (2 spaces, 4, tabs), shown in the status bar; click it to change it for that file. Enter, Emmet and Prettier follow it.
-- **Editor**: tabs, split editor (Ctrl \\), search and replace (Ctrl F), multiple cursors, folding, coloured bracket pairs, indent guides, sticky scroll (the line that opens the current function or block stays pinned at the top), problems list, clickable file:line links in build output, back and forward through your jumps, a warning when a file you're editing changes on disk.
-- **Getting around**: find all references (Shift F12), an Outline of the open file (Ctrl Shift O), symbol search (type @ or # in Ctrl E), parameter hints while you type a call.
+- **Editor**: tabs, split editor (Ctrl \\), find and replace in the file (Ctrl F, Ctrl H; match case, whole word, regular expressions, "3 of 20"), multiple cursors (Ctrl Alt Up/Down, Ctrl Shift L for every match), select line (Ctrl L), sort, de-duplicate and change the case of lines from the command list, folding, coloured bracket pairs, indent guides, sticky scroll (the line that opens the current function or block stays pinned at the top), problems list, clickable file:line links in build output, back and forward through your jumps, a warning when a file you're editing changes on disk.
+- **Search in files** (Ctrl Shift F): a Search view with match case, whole word, regular expressions, files to include and leave out, and replace in files (Ctrl Shift H) with a preview first. Unsaved changes in open files are searched as they are.
+- **Getting around**: find all references (Shift F12), an Outline of the open file (Ctrl Shift O; a Markdown file's headings), symbol search (type @ or # in Ctrl E), `file:line` in Ctrl E jumps to the line, recently opened files first, parameter hints while you type a call. The explorer follows the file you're in (Settings › Editing › Explorer).
 - **Debugging**: breakpoints (F9), start with Shift F9, step with F10, F11 and Shift F11, continue with F5. Variables, watches, call stack and a debug console. Rust uses codelldb, C# and Godot use netcoredbg; Ledger downloads them the first time you need them.
 - **Run and Debug links**: ▶ Run test and Debug above each Rust and C# test and above `main`.
 - **Terminal**: real PowerShell terminals in the bottom panel (Ctrl ` shows one, Ctrl T opens a new one).
-- **Git**: changed files are coloured in the explorer, changed lines are marked next to the line numbers, a side-by-side diff view, and a Source control view to stage, commit, pull and push (Ctrl Shift G).
+- **Git**: changed files are coloured in the explorer, changed lines are marked next to the line numbers, a side-by-side diff view, and a Source control view to stage, commit, pull and push (Ctrl Shift G); hover a changed file for open, discard and stage buttons. Clicking a line's blame shows that commit: who, when, the whole message and the other files it changed.
   - **Branches**: click the branch in the status bar (or in Source control) to switch, make a new one, merge one in or delete one. If switching would lose changes, Ledger offers to stash them first.
   - **Stashes**: put changes aside (Source control's ⋯ menu, or **Git: stash changes**) and click one in the Stashes list to pop it back, apply it, see what's in it or drop it.
   - **Merge conflicts**: each conflict gets **Keep yours**, **Keep theirs**, **Keep both** and **Compare** above it, with the two sides tinted; Alt F7 goes to the next one. Source control shows the merge in progress: which files still have conflicts, **Stage the resolved files** and **Abort the merge**, with Git's merge message ready in the commit box. Ledger won't commit a file that still has conflict markers without asking, and **Commit all** asks before adding files Git doesn't track yet.
   - **Blame**: the cursor's line shows who last changed it, when, and the commit message, faintly at its end; click it to see what that commit changed. **Git: blame on/off**, or Settings › Git.
 - **Dependencies**: in Cargo.toml and .csproj files, the newest version of each package shows at the end of its line; click it to update.
 - **Snippets**: your own, per language, in snippets.json (Settings › Editing › Edit snippets).
-- **Tabs**: clicking through files in the explorer reuses one preview tab (in italics) until you edit, save or pin it. Right-click a tab to pin it, or to close the saved tabs or all of them.
+- **Tabs**: clicking through files in the explorer reuses one preview tab (in italics) until you edit, save or pin it. Diffs, the CSV table and the hex view open the same way. Right-click a tab to pin it, copy its path, show it in the explorer, open it to the side, or close the tabs to its right, the saved ones or all of them.
 - **File icons** for every kind of file and common folders (Material Icon Theme; Settings › Appearance turns them off).
 - **Installing languages**: Settings › Languages installs Node.js, Lua, Rust, the .NET SDK, Git, Lust and the language servers with one click.
 - **Explorer menu**: "Open with Ledger" when you right-click a file or folder in Windows (Settings › Windows turns it off).
@@ -105,7 +106,7 @@ You can launch Ledger the same way from a terminal: `Ledger.exe C:\Games\MyGame 
 
 ## Keyboard
 
-Every command is in the command list (Ctrl Shift P or F1) with its shortcut. Change any of them in Settings › Keyboard shortcuts. The editor's own keys (Ctrl F, Ctrl Z, Ctrl D, Ctrl / and the like) are fixed.
+Every command is in the command list (Ctrl Shift P or F1) with its shortcut. Change any of them in Settings › Keyboard shortcuts. The editor's own keys (Ctrl Z, Ctrl D, Ctrl / and the like) are fixed. Settings has a search box at the top.
 
 | Key | Does |
 | --- | --- |
@@ -113,7 +114,12 @@ Every command is in the command list (Ctrl Shift P or F1) with its shortcut. Cha
 | Ctrl E | Go to file |
 | Ctrl T | New terminal |
 | Ctrl Shift P, F1 | All commands |
-| Ctrl Shift F | Search in files |
+| Ctrl Shift F / Ctrl Shift H | Search / replace in files |
+| Ctrl F / Ctrl H | Find / replace in this file |
+| Ctrl L | Select the line |
+| Ctrl Shift L | Select every match of the selection |
+| Ctrl Alt Up / Down | Add a cursor above / below |
+| Ctrl Shift Enter | New line above |
 | Ctrl G | Go to line |
 | F6 / Shift F6 | Move between explorer, editor, panel and status bar |
 | Ctrl Shift E | Explorer (arrows move, Right/Left open/close folders, Enter opens, a click or Space shows the file in a preview tab and stays in the explorer, F2 renames, Delete recycles, Shift F10 menu, type to jump) |
@@ -214,7 +220,10 @@ With `set VITE_DEBUG=1` first, the app's console output also shows in the termin
 ```
 index.html            the window: explorer, tabs, editor, settings page, panel, status bar
 src/main.js           editor, split panes, explorer, tabs, palette, tasks, keyboard commands, Godot launch handling
-src/nav.js            references, outline, symbol search, parameter hints, Run/Debug links
+src/nav.js            references, outline (Markdown headings too), symbol search, parameter hints, Run/Debug links
+src/search.js         the Search view: search and replace in files
+src/findbar.js        the find and replace bar in the editor
+src/editcmds.js       editing commands: select line, add cursors, sort lines, change case and more
 src/editorx.js        bracket colours, indent guides, sticky scroll
 src/terminal.js       the terminal panel (xterm.js)
 src/git.js            git status, change bars, diff page, Source control view, branches, stashes
