@@ -321,7 +321,6 @@ export function settingsHtml() {
 
     <section aria-labelledby="sKeys"><h2 id="sKeys">Keyboard shortcuts</h2>
       <p class="hint">Select a shortcut and press Enter, then press the new keys. Esc cancels, Backspace removes the shortcut. On keyboards where AltGr types characters (Norwegian, Polish, German…), Ctrl Alt with a letter that AltGr uses types that character instead of running the shortcut; give such a command another key here.</p>
-      <input type="search" id="sKeyFilter" class="kfilter" placeholder="Filter shortcuts" value="${esc(filter)}" aria-label="Filter shortcuts">
       <div class="ktable" role="list">${cmds.map((c) => {
         const keys = km.keysFor(c.id), changed = c.id in settings.keys, rec = recording === c.id;
         const clash = keys.flatMap((k) => km.conflicts(k, c.id)).map((id) => km.cmds.get(id)?.title).filter(Boolean);
@@ -338,7 +337,11 @@ export function settingsHtml() {
   </div>`;
 }
 
-export function wireSettings(root, rerender) {
+export function wireSettings(root, redraw) {
+  // Redrawing removes the focused shortcut button, which fires focusout: that mustn't count as
+  // "you clicked away", or recording stops the moment it starts.
+  let painting = false;
+  const rerender = (keep) => { painting = true; try { redraw(keep); } finally { painting = false; } };
   const refocus = (sel) => requestAnimationFrame(() => root.querySelector(sel)?.focus());
 
   root.onchange = (ev) => {
@@ -452,6 +455,6 @@ export function wireSettings(root, rerender) {
     refocus(`[data-rec="${CSS.escape(id)}"]`);
   }, true);
   root.addEventListener("focusout", (ev) => {
-    if (recording && ev.target.closest?.("[data-rec]") && !root.contains(ev.relatedTarget)) { recording = null; rerender(true); }
+    if (!painting && recording && ev.target.closest?.("[data-rec]") && !root.contains(ev.relatedTarget)) { recording = null; rerender(true); }
   });
 }

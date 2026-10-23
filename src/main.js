@@ -761,7 +761,7 @@ function reconfigureExtras() {
 // indentation is on, otherwise the tab size setting. The status bar shows it; click to change it.
 function detectIndent(text) {
   const deltas = new Map();
-  let tabs = 0, spaced = 0, prev = 0;
+  let tabs = 0, spaced = 0, prev = 0, ind = 0;
   for (const line of text.split("\n", 3000)) {
     const m = /^([ \t]*)\S/.exec(line);
     if (!m) continue;
@@ -769,6 +769,7 @@ function detectIndent(text) {
     if (ws.startsWith("\t")) { tabs++; continue; }
     if (/^ +$/.test(ws) || !ws) {
       const n = ws.length, d = n - prev;
+      if (n) ind++;
       if (d > 0 && d <= 8) { spaced++; deltas.set(d, (deltas.get(d) || 0) + 1); }
       prev = n;
     }
@@ -776,7 +777,8 @@ function detectIndent(text) {
   if (tabs > spaced && tabs >= 2) return { tabs: true, size: settings.tabSize };
   // A block comment's " * " lines step by 1: not an indent.
   const best = [...deltas].filter(([d]) => d >= 2).sort((a, b) => b[1] - a[1])[0];
-  return best && best[1] >= 2 ? { tabs: false, size: best[0] } : null;
+  // Most steps agree; a flat file (JSON, YAML) steps in only once, but then many lines sit at that depth.
+  return best && (best[1] >= 2 || ind >= 2) ? { tabs: false, size: best[0] } : null;
 }
 const indentOf = (b) => (b?.indentSet || (settings.detectIndent !== false && b?.indent)) || { tabs: false, size: settings.tabSize };
 const cfgExt = (b) => {
@@ -1754,7 +1756,8 @@ $("tree").addEventListener("click", (ev) => {
     S.sel = p; S.selDir = false;
     // The second click of a double-click: the row was redrawn in between, so no dblclick event
     // arrives; the click count says it. Keep the tab and go to the editor.
-    if (ev.detail >= 2) { openFile(p).then((ok) => { if (ok && S.active === p) { keepTab(p); if (S.bufs.get(p)) view.focus(); } }); return; }
+    // (An image or a binary file shows in an @img: or @hex: tab, so keep whichever tab is in front.)
+    if (ev.detail >= 2) { openFile(p).then((ok) => { if (ok && S.active) { keepTab(S.active); if (S.bufs.get(S.active)) view.focus(); } }); return; }
     openFile(p, null, { keepFocus: true, preview: true }).then(() => { const n = $("tree").querySelector(`[data-file="${CSS.escape(p)}"]`); if (n) moveCursor(n); });
   }
 });
@@ -1933,7 +1936,11 @@ $("tabs").addEventListener("click", (ev) => {
   const x = ev.target.closest("[data-close]");
   if (x) { ev.stopPropagation(); closeTab(x.dataset.close); return; }
   const t2 = ev.target.closest("[data-tab]");
-  if (t2) activate(t2.dataset.tab);
+  if (!t2) return;
+  // A double-click keeps a preview tab. The tabs are redrawn after the first click, so the
+  // dblclick event never arrives; the click count says it.
+  if (ev.detail >= 2) { keepTab(t2.dataset.tab); return; }
+  activate(t2.dataset.tab);
 });
 // The mouse wheel scrolls the tab bar sideways when the tabs don't fit.
 $("tabs").addEventListener("wheel", (ev) => { const t = $("tabs"); if (t.scrollWidth > t.clientWidth && Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) { t.scrollLeft += ev.deltaY; ev.preventDefault(); } }, { passive: false });
@@ -2282,7 +2289,7 @@ async function startSteps(steps, onDone, onFail) {
   startStep(steps[0]);
 }
 async function startStep(step) {
-  const cwd = step.cwd || S.ctx?.dir || S.root || parent(settingsFile);
+  const cwd = step.install ? "" : step.cwd || S.ctx?.dir || S.root || parent(settingsFile); // installs run in your home folder
   S.running = true;
   S.runStart = performance.now();
   S.runLabel = step.label;
@@ -2290,11 +2297,11 @@ async function startStep(step) {
   S.runInput = !!step.input;
   const show = (a) => (a === cwd ? "." : isAbs(a) && isUnder(norm(a), cwd) ? norm(a).slice(cwd.length + 1) : a);
   const shown = `${step.godot ? base(norm(step.program)) : step.program} ${step.args.map(show).join(" ")}`;
-  appendOut(`<span class="cmd">$ ${esc(shown)}${cwd !== S.root ? `   <span class="where">in ${esc(S.root && isUnder(cwd, S.root) ? rel(cwd) : cwd)}</span>` : ""}</span>`);
+  appendOut(`<span class="cmd">$ ${esc(shown)}${cwd && cwd !== S.root ? `   <span class="where">in ${esc(S.root && isUnder(cwd, S.root) ? rel(cwd) : cwd)}</span>` : ""}</span>`);
   renderStatus();
   const run = ++S.runSeq;
   S.run = run; // set before starting, so events from an older run are ignored
-  try { await invoke("run_task", { run, root: cwd, program: step.program, args: step.args, scaffold: !!step.scaffold }); }
+  try { await invoke("run_task", { run, root: cwd, program: step.program, args: step.args, install: !!step.install }); }
   catch (e) {
     S.running = false; S.runInput = false;
     // A restricted folder: ask, and go on from this step if the answer is yes.
@@ -2963,10 +2970,11 @@ C("view.wrap", "Toggle word wrap (long lines wrap onto the next line)", "Alt+Z",
 C("tab.pin", "Pin or unpin this tab", [], () => togglePin());
 C("tab.closeSaved", "Close saved tabs (unsaved and pinned stay)", [], () => closeSavedTabs());
 C("tab.closeAll", "Close all tabs (asks about unsaved ones)", [], () => closeAllTabs());
-C("trust.toggle", "Trust this folder, or go back to restricted mode", [], () => {
+C("trust.toggle", "Trust this folder, or go back to restricted mode", [], async () => {
   if (!S.root) return;
   const yes = !trusted();
-  setTrust(S.root, yes);
+  if (yes && !(await askTrust(S.root, true))) return; // asks, with restricted mode as the default
+  if (!yes) setTrust(S.root, false);
   toast(yes ? `${base(S.root)} is trusted: its code can run (Run, Build, Test, Debug, Rust, C# and Lua analysis).` : `${base(S.root)} is in restricted mode: none of its code runs.`, 5000);
 });
 C("file.eol", "Change line endings (CRLF or LF)", [], async () => {
@@ -3168,7 +3176,7 @@ function setTrust(root, yes) {
 }
 async function askTrust(path, force) {
   if (!path || (!force && (prefs.trust || {})[path] !== undefined) || (!force && !hasProjectCode())) return trusted();
-  const c = await choose(`Do you trust the code in ${base(path)}? Trusting lets Ledger run it: Run, Build, Test and Debug, Rust, C# and Lua analysis, and the project's own Tailwind and Prettier. Without trust the folder opens in restricted mode: you can read, edit, search and commit, but none of its code runs. Trust only folders whose code you'd run yourself.`, ["Trust it", "Stay in restricted mode"]);
+  const c = await choose(`Do you trust the code in ${base(path)}? Trusting lets Ledger run it: Run, Build, Test and Debug, Rust, C# and Lua analysis, and the project's own Tailwind and Prettier. Without trust the folder opens in restricted mode: you can read, edit, search and commit, but none of its code runs. Trust only folders whose code you'd run yourself.`, ["Stay in restricted mode", "Trust it"]); // the safe answer is the one Enter picks
   if (c === "Trust it" || c === "Stay in restricted mode") setTrust(path, c === "Trust it");
   return trusted();
 }
@@ -3337,21 +3345,25 @@ async function newProject() {
   // the Lust you have (and lust new gets built programs ready on this PC).
   if ((kind === "lust" || kind === "lust-app") && (await invoke("tool_info", { name: settings.lust || "lust" }).catch(() => null))) {
     const at = join(dir, name);
-    startSteps([{ label: "lust new", program: settings.lust || "lust", args: ["new", name, ...(kind === "lust-app" ? ["app"] : [])], cwd: dir, scaffold: true }],
+    startSteps([{ label: "lust new", program: settings.lust || "lust", args: ["new", name, ...(kind === "lust-app" ? ["app"] : [])], cwd: dir }],
       () => openNewProject(at, "main.lst", null));
     return;
   }
   const MAIN = { lust: "main.lst", "lust-app": "main.lst", lustscript: "main.lsc", rust: "src/main.rs", "rust-lib": "src/lib.rs", console: "Program.cs", classlib: "Class1.cs", web: "index.html", node: "index.js", lua: "main.lua" };
   const plain = !["rust", "rust-lib", "console", "classlib"].includes(kind); // no language server to start
   try {
-    const p = norm(await invoke("new_project", { parent: dir, name, kind }));
-    await openNewProject(p, MAIN[kind], plain ? null : kind.startsWith("rust") ? "rust" : "csharp");
-  } catch (e) { toast(String(e), 6000); }
+    const make = () => invoke("new_project", { parent: dir, name, kind });
+    let p;
+    try { p = await make(); }
+    catch (e) { if (!isUntrustedError(e) || !(await ensureTrusted("Making a project inside this folder"))) throw e; p = await make(); }
+    await openNewProject(norm(p), MAIN[kind], plain ? null : kind.startsWith("rust") ? "rust" : "csharp");
+  } catch (e) { if (!isUntrustedError(e)) toast(String(e), 6000); }
 }
 // Opens a project that was just made: inside the open folder, or as the folder.
 async function openNewProject(p, main, server) {
-  prefs.trust = { ...(prefs.trust || {}), [p]: true }; // made here, so its code is yours
-  savePrefs();
+  // Made here, so its code is yours; but not inside a folder you haven't trusted, whose settings
+  // (.cargo/config, Directory.Build.*) apply to it too.
+  if (!(S.root && isUnder(p, S.root) && !trusted())) { prefs.trust = { ...(prefs.trust || {}), [p]: true }; savePrefs(); }
   if (S.root && isUnder(p, S.root)) {
     await revealInTree(join(p, main));
     S.open.add(p);
@@ -3369,7 +3381,7 @@ async function openNewProject(p, main, server) {
 async function newWebProject(o) {
   const at = join(o.dir, o.name);
   if ((await invoke("file_stats", { paths: [at] }).catch(() => [null]))[0] != null) { toast(`There's already something called ${o.name} there.`); return; }
-  const steps = createSteps(o).map((s) => ({ ...s, scaffold: true })); // making a project, not running one
+  const steps = createSteps(o);
   if (!(await haveTools(steps, () => newWebProject(o)))) return;
   startSteps(steps, async () => {
     try {
@@ -3499,7 +3511,7 @@ async function boot() {
   initSettings({
     keymap, apply: applySetting, toast, choose, appName: APP_NAME,
     // Installing tools (winget, npm -g, cargo install) runs no project code.
-    runTask: (program, args, label, done, fail) => startSteps([{ label, program, args, scaffold: true }], done, fail),
+    runTask: (program, args, label, done, fail) => startSteps([{ label, program, args, install: true }], done, fail),
     restartServer: (id) => (S.root ? startServer(id) : toast("Open a folder first.")),
     stopServer: (id) => servers[id].stop(),
     openFile: (p) => openFile(norm(p)),

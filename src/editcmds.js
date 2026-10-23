@@ -3,7 +3,7 @@
 // (Ctrl Alt Up/Down), a new line above (Ctrl Shift Enter), and in the command list: sort lines,
 // upper and lower case, trim trailing spaces, fold and unfold all, indent and outdent, and more.
 import { EditorSelection } from "@codemirror/state";
-import { selectLine, indentMore, indentLess, toggleComment, copyLineDown, deleteLine, moveLineUp, moveLineDown } from "@codemirror/commands";
+import { indentMore, indentLess, toggleComment, copyLineDown, deleteLine, moveLineUp, moveLineDown } from "@codemirror/commands";
 import { selectSelectionMatches, openSearchPanel } from "@codemirror/search";
 import { openReplace } from "./findbar.js";
 import { foldAll, unfoldAll, indentUnit, getIndentation } from "@codemirror/language";
@@ -52,7 +52,16 @@ export function initEditCommands(app) {
 
   app.command("editor.find", "Find in this file", "Ctrl+F", () => { const v = app.view; if (v && app.S.bufs.has(app.S.active)) openSearchPanel(v); });
   app.command("editor.replace", "Replace in this file", "Ctrl+H", () => { const v = app.view; if (v && app.S.bufs.has(app.S.active)) openReplace(v); });
-  C("editor.selectLine", "Select the line (again: the next one too)", "Ctrl+L", selectLine);
+  // Like VS Code: the whole line with its line break, and each press takes in the next line too.
+  const selectLines = (v) => {
+    const st = v.state, len = st.doc.length;
+    v.dispatch({ selection: EditorSelection.create(st.selection.ranges.map((r) => {
+      const from = st.doc.lineAt(r.from).from, line = st.doc.lineAt(r.to);
+      const to = !r.empty && r.to === line.from && r.from === from ? Math.min(line.to + 1, len) : Math.min(st.doc.lineAt(r.to).to + 1, len);
+      return EditorSelection.range(from, to);
+    }), st.selection.mainIndex), scrollIntoView: true, userEvent: "select" });
+  };
+  C("editor.selectLine", "Select the line (again: the next one too)", "Ctrl+L", selectLines);
   C("editor.selectAllMatches", "Select every match of the selection", "Ctrl+Shift+L", selectSelectionMatches, "multiple cursors occurrences");
   C("editor.cursorAbove", "Add a cursor above", "Ctrl+Alt+Up", addCursor(-1), "multiple cursors column");
   C("editor.cursorBelow", "Add a cursor below", "Ctrl+Alt+Down", addCursor(1), "multiple cursors column");

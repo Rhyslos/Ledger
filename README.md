@@ -194,9 +194,10 @@ Opening a downloaded project shouldn't run its code. The first time Ledger opens
 - Run, Build, Test and Debug ask for trust first, since they run the project's code.
 - Rust, C# and Lua analysis wait: rust-analyzer runs build scripts and reads the project's `.cargo/config`, csharp-ls runs MSBuild, and the Lua server loads plugins.
 - The project's own Tailwind and Prettier aren't used (Ledger's built-in Prettier is).
-- Git runs with the repository's hooks switched off, and not at all if the repository's settings would start other programs (filters, textconv, includes and the like).
+- Git runs with the repository's hooks switched off and only ordinary remotes allowed, and not at all if the repository's settings hold anything other than plain data (filters, textconv, includes, pagers, credential helpers and the like). Ledger asks Git itself for those settings, so worktrees and unusual layouts are read the way Git reads them.
+- Making a project inside the folder asks for trust too, since `dotnet new` and `npm create` read the folder's settings. Installing tools from Settings always runs in your home folder.
 
-Lust checking works in restricted mode, since `lust check` only reads the code. Projects you make in Ledger are trusted. **Trust this folder, or go back to restricted mode** in the command list changes your answer. Ledger's backend enforces all this (src-tauri/src/trust.rs), not just the interface.
+Lust checking works in restricted mode, since `lust check` only reads the code. Projects you make in Ledger are trusted, unless you make them inside a folder you haven't trusted. **Trust this folder, or go back to restricted mode** in the command list changes your answer. Ledger's backend enforces all this (src-tauri/src/trust.rs), not just the interface.
 
 ## Things to know
 

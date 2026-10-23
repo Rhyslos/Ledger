@@ -420,7 +420,7 @@ export function initTests(app) {
       { label: "dotnet add reference", program: "dotnet", args: ["add", testCsproj, "reference", proj], cwd: where },
       ...(sln ? [{ label: "dotnet sln add", program: "dotnet", args: ["sln", sln, "add", testCsproj], cwd: where }] : []),
     ];
-    app.startSteps(steps.map((s) => ({ ...s, scaffold: true })), async () => { await app.refreshTree(); await app.loadFiles(true); framework = "xunit"; make(testCsproj); });
+    app.startSteps(steps, async () => { await app.refreshTree(); await app.loadFiles(true); framework = "xunit"; make(testCsproj); });
   }
   async function lustTest(path) {
     const lust = app.settings.lust || "lust";
