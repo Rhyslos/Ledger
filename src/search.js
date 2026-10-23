@@ -18,6 +18,8 @@ export function initSearch(app) {
     const r = st.res;
     const groups = new Map();
     for (const h of r?.hits || []) { const p = norm(h.path); if (!groups.has(p)) groups.set(p, []); groups.get(p).push(h); }
+    // Hover buttons on a file or a match: replace just that, or drop it from the list.
+    const acts = (repl, drop) => `<span class="sacts">${st.showRepl ? `<span class="ga" data-sx="repl" title="${repl}" aria-hidden="true">⇄</span>` : ""}<span class="ga" data-sx="drop" title="${drop}" aria-hidden="true">×</span></span>`;
     const toggle = (id, on, label, title) => `<button class="stog${on ? " on" : ""}" id="${id}" aria-pressed="${on}" title="${title}">${label}</button>`;
     box.innerHTML = `<div class="sform">
         <div class="srow1"><button class="ibtn sexp" id="srShowRepl" aria-expanded="${st.showRepl}" title="Replace">${st.showRepl ? "▾" : "▸"}</button>
@@ -30,11 +32,11 @@ export function initSearch(app) {
       <div class="ssum">${st.busy ? "Searching…" : st.err ? `<span class="bad">${esc(st.err)}</span>` : r ? (r.hits.length ? `${r.hits.length}${r.truncated ? "+" : ""} result${r.hits.length === 1 ? "" : "s"} in ${groups.size} file${groups.size === 1 ? "" : "s"}${r.truncated ? " (the first 5000)" : ""}` : "No results.") : S.root ? "" : "Open a folder to search in it."}</div>
       <div class="sres" role="tree">${[...groups].map(([p, hs]) => {
         const shut = st.collapsed.has(p);
-        return `<div class="sfile${shut ? " shut" : ""}" data-sp="${esc(p)}" role="treeitem" aria-expanded="${!shut}" tabindex="-1" title="${esc(rel(p))}">${app.fileIcon(p)}<span class="lbl">${esc(app.base(p))}</span><span class="sub">${esc(rel(p).slice(0, -app.base(p).length).replace(/\/$/, ""))}</span><span class="tcount">${hs.length}</span></div>`
+        return `<div class="sfile${shut ? " shut" : ""}" data-sp="${esc(p)}" role="treeitem" aria-expanded="${!shut}" tabindex="-1" title="${esc(rel(p))}">${app.fileIcon(p)}<span class="lbl">${esc(app.base(p))}</span><span class="sub">${esc(rel(p).slice(0, -app.base(p).length).replace(/\/$/, ""))}</span>${acts("Replace in this file", "Leave this file out of the results")}<span class="tcount">${hs.length}</span></div>`
           + (shut ? "" : hs.map((h) => {
             const t = h.text, a = Math.max(0, h.col - 40);
             const pre = (a > 0 ? "…" : "") + t.slice(a, h.col).replace(/^\s+/, ""), mid = t.slice(h.col, h.col + h.len), post = t.slice(h.col + h.len, h.col + h.len + 120);
-            return `<div class="shit" role="treeitem" tabindex="-1" data-sp="${esc(p)}" data-sl="${h.line}" data-sc="${h.col}" data-sn="${h.len}"><span class="sln">${h.line + 1}</span><span class="stx">${esc(pre)}<mark>${esc(mid)}</mark>${st.showRepl && st.repl !== "" ? `<ins>${esc(previewRepl(mid))}</ins>` : ""}${esc(post)}</span></div>`;
+            return `<div class="shit" role="treeitem" tabindex="-1" data-sp="${esc(p)}" data-sl="${h.line}" data-sc="${h.col}" data-sn="${h.len}">${acts("Replace this match", "Leave this match out")}<span class="sln">${h.line + 1}</span><span class="stx">${esc(pre)}<mark>${esc(mid)}</mark>${st.showRepl && st.repl !== "" ? `<ins>${esc(previewRepl(mid))}</ins>` : ""}${esc(post)}</span></div>`;
           }).join(""));
       }).join("")}</div>`;
     // The results are one Tab stop (arrows move inside), so the keyboard can reach them.
@@ -105,11 +107,11 @@ export function initSearch(app) {
   }
   // Replaces exactly the matches listed in the results, nothing the list didn't show: a pattern
   // like [^;]* can't run on past the end of its line.
-  async function replaceAll() {
-    const r = st.res;
+  async function replaceAll(only) {
+    const r = only ? { hits: only } : st.res;
     if (!r?.hits.length) return;
     const files = [...new Set(r.hits.map((h) => norm(h.path)))];
-    const c = await app.choose(`Replace ${r.hits.length} match${r.hits.length === 1 ? "" : "es"} in ${files.length} file${files.length === 1 ? "" : "s"} with “${st.repl}”? Open files change in the editor (undo works); the others are saved right away, with their old text kept in Local history.`, ["Replace all", "Cancel"]);
+    const c = only ? "Replace all" : await app.choose(`Replace ${r.hits.length} match${r.hits.length === 1 ? "" : "es"} in ${files.length} file${files.length === 1 ? "" : "s"} with “${st.repl}”? Open files change in the editor (undo works); the others are saved right away, with their old text kept in Local history.`, ["Replace all", "Cancel"]);
     if (c !== "Replace all") return;
     let rep;
     try { rep = replacer(); } catch (e) { toast(String(e)); return; }
@@ -155,7 +157,13 @@ export function initSearch(app) {
   box?.addEventListener("input", (e) => {
     const id = e.target.id;
     if (id === "srQ") { st.q = e.target.value; soon(); }
-    else if (id === "srR") { st.repl = e.target.value; remember(); draw(true); }
+    else if (id === "srR") {
+      const had = st.repl !== "";
+      st.repl = e.target.value; remember();
+      // Only the previews change: update them in place rather than redrawing thousands of rows.
+      if (had && st.repl !== "") for (const row of box.querySelectorAll(".shit")) { const ins = row.querySelector("ins"), m = row.querySelector("mark"); if (ins && m) ins.textContent = previewRepl(m.textContent); }
+      else draw(true);
+    }
     else if (id === "srInc") { st.inc = e.target.value; soon(); }
     else if (id === "srExc") { st.exc = e.target.value; soon(); }
   });
@@ -166,16 +174,25 @@ export function initSearch(app) {
     if (b?.id === "srRe") { st.regex = !st.regex; search(); return; }
     if (b?.id === "srShowRepl") { st.showRepl = !st.showRepl; remember(); draw(); if (st.showRepl) document.getElementById("srR")?.focus(); return; }
     if (b?.id === "srAll") { replaceAll(); return; }
+    const x = e.target.closest("[data-sx]");
+    if (x && st.res) {
+      const row = x.closest(".sfile, .shit"), p = row.dataset.sp;
+      const mine = row.matches(".sfile") ? (h) => norm(h.path) === p : (h) => norm(h.path) === p && h.line === +row.dataset.sl && h.col === +row.dataset.sc;
+      const picked = st.res.hits.filter(mine);
+      if (x.dataset.sx === "drop") { st.res = { ...st.res, hits: st.res.hits.filter((h) => !mine(h)) }; draw(); }
+      else replaceAll(picked);
+      return;
+    }
     const f = e.target.closest(".sfile");
     if (f) { const p = f.dataset.sp; st.collapsed.has(p) ? st.collapsed.delete(p) : st.collapsed.add(p); draw(); return; }
     const h = e.target.closest(".shit");
-    if (h) go(h);
+    if (h) { go(h); if (e.detail >= 2) app.keepTab?.(h.dataset.sp); } // a double-click keeps the tab
   });
   function go(h) {
     const line = +h.dataset.sl, col = +h.dataset.sc, len = +h.dataset.sn;
     box.querySelectorAll(".shit.on").forEach((x) => x.classList.remove("on"));
     h.classList.add("on");
-    app.openFile(h.dataset.sp, { line, character: col }, { keepFocus: true }).then(() => {
+    app.openFile(h.dataset.sp, { line, character: col }, { keepFocus: true, preview: true }).then(() => {
       const v = app.view, b = S.bufs.get(h.dataset.sp);
       if (!v || !b) return;
       const from = Math.min(v.state.doc.line(Math.min(line + 1, v.state.doc.lines)).from + col, v.state.doc.length);

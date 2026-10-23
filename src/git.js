@@ -297,12 +297,18 @@ export function initGit(app) {
     if (mvKey === key && el.querySelector(".cm-mergeView")) return;
     mv?.destroy();
     mvKey = key;
+    // Nothing differs (just committed, or changed back): say so rather than show two empty sides.
+    if (d.left === d.right) {
+      mv = null;
+      el.innerHTML = `<div class="diffhead"><b>${esc(d.title)}</b><span class="sp"></span>${S.root && d.path ? '<button class="btn" data-dact="open">Open file</button>' : ""}</div><p class="empty" style="padding:20px">${d.live ? "No changes since the last commit." : "These two are the same."}</p>`;
+      return;
+    }
     el.innerHTML = `<div class="diffhead"><b>${esc(d.title)}</b><span class="sp"></span><span class="hint">${esc(d.leftLabel)} ↔ ${esc(d.rightLabel)} · F7 / Shift F7 next and previous change</span><button class="btn" data-dact="prev">Previous</button><button class="btn" data-dact="next">Next</button>${(d.actions || []).map((a, i) => `<button class="btn primary" data-dact="x${i}">${esc(a.label)}</button>`).join("")}${S.root && d.path ? '<button class="btn" data-dact="open">Open file</button>' : ""}</div>${d.info ? `<details class="diffinfo" open><summary>${esc(d.info.head)}<button class="ibtn" data-dact="copySha" title="Copy the commit's id" aria-label="Copy the commit's id">⧉</button></summary>${d.info.body ? `<pre>${esc(d.info.body)}</pre>` : ""}${d.info.files.length > 1 ? `<div class="difffiles"><span class="hint">${d.info.files.length} files:</span> ${d.info.files.map((f, i) => `<button class="glink${f.on ? " on" : ""}" data-dact="f${i}"><span class="gs ${esc(f.st)}">${esc(f.st)}</span> ${esc(f.label)}</button>`).join("")}</div>` : ""}</details>` : ""}<div class="diffbody"></div>`;
     mv = new MergeView({
       a: { doc: d.left, extensions: sideExt(d.path) },
       b: { doc: d.right, extensions: sideExt(d.path) },
       parent: el.querySelector(".diffbody"),
-      gutter: true, highlightChanges: true, collapseUnchanged: { margin: 3, minSize: 6 },
+      gutter: true, highlightChanges: !d.added, collapseUnchanged: { margin: 3, minSize: 6 },
     });
     requestAnimationFrame(() => {
       const v = mv.b;
@@ -313,6 +319,7 @@ export function initGit(app) {
   }
   $("diff").addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-dact]");
+    if (b?.dataset.dact === "open" && !mv) { const d = diffs.get(mvKey); if (d?.path) app.openFile(d.path); return; }
     if (!b || !mv) return;
     const a = b.dataset.dact;
     if (a === "next") { goToNextChunk(mv.b); mv.b.focus(); }
@@ -383,8 +390,8 @@ export function initGit(app) {
       <div class="sec"><h3 style="text-transform:none;letter-spacing:0;font-size:12.5px"><button class="gbranch" data-gact="branch" id="gBranch" title="Switch branch, or make a new one">${esc(G.branch === "(detached)" ? G.oid.slice(0, 7) : G.branch)} ▾</button> <span>${G.upstream ? esc(G.upstream) : "not pushed yet"}${G.ahead ? ` · ${G.ahead} to push` : ""}${G.behind ? ` · ${G.behind} to pull` : ""}</span></h3>
         <div class="commit">
           <textarea id="commitMsg" placeholder="Commit message (Ctrl Enter commits)" spellcheck="true" aria-label="Commit message">${esc(msg)}</textarea>
-          <div class="bar"><button class="btn primary" data-gact="commit" id="gCommit">Commit${st.length ? "" : un.length ? " all" : ""}</button><button class="btn" data-gact="pull" id="gPull">Pull</button><button class="btn" data-gact="push" id="gPush">Push</button><button class="btn plain" data-gact="more" id="gMore" title="Branches and stashes" aria-label="Branches and stashes">⋯</button><button class="btn plain" data-gact="refresh" id="gRefresh" title="Refresh">↻</button></div>
-          ${G.busy ? `<div class="hint spin">${esc(G.busy)}…</div>` : !st.length && un.length ? '<div class="hint">Nothing is staged, so Commit all includes every change below.</div>' : ""}
+          <div class="bar"><button class="btn primary" data-gact="commit" id="gCommit">${G.merging ? "Commit merge" : `Commit${st.length ? "" : un.length ? " all" : ""}`}</button><button class="btn" data-gact="pull" id="gPull">Pull</button><button class="btn" data-gact="push" id="gPush">Push</button><button class="btn plain" data-gact="more" id="gMore" title="Branches and stashes" aria-label="Branches and stashes">⋯</button><button class="btn plain" data-gact="refresh" id="gRefresh" title="Refresh">↻</button></div>
+          ${G.busy ? `<div class="hint spin">${esc(G.busy)}…</div>` : G.merging ? `<div class="hint">${(G.conflicts || []).some((x) => x.left) ? "Resolve and stage each conflicted file, then Commit merge finishes the merge." : "Commit merge finishes the merge."}</div>` : !st.length && un.length ? '<div class="hint">Nothing is staged, so Commit all includes every change below.</div>' : ""}
         </div>
       </div>
       ${st.length ? `<div class="sec"><h3>Staged <span>${st.length}</span></h3><div class="rows" role="tree">${st.map(([p, s]) => fileRow(p, s, "staged", i++)).join("")}</div></div>` : ""}
@@ -438,7 +445,8 @@ export function initGit(app) {
     await refresh();
     const any = [...G.files.values()];
     if (!any.length && !G.merging) { app.toast("Nothing to commit: no changes since the last commit."); return; }
-    if (!msg) { app.toast("Write a commit message first."); app.showSideView("git"); $("commitMsg")?.focus(); return; }
+    // A merge has its own message ("Merge branch 'x'") when you don't write one.
+    if (!msg && !G.merging) { app.toast("Write a commit message first."); app.showSideView("git"); $("commitMsg")?.focus(); return; }
     // Never commit a file with conflict markers still in it.
     const left = (G.conflicts || []).filter((x) => x.left);
     const marked = [];
@@ -462,8 +470,8 @@ export function initGit(app) {
       const r = await op("Staging", args);
       if (!r || r.code !== 0) return;
     }
-    const r = await op("Committing", ["commit", "-m", msg]);
-    if (r?.code === 0) { G.draft = ""; if ($("commitMsg")) $("commitMsg").value = ""; app.toast("Committed: " + msg.split("\n")[0]); renderView(); }
+    const r = await op("Committing", msg ? ["commit", "-m", msg] : ["commit", "--no-edit"]);
+    if (r?.code === 0) { G.draft = ""; if ($("commitMsg")) $("commitMsg").value = ""; app.toast("Committed: " + (msg.split("\n")[0] || "the merge")); renderView(); }
   }
   async function pull() {
     if (!G.upstream) {
@@ -626,15 +634,18 @@ export function initGit(app) {
     if (!G.ok) { app.toast("This folder isn't a Git repository."); return; }
     const { local, remote } = await refs();
     const rows = [
-      { label: "+ New branch from here…", run: newBranch },
+      { label: "+ New branch from here…", run: () => newBranch() },
       ...local.map((b) => ({ label: `${b.name}${b.current ? "  (current)" : ""}  ·  ${b.when}${b.up ? "  ·  " + b.up : ""}`, run: () => (b.current ? app.toast(`Already on ${b.name}.`) : switchTo(b.name)) })),
       ...remote.map((b) => ({ label: `${b.name}  ·  ${b.when}  ·  remote`, run: () => switchTo(b.name.slice(b.name.indexOf("/") + 1)) })),
     ];
-    const i = await app.choose("Switch branch (type to find one)", rows.map((x) => x.label), true, { filter: true });
-    if (i != null && i >= 0) rows[i].run();
+    // Typing a name that isn't a branch offers to make it (spaces become dashes).
+    const i = await app.choose("Switch branch (type to find one, or a new name)", rows.map((x) => x.label), true, { filter: true, create: (t) => `+ Create branch "${t.replace(/\s+/g, "-")}" from here` });
+    if (i?.create) newBranch(i.create.replace(/\s+/g, "-"));
+    else if (i != null && i >= 0) rows[i].run();
   }
-  async function newBranch() {
-    let name = "", head = "New branch name (it starts from where you are now, and you switch to it)";
+  async function newBranch(typed) {
+    let name = typed || "", head = "New branch name (it starts from where you are now, and you switch to it)";
+    if (typed && !/[\s~^:?*[\\]|\.\.|@\{|^[-/]|[/.]$|\.lock$/.test(typed)) return makeBranch(typed);
     // A name Git won't take asks again, with what you typed still there.
     for (;;) {
       name = (await app.promptText(head, name, "e.g. feature/my-change"))?.trim();
@@ -642,6 +653,9 @@ export function initGit(app) {
       if (!/[\s~^:?*[\\]|\.\.|@\{|^[-/]|[/.]$|\.lock$/.test(name)) break;
       head = "That won't work as a branch name: no spaces, and none of ~ ^ : ? * [ \\ or two dots. Try again:";
     }
+    return makeBranch(name);
+  }
+  async function makeBranch(name) {
     await app.saveAll();
     await op("Creating branch", ["switch", "-c", name], () => app.toast(`On the new branch ${name}. Your changes came along.`));
     await afterSwitch();
@@ -724,8 +738,10 @@ export function initGit(app) {
   }
   function moreMenu(x, y) {
     app.showMenu(x, y, [
+      { label: "History (commits)", run: () => app.gitLog?.() },
+      "-",
       { label: "Switch branch…", run: switchBranch },
-      { label: "New branch…", run: newBranch },
+      { label: "New branch…", run: () => newBranch() },
       { label: "Merge a branch into this one…", run: mergeBranch },
       { label: "Delete a branch…", run: deleteBranch },
       "-",
@@ -761,7 +777,7 @@ export function initGit(app) {
   C("diff.next", "Next change (in a comparison)", "F7", () => jumpChange(1));
   C("diff.prev", "Previous change (in a comparison)", "Shift+F7", () => jumpChange(-1));
   C("git.branch", "Git: switch branch", [], switchBranch);
-  C("git.branchNew", "Git: new branch", [], newBranch);
+  C("git.branchNew", "Git: new branch", [], () => newBranch());
   C("git.branchDelete", "Git: delete a branch", [], deleteBranch);
   C("git.merge", "Git: merge a branch into this one", [], mergeBranch);
   C("git.mergeAbort", "Git: abort the merge", [], () => (G.merging ? abortMerge() : app.toast("No merge in progress.")));

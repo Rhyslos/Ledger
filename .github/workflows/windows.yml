@@ -13,7 +13,7 @@ name: Windows build
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   # Pull requests are built too, so a broken build shows up before merging. Only main publishes.
   pull_request:
   workflow_dispatch:
@@ -69,7 +69,9 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - run: npm ci
+      # No install scripts: nothing in the dependency tree runs code while installing (the build
+      # tools' native parts come as their own packages and need no script).
+      - run: npm ci --ignore-scripts
 
       - name: Run the tests
         run: npm test
@@ -107,10 +109,11 @@ jobs:
 
   publish:
     needs: build
-    if: github.event_name != 'pull_request'
+    # Only builds of main become releases (and so updates): not pull requests, and not a manual
+    # run on another branch. Settings > Environments > release can require an approval too.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    # The one job that may write: it makes the release. Settings > Environments > release can
-    # require an approval before it runs.
+    # The one job that may write: it makes the release.
     environment: release
     permissions:
       contents: write
@@ -127,11 +130,20 @@ jobs:
 
       - name: Install the Tauri signer on its own
         run: |
-          v=$(node -p "require('./package-lock.json').packages['node_modules/@tauri-apps/cli'].version")
+          lock="$PWD/package-lock.json"
           mkdir -p "$RUNNER_TEMP/signer" && cd "$RUNNER_TEMP/signer"
           npm init -y > /dev/null
-          # Only Tauri's own CLI, at the exact version the project uses, and no install scripts.
-          npm install --ignore-scripts --no-audit --no-fund --save-exact "@tauri-apps/cli@$v"
+          # Only Tauri's own CLI and its Linux binary, at the versions in the lockfile, checked
+          # against the lockfile's hashes before use, and installed without install scripts.
+          for pkg in cli cli-linux-x64-gnu; do
+            entry="node_modules/@tauri-apps/$pkg"
+            v=$(node -p "require('$lock').packages['$entry'].version")
+            want=$(node -p "require('$lock').packages['$entry'].integrity")
+            file=$(npm pack --silent "@tauri-apps/$pkg@$v")
+            got="sha512-$(openssl dgst -sha512 -binary "$file" | base64 -w0)"
+            [ "$got" = "$want" ] || { echo "::error::@tauri-apps/$pkg@$v doesn't match the lockfile's hash"; exit 1; }
+          done
+          npm install --ignore-scripts --no-audit --no-fund --offline ./tauri-apps-cli-*.tgz
           echo "$RUNNER_TEMP/signer/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Sign the installer for the updater

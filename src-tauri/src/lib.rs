@@ -697,19 +697,44 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         return std::fs::write(path, bytes);
     }
     let tmp = dir.join(format!(".{name}.ledger-save-{}", std::process::id()));
-    let result = (|| {
+    let written = (|| {
         let mut f = std::fs::File::create(&tmp)?;
         f.write_all(bytes)?;
-        f.sync_all()?;
-        drop(f);
-        replace_file(path, &tmp)
+        f.sync_all()
     })();
-    if result.is_err() {
+    if written.is_err() {
+        // A folder that doesn't allow new files: the old way.
         let _ = std::fs::remove_file(&tmp);
-        // A folder that doesn't allow new files (or a share that can't replace): the old way.
         return std::fs::write(path, bytes);
     }
-    Ok(())
+    // A virus scanner or sync program holding the file makes the swap fail now and then: retry.
+    let mut result = replace_file(path, &tmp);
+    for _ in 0..4 {
+        if result.is_ok() || !path.exists() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(60));
+        result = replace_file(path, &tmp);
+    }
+    match result {
+        Ok(()) => Ok(()),
+        // The swap failed half-way (Windows can leave the old file gone and the new text only in
+        // the temporary file): move that into place rather than lose both.
+        Err(_) if !path.exists() => std::fs::rename(&tmp, path).or_else(|_| std::fs::write(path, bytes).map(|_| {
+            let _ = std::fs::remove_file(&tmp);
+        })),
+        Err(_) => {
+            // The old file is untouched: write over it the plain way, and keep the temporary copy
+            // if even that fails, so the text is somewhere on disk.
+            match std::fs::write(path, bytes) {
+                Ok(()) => {
+                    let _ = std::fs::remove_file(&tmp);
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            }
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -754,6 +779,32 @@ fn rename_path(from: String, to: String) -> Res<()> {
         return Err("Something with that name already exists.".into());
     }
     std::fs::rename(&from, &to).map_err(err)
+}
+
+/// Copies a file or a whole folder (Copy and Paste, Duplicate in the explorer). Never overwrites.
+#[tauri::command(async)]
+fn copy_path(from: String, to: String) -> Res<()> {
+    let (from, to) = (PathBuf::from(from), PathBuf::from(to));
+    if to.exists() {
+        return Err("Something with that name already exists.".into());
+    }
+    if to.starts_with(&from) {
+        return Err("A folder can't be copied into itself.".into());
+    }
+    fn go(from: &Path, to: &Path) -> std::io::Result<()> {
+        let m = std::fs::symlink_metadata(from)?;
+        if m.is_dir() {
+            std::fs::create_dir(to)?;
+            for e in std::fs::read_dir(from)? {
+                let e = e?;
+                go(&e.path(), &to.join(e.file_name()))?;
+            }
+            Ok(())
+        } else {
+            std::fs::copy(from, to).map(|_| ())
+        }
+    }
+    go(&from, &to).map_err(err)
 }
 
 /// Moves to the recycle bin rather than deleting outright.
@@ -875,10 +926,22 @@ fn globs(list: &str) -> Res<Option<globset::GlobSet>> {
 /// `exclude` names. Files .gitignore leaves out are skipped, as everywhere in Ledger.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-async fn search_files(root: String, query: String, regex: bool, case_sensitive: bool, whole_word: bool, include: String, exclude: String) -> Res<SearchResult> {
-    blocking(move || search_now(&root, &query, regex, case_sensitive, whole_word, &include, &exclude)).await?
+async fn search_files(window: tauri::WebviewWindow, root: String, query: String, regex: bool, case_sensitive: bool, whole_word: bool, include: String, exclude: String) -> Res<SearchResult> {
+    // A newer search from the same window (the next keystroke) stops this one's walk.
+    let label = window.label().to_string();
+    let gen = {
+        let mut g = SEARCHES.lock().unwrap_or_else(|e| e.into_inner());
+        let n = g.get(&label).copied().unwrap_or(0) + 1;
+        g.insert(label.clone(), n);
+        n
+    };
+    let stale = move || SEARCHES.lock().unwrap_or_else(|e| e.into_inner()).get(&label).copied() != Some(gen);
+    blocking(move || search_now(&root, &query, regex, case_sensitive, whole_word, &include, &exclude, &stale)).await?
 }
-fn search_now(root: &str, query: &str, regex: bool, case_sensitive: bool, whole_word: bool, include: &str, exclude: &str) -> Res<SearchResult> {
+static SEARCHES: std::sync::LazyLock<Mutex<HashMap<String, u64>>> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[allow(clippy::too_many_arguments)]
+fn search_now(root: &str, query: &str, regex: bool, case_sensitive: bool, whole_word: bool, include: &str, exclude: &str, stale: &dyn Fn() -> bool) -> Res<SearchResult> {
     {
         if query.is_empty() {
             return Ok(SearchResult { hits: vec![], files: 0, truncated: false });
@@ -890,7 +953,16 @@ fn search_now(root: &str, query: &str, regex: bool, case_sensitive: bool, whole_
         let base = PathBuf::from(dir_arg(root));
         let (mut hits, mut files) = (Vec::new(), 0usize);
         const MAX: usize = 5000;
+        let mut scanned = 0usize;
         'files: for ent in walker(root).flatten() {
+            scanned += 1;
+            if scanned % 64 == 0 && stale() {
+                return Err("cancelled".into());
+            }
+            // A drive root or a huge tree: stop after this many files and say so.
+            if scanned > 200_000 {
+                return Ok(SearchResult { hits, files, truncated: true });
+            }
             if !ent.file_type().is_some_and(|t| t.is_file()) || ent.metadata().map(|m| m.len() > 4 * 1024 * 1024).unwrap_or(true) {
                 continue;
             }
@@ -1231,50 +1303,80 @@ fn cargo_json(sub: &str) -> bool {
     matches!(sub, "build" | "b" | "check" | "c" | "run" | "r" | "test" | "t" | "bench" | "clippy" | "doc")
 }
 
-// Output reaches the window in batches: a program printing thousands of lines a second would
-// otherwise send an event per line and the window couldn't keep up (or stop it). While a program
-// prints faster than it's read, lines are gathered for up to 40 ms or 512 lines; as soon as it
-// pauses, what's there goes out, so a question waiting for an answer shows at once.
-const BATCH_MS: u128 = 40;
+// Program output reaches the window in batches: an event per line would swamp it (and Stop with
+// it). A reader thread hands over whatever arrives; this side sends at most one event per 40 ms
+// (or 512 lines). Output after a quiet spell goes out at once, and an unfinished line (a program
+// asking a question) is shown when the program goes quiet, so prompts never wait.
+const BATCH_MS: u64 = 40;
 const BATCH_LINES: usize = 512;
 /// A line with no line ending longer than this is sent anyway (minified JSON, a progress bar
-/// that never ends its line), so it can't grow without limit.
+/// that never ends its line), so it can't grow without limit. Cargo's JSON messages only make
+/// sense whole, and a long diagnostic can pass 16 KB, so they get far more room.
 const LONG_LINE: usize = 16 * 1024;
+const LONG_JSON: usize = 8 * 1024 * 1024;
+
+/// Where to cut `b` at most `max` bytes in without splitting a UTF-8 character.
+fn char_cut(b: &[u8], max: usize) -> usize {
+    let mut i = max.min(b.len());
+    while i > 0 && i < b.len() && (b[i] & 0xC0) == 0x80 {
+        i -= 1;
+    }
+    if i == 0 { max.min(b.len()) } else { i }
+}
 
 fn pump(app: AppHandle, label: String, run: u64, stream: impl Read + Send + 'static, name: &'static str, cargo: bool) -> thread::JoinHandle<()> {
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
     thread::spawn(move || {
         let mut r = stream;
         let mut chunk = [0u8; 8192];
+        while let Ok(n) = r.read(&mut chunk) {
+            if n == 0 || tx.send(chunk[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    thread::spawn(move || {
+        use std::sync::mpsc::RecvTimeoutError;
+        use std::time::{Duration, Instant};
+        let limit = if cargo { LONG_JSON } else { LONG_LINE };
         // Bytes of the line being read, until its line ending arrives.
         let mut pending: Vec<u8> = Vec::new();
         let mut batch: Vec<Line> = Vec::new();
-        let mut since = std::time::Instant::now();
+        let mut last_flush = Instant::now() - Duration::from_millis(BATCH_MS);
         let mut last_partial: Vec<u8> = Vec::new();
-        loop {
-            let n = match r.read(&mut chunk) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => n,
+        let mut done = false;
+        while !done {
+            let wait = Duration::from_millis(BATCH_MS).saturating_sub(last_flush.elapsed());
+            let quiet = match if batch.is_empty() && pending == last_partial { rx.recv().map_err(|_| RecvTimeoutError::Disconnected) } else { rx.recv_timeout(wait) } {
+                Ok(data) => {
+                    pending.extend_from_slice(&data);
+                    while let Some(i) = pending.iter().position(|&b| b == b'\n') {
+                        let line: Vec<u8> = pending.drain(..=i).collect();
+                        push_line(&app, &label, run, name, cargo, &line, false, &mut batch);
+                        last_partial.clear();
+                    }
+                    while pending.len() > limit {
+                        let cut = char_cut(&pending, limit);
+                        let line: Vec<u8> = pending.drain(..cut).collect();
+                        push_line(&app, &label, run, name, cargo, &line, false, &mut batch);
+                        last_partial.clear();
+                    }
+                    false
+                }
+                Err(RecvTimeoutError::Timeout) => true,
+                Err(RecvTimeoutError::Disconnected) => {
+                    done = true;
+                    true
+                }
             };
-            pending.extend_from_slice(&chunk[..n]);
-            while let Some(i) = pending.iter().position(|&b| b == b'\n') {
-                let line: Vec<u8> = pending.drain(..=i).collect();
-                push_line(&app, &label, run, name, cargo, &line, false, &mut batch);
-                last_partial.clear();
-            }
-            if pending.len() > LONG_LINE {
-                let line = std::mem::take(&mut pending);
-                push_line(&app, &label, run, name, cargo, &line, false, &mut batch);
-                last_partial.clear();
-            }
-            // More is coming right away (the read filled the buffer): keep gathering for a while.
-            let busy = n == chunk.len();
-            if busy && batch.len() < BATCH_LINES && since.elapsed().as_millis() < BATCH_MS {
+            // Send when the program went quiet, after a quiet spell, or when enough has gathered.
+            if !(quiet || batch.len() >= BATCH_LINES || last_flush.elapsed().as_millis() as u64 >= BATCH_MS) {
                 continue;
             }
             // What's left has no line ending yet. Show it anyway (a program asking a question
             // waits right here), except for cargo's JSON, which only makes sense whole. Only when
             // it changed, so a long line isn't sent again and again.
-            if !pending.is_empty() && !cargo && pending != last_partial {
+            if quiet && !done && !pending.is_empty() && !cargo && pending != last_partial {
                 let valid = match std::str::from_utf8(&pending) {
                     Ok(_) => pending.len(),
                     Err(e) => e.valid_up_to(),
@@ -1284,8 +1386,10 @@ fn pump(app: AppHandle, label: String, run: u64, stream: impl Read + Send + 'sta
                     last_partial = pending.clone();
                 }
             }
-            flush(&app, &label, run, &mut batch);
-            since = std::time::Instant::now();
+            if !batch.is_empty() {
+                flush(&app, &label, run, &mut batch);
+                last_flush = Instant::now();
+            }
         }
         if !pending.is_empty() {
             let rest = std::mem::take(&mut pending);
@@ -1401,10 +1505,15 @@ async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_,
     let out = pump(app.clone(), label.clone(), run, child.stdout.take().unwrap(), "stdout", is_cargo);
     let er = pump(app.clone(), label.clone(), run, child.stderr.take().unwrap(), "stderr", is_cargo);
     let child = Arc::new(Mutex::new(child));
-    procs.with(&label, |w| {
+    // Two Run presses close together both get here: whatever the other one started is stopped
+    // rather than left running with no Stop button.
+    let older = procs.with(&label, |w| {
         *w.task_in.lock().unwrap_or_else(|e| e.into_inner()) = stdin;
-        w.task = Some(child.clone());
+        w.task.replace(child.clone())
     });
+    if let Some(o) = older {
+        kill_tree(&mut o.lock().unwrap_or_else(|e| e.into_inner()));
+    }
     thread::spawn(move || {
         let code = loop {
             match child.lock().unwrap_or_else(|e| e.into_inner()).try_wait() {
@@ -1514,16 +1623,16 @@ mod search_tests {
         std::fs::write(d.join("src/a.rs"), "let colour = 1; // Colour\nlet é = colour;\n").unwrap();
         std::fs::write(d.join("b.md"), "colours\n").unwrap();
         let root = d.to_string_lossy().to_string();
-        let r = super::search_now(&root, "colour", false, false, false, "", "").unwrap();
+        let r = super::search_now(&root, "colour", false, false, false, "", "", &|| false).unwrap();
         assert_eq!(r.hits.len(), 4);
-        let r = super::search_now(&root, "colour", false, true, true, "", "").unwrap();
+        let r = super::search_now(&root, "colour", false, true, true, "", "", &|| false).unwrap();
         assert_eq!(r.hits.len(), 2);
         assert_eq!(r.hits.iter().find(|h| h.line == 1).unwrap().col, 8);
-        let r = super::search_now(&root, "col.ur", true, false, false, "*.md", "").unwrap();
+        let r = super::search_now(&root, "col.ur", true, false, false, "*.md", "", &|| false).unwrap();
         assert_eq!(r.hits.len(), 1);
-        let r = super::search_now(&root, "colour", false, false, false, "", "src").unwrap();
+        let r = super::search_now(&root, "colour", false, false, false, "", "src", &|| false).unwrap();
         assert_eq!(r.hits.len(), 1);
-        assert!(super::search_now(&root, "(", true, false, false, "", "").is_err());
+        assert!(super::search_now(&root, "(", true, false, false, "", "", &|| false).is_err());
         std::fs::remove_dir_all(&d).ok();
     }
 }
@@ -1568,13 +1677,25 @@ async fn run_test(window: tauri::WebviewWindow, procs: State<'_, Procs>, cwd: St
         let pump = |r: Box<dyn Read + Send>| {
             let (app, label) = (app.clone(), label.clone());
             thread::spawn(move || {
+                const MAX: usize = 64 * 1024 * 1024; // what's kept for reading the results
                 let mut all = String::new();
+                // Lines go to the window in batches (at most one event per 40 ms), like Output.
+                let (mut batch, mut last) = (Vec::<String>::new(), std::time::Instant::now());
                 // Bytes, not lines(): one stray non-UTF-8 byte mustn't end the output there.
                 for raw in BufReader::new(r).split(b'\n').map_while(Result::ok) {
                     let line = String::from_utf8_lossy(&raw).trim_end_matches('\r').to_string();
-                    let _ = app.emit_to(label.as_str(), "test-out", &line);
-                    all.push_str(&line);
-                    all.push('\n');
+                    if all.len() + line.len() < MAX {
+                        all.push_str(&line);
+                        all.push('\n');
+                    }
+                    batch.push(line);
+                    if batch.len() >= 512 || last.elapsed() >= Duration::from_millis(40) {
+                        let _ = app.emit_to(label.as_str(), "test-out", std::mem::take(&mut batch));
+                        last = std::time::Instant::now();
+                    }
+                }
+                if !batch.is_empty() {
+                    let _ = app.emit_to(label.as_str(), "test-out", batch);
                 }
                 all
             })
@@ -1591,6 +1712,12 @@ async fn run_test(window: tauri::WebviewWindow, procs: State<'_, Procs>, cwd: St
     })
     .await
     .map_err(err)?
+}
+
+/// How many Ledger windows are open (updating asks each one to save first).
+#[tauri::command]
+fn window_count(app: AppHandle) -> usize {
+    app.webview_windows().len()
 }
 
 #[tauri::command(async)]
@@ -2213,7 +2340,10 @@ async fn git(window: tauri::WebviewWindow, procs: State<'_, Procs>, cwd: String,
 /// Runs a tool and returns what it printed, without a console window.
 /// Used to check Lust files (.lst, .lsc) with `lust check` after they're saved.
 #[tauri::command]
-async fn run_capture(window: tauri::WebviewWindow, procs: State<'_, Procs>, cwd: String, program: String, args: Vec<String>, input: Option<String>) -> Res<Captured> {
+#[allow(clippy::too_many_arguments)]
+async fn run_capture(window: tauri::WebviewWindow, procs: State<'_, Procs>, cwd: String, program: String, args: Vec<String>, input: Option<String>, timeout_ms: Option<u64>) -> Res<Captured> {
+    // "." means "anywhere": not Ledger's own working folder, which can be a project.
+    let cwd = if cwd == "." || cwd.is_empty() { std::env::temp_dir().to_string_lossy().into_owned() } else { cwd };
     let limited = restricted(&procs, window.label(), &cwd);
     if limited && !trust::safe_program(&program, &args) {
         return Err(trust::UNTRUSTED.into());
@@ -2238,14 +2368,41 @@ async fn run_capture(window: tauri::WebviewWindow, procs: State<'_, Procs>, cwd:
             })),
             _ => None,
         };
-        let out = child.wait_with_output().map_err(|e| format!("Couldn't run {program} ({e})."))?;
+        // Read both pipes on their own threads, and stop the program (and what it started) if it
+        // runs past the time limit: a hung formatter or git mustn't wait forever.
+        let read = |r: Option<Box<dyn Read + Send>>| {
+            thread::spawn(move || {
+                let mut v = Vec::new();
+                if let Some(mut r) = r {
+                    let _ = r.read_to_end(&mut v);
+                }
+                v
+            })
+        };
+        let out = read(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+        let errs = read(child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+        let until = std::time::Instant::now() + Duration::from_millis(timeout_ms.unwrap_or(5 * 60 * 1000));
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(st)) => break Some(st),
+                Ok(None) if std::time::Instant::now() < until => thread::sleep(Duration::from_millis(15)),
+                _ => {
+                    kill_tree(&mut child);
+                    break None;
+                }
+            }
+        };
         if let Some(f) = feeder {
-            let _ = f.join();
+            let _ = finish_within(f, Duration::from_secs(2));
         }
+        let (out, errs) = (finish_within(out, Duration::from_secs(3)).unwrap_or_default(), finish_within(errs, Duration::from_secs(3)).unwrap_or_default());
+        let Some(status) = status else {
+            return Err(format!("{program} didn't finish in time, so Ledger stopped it."));
+        };
         Ok(Captured {
-            code: out.status.code().unwrap_or(-1),
-            out: String::from_utf8_lossy(&out.stdout).to_string(),
-            err: String::from_utf8_lossy(&out.stderr).to_string(),
+            code: status.code().unwrap_or(-1),
+            out: String::from_utf8_lossy(&out).to_string(),
+            err: String::from_utf8_lossy(&errs).to_string(),
         })
     })
     .await
@@ -2455,6 +2612,8 @@ pub fn run() {
             history_list,
             history_read,
             test_stop,
+            window_count,
+            copy_path,
             http_get,
             debugger_path,
             install_debugger,

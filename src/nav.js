@@ -464,7 +464,7 @@ export function initNav(app) {
     const hasServer = !!app.LANGS[b.lang].server && !b.virtual;
     return [
       hasServer ? sigExt(path) : [],
-      hasServer ? outlineCursor : [],
+      hasServer || b.lang === "markdown" ? outlineCursor : [], // Markdown: its headings
       (b.lang === "rust" || b.lang === "csharp") && app.settings.codeLens ? lensField : [],
     ];
   });

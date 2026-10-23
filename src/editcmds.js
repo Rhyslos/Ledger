@@ -80,6 +80,19 @@ export function initEditCommands(app) {
     app.toast(changes.length ? `Trimmed ${changes.length} line${changes.length === 1 ? "" : "s"}.` : "No trailing spaces.");
   }, "whitespace");
   C("editor.duplicate", "Duplicate line", [], copyLineDown, "copy line");
+  // Joins each selection's lines (or the cursor's line and the next) with one space.
+  C("editor.joinLines", "Join lines", [], (v) => {
+    const st = v.state;
+    v.dispatch(st.changeByRange((r) => {
+      const a = st.doc.lineAt(r.from), b = st.doc.lineAt(r.to), last = b.number === a.number ? Math.min(a.number + 1, st.doc.lines) : b.number;
+      const changes = [];
+      for (let n = a.number; n < last; n++) {
+        const l = st.doc.line(n), next = st.doc.line(n + 1), lead = /^\s*/.exec(next.text)[0].length, trail = /\s*$/.exec(l.text)[0].length;
+        changes.push({ from: l.to - trail, to: next.from + lead, insert: l.text.trim() && next.text.trim() ? " " : "" });
+      }
+      return { changes, range: r };
+    }), { userEvent: "input" });
+  }, "merge");
   C("editor.deleteLine", "Delete line", [], deleteLine, "remove line");
   C("editor.moveUp", "Move line up", [], moveLineUp);
   C("editor.moveDown", "Move line down", [], moveLineDown);

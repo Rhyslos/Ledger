@@ -25,7 +25,7 @@ import { VITE, createSteps, withTailwindPlugin, CSS_FILES, FIRST_FILES } from ".
 import { initTailwind, tailwindSource, tailwindChanged, tailwindWarm, inClassList } from "./tailwind.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { EditorState, Text, ChangeSet, Compartment, StateEffect, StateField, RangeSetBuilder, Annotation, Transaction } from "@codemirror/state";
 import {
   EditorView, keymap as cmKeymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor,
@@ -63,6 +63,16 @@ const prefs = { recent: [], sideW: 270, panelH: 230, collapsed: false, sessions:
 try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREF_KEY) || localStorage.getItem("ferrous-prefs-v1") || "{}")); } catch {}
 delete prefs.theme; delete prefs.hints; // these moved to settings.json
 const forgotten = new Set(); // recent folders that no longer open
+const trustChanged = new Set(); // folders whose trust this window answered since the last save
+/** The trust answers as stored now (another window may have changed them). */
+function freshTrust() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PREF_KEY) || "{}").trust || {};
+    const mine = Object.fromEntries([...trustChanged].map((k) => [k, (prefs.trust || {})[k]]));
+    prefs.trust = { ...stored, ...mine };
+  } catch {}
+  return prefs.trust || {};
+}
 // Several windows share these, so merge with what's stored rather than overwrite:
 // each window only owns its own folder's session.
 const savePrefs = () => {
@@ -78,7 +88,11 @@ const savePrefs = () => {
     for (const k of Object.keys(breakpoints)) if (!recent.includes(k)) delete breakpoints[k];
     const watches = prefs.watchesChanged ? prefs.watches : stored.watches || prefs.watches;
     delete prefs.watchesChanged;
-    const trust = { ...(stored.trust || {}), ...(prefs.trust || {}) }; // every window's answers
+    // Trust answers: only the ones this window gave, over everyone else's. Writing back the whole
+    // map would bring back a trust another window has since taken away.
+    const trust = { ...(stored.trust || {}) };
+    for (const k of trustChanged) trust[k] = (prefs.trust || {})[k];
+    trustChanged.clear();
     const bookmarks = { ...(stored.bookmarks || {}), ...(prefs.bookmarks || {}) };
     for (const k of Object.keys(bookmarks)) if (!recent.includes(k) && k !== mine) delete bookmarks[k];
     Object.assign(prefs, { sessions, recent, breakpoints, watches, trust, bookmarks });
@@ -296,9 +310,20 @@ const closeInfo = (v) => { if (!v.state.field(infoField, false)) return false; v
 // ---------- language servers ----------
 const servers = {};
 const readyHooks = []; // called when a language server becomes ready
+// Windows paths ignore case: C:/Proj/a.rs from a server and c:/proj/a.rs typed somewhere are the
+// same file. An open file keeps the spelling it was opened with; other spellings map to it.
+const winPath = (p) => /^[A-Za-z]:\/|^\/\//.test(p);
+function known(path) {
+  path = norm(path);
+  if (S.bufs.has(path) || !winPath(path)) return path;
+  const low = path.toLowerCase();
+  for (const k of S.bufs.keys()) if (k.toLowerCase() === low) return k;
+  for (const k of S.tabs) if (k.toLowerCase() === low) return k;
+  return path;
+}
 const lspHandlers = {
   diagnostics(path, list) {
-    path = norm(path);
+    path = known(path);
     const shown = list.filter((d) => (d.severity || 1) <= 4);
     if (shown.length) S.diags.set(path, shown); else S.diags.delete(path);
     applyDiags(path);
@@ -562,7 +587,8 @@ const formatterFor = (path, b) => (b && !b.ro ? formatters.map((f) => f(path, b)
 function smallChanges(a, b) {
   return diff(a, b, { scanLimit: 5000, timeout: 300 }).map((c) => ({ from: c.fromA, to: c.toA, insert: b.slice(c.fromB, c.toB) }));
 }
-async function formatBuffer(path) {
+/** `late.off` set: the caller stopped waiting (a save went ahead), so a late answer is dropped. */
+async function formatBuffer(path, late = {}) {
   const b = S.bufs.get(path), srv = serverOf(b);
   const fmt = formatterFor(path, b);
   if (fmt) {
@@ -570,7 +596,7 @@ async function formatBuffer(path) {
     const out = await fmt(before);
     if (out == null) return false;
     const now = S.bufs.get(path);
-    if (!now || now.state.doc.toString() !== before) return true; // edited meanwhile: leave it
+    if (late.off || !now || now.state.doc.toString() !== before) return true; // edited meanwhile: leave it
     if (out !== before) dispatchBuf(path, { changes: smallChanges(before, out.replace(/\r\n/g, "\n")), userEvent: "format" });
     return true;
   }
@@ -580,7 +606,7 @@ async function formatBuffer(path) {
   const edits = await srv.request("textDocument/formatting", { textDocument: { uri: pathToUri(path) }, options: { tabSize: indentOf(b).size, insertSpaces: !indentOf(b).tabs } });
   if (!edits || !edits.length) return !!edits;
   // Typed more while the server worked: its edits are for the old text, so leave it.
-  if (S.bufs.get(path)?.state.doc !== doc) return true;
+  if (late.off || S.bufs.get(path)?.state.doc !== doc) return true;
   dispatchBuf(path, { changes: edits.map((e) => ({ from: toOffset(doc, e.range.start), to: toOffset(doc, e.range.end), insert: e.newText })), userEvent: "format" });
   return true;
 }
@@ -655,7 +681,7 @@ async function showInfo() {
 
 async function applyWorkspaceEdit(we) {
   const byFile = new Map();
-  for (const [uri, edits] of Object.entries(we.changes || {})) byFile.set(norm(uriToPath(uri)), edits);
+  for (const [uri, edits] of Object.entries(we.changes || {})) byFile.set(known(uriToPath(uri)), { edits });
   for (const dc of we.documentChanges || []) {
     if (dc.kind === "rename") {
       // Rust-analyzer renaming a module, say: the file moves, and so does its tab.
@@ -665,15 +691,22 @@ async function applyWorkspaceEdit(we) {
       continue;
     }
     if (dc.kind) continue;
-    byFile.set(norm(uriToPath(dc.textDocument.uri)), dc.edits);
+    byFile.set(known(uriToPath(dc.textDocument.uri)), { edits: dc.edits, version: dc.textDocument.version, uri: dc.textDocument.uri });
   }
-  for (const [path, edits] of byFile) {
-    const b = S.bufs.get(path);
-    if (b) {
-      const doc = b.state.doc;
-      dispatchBuf(path, { changes: edits.map((e) => ({ from: toOffset(doc, e.range.start), to: toOffset(doc, e.range.end), insert: e.newText })) });
-    } else {
-      try {
+  // First work out every file's new text, and only change anything when all of them work out: a
+  // rename across ten files mustn't stop half-way.
+  const plan = [];
+  for (const [path, { edits, version, uri }] of byFile) {
+    try {
+      const b = S.bufs.get(path);
+      // Edits made for an older version of an open file would land in the wrong places.
+      const sent = version != null && Object.values(servers).map((srv) => srv.versions?.get(uri)).find((v) => v != null);
+      if (b && ((sent != null && sent !== version) || (version != null && b.sent && b.sent !== b.state.doc))) throw new Error(`${base(path)} changed since the server worked this out`);
+      if (b) {
+        const doc = b.state.doc;
+        const cs = ChangeSet.of(edits.map((e) => ({ from: toOffset(doc, e.range.start), to: toOffset(doc, e.range.end), insert: e.newText })), doc.length);
+        plan.push({ path, b, cs });
+      } else {
         let { text: raw, encoding } = await invoke("read_text", { path });
         const bom = raw.startsWith("\uFEFF");
         if (bom) raw = raw.slice(1);
@@ -681,9 +714,16 @@ async function applyWorkspaceEdit(we) {
         const cs = ChangeSet.of(edits.map((e) => ({ from: toOffset(doc, e.range.start), to: toOffset(doc, e.range.end), insert: e.newText })), doc.length);
         let out = cs.apply(doc).toString();
         if (raw.includes("\r\n")) out = out.replace(/\n/g, "\r\n");
-        await invoke("write_file", { path, contents: (bom ? "\uFEFF" : "") + out, encoding });
-      } catch (e) { toast(`Couldn't edit ${base(path)}: ${e}`); }
-    }
+        plan.push({ path, old: (bom ? "\uFEFF" : "") + raw, contents: (bom ? "\uFEFF" : "") + out, encoding });
+      }
+    } catch (e) { toast(`Nothing was changed: couldn't edit ${base(path)} (${e.message || e}).`, 6000); return 0; }
+  }
+  for (const p of plan) {
+    if (p.b) { dispatchBuf(p.path, { changes: p.cs }); continue; }
+    try {
+      await invoke("history_add", { path: p.path, text: p.old }).catch(() => {}); // Local history can bring it back
+      await invoke("write_file", { path: p.path, contents: p.contents, encoding: p.encoding });
+    } catch (e) { toast(`Couldn't edit ${base(p.path)}: ${e}`); }
   }
   scheduleUi();
   return byFile.size;
@@ -791,10 +831,34 @@ async function pickIndent() {
   const opts = [["Spaces: 2", { tabs: false, size: 2 }], ["Spaces: 4", { tabs: false, size: 4 }], ["Spaces: 8", { tabs: false, size: 8 }], ["Tabs", { tabs: true, size: settings.tabSize }], ["As the file does it (detect)", null]];
   const i = await choose(`Indentation in ${base(S.active)} (what Tab, Enter and formatting use)`, opts.map((o) => o[0]), true);
   if (i == null || i < 0) return;
-  b.indentSet = opts[i][1];
+  const path = S.active, was = indentOf(b), want = opts[i][1];
+  b.indentSet = want;
   if (!b.indentSet) b.indent = detectIndent(b.state.doc.toString());
-  dispatchBuf(S.active, { effects: cfg.reconfigure(cfgExt(b)) });
+  dispatchBuf(path, { effects: cfg.reconfigure(cfgExt(b)) });
   renderPos();
+  // Like VS Code's "Convert indentation": offer to change the lines already there too.
+  if (want && (want.tabs !== was.tabs || (!want.tabs && want.size !== was.size)) && /^[ \t]+\S/m.test(b.state.doc.toString())) {
+    const name = (x) => (x.tabs ? "tabs" : `${x.size} spaces`);
+    const c = await choose(`Re-indent the lines already in ${base(path)} from ${name(was)} to ${name(want)}?`, ["Convert the existing lines", "Only new lines"]);
+    if (c === "Convert the existing lines") convertIndent(path, was, want);
+  }
+}
+/** Changes each line's leading indentation from one style to another, level for level. */
+function convertIndent(path, from, to) {
+  const b = S.bufs.get(path);
+  if (!b) return;
+  const doc = b.state.doc, tab = from.tabs ? from.size || settings.tabSize : settings.tabSize, changes = [];
+  for (let n = 1; n <= doc.lines; n++) {
+    const l = doc.line(n), ws = /^[ \t]*/.exec(l.text)[0];
+    if (!ws || ws.length === l.text.length) continue;
+    let cols = 0;
+    for (const ch of ws) cols = ch === "\t" ? cols + tab - (cols % tab) : cols + 1;
+    const step = from.tabs ? tab : from.size, levels = Math.floor(cols / step), rest = cols - levels * step;
+    const out = (to.tabs ? "\t".repeat(levels) : " ".repeat(levels * to.size)) + " ".repeat(rest);
+    if (out !== ws) changes.push({ from: l.from, to: l.from + ws.length, insert: out });
+  }
+  if (changes.length) dispatchBuf(path, { changes, userEvent: "input.indent" });
+  toast(changes.length ? `Re-indented ${changes.length} line${changes.length === 1 ? "" : "s"}.` : "Nothing to change.");
 }
 
 function extensionsFor(path, b) {
@@ -940,7 +1004,7 @@ async function openFile(path, at, opts = {}) {
     }
     return r;
   }
-  path = norm(path);
+  path = known(path);
   if (opts.uri && /^csharp:/i.test(opts.uri)) return openMetadata(opts.uri, at, opts.server);
   if (!S.bufs.has(path)) {
     let file;
@@ -1206,7 +1270,13 @@ async function save(path = S.active) {
 async function saveNow(path) {
   const b = S.bufs.get(path);
   if (!b || b.ro) return true;
-  if (settings.formatOnSave && (formatterFor(path, b) || serverOf(b)?.alive) && b.dirty) await formatBuffer(path);
+  // A formatter that hangs (a busy server, a looping Prettier plugin) mustn't stop the save.
+  if (settings.formatOnSave && (formatterFor(path, b) || serverOf(b)?.alive) && b.dirty) {
+    let slow = false;
+    const late = {};
+    await Promise.race([formatBuffer(path, late).catch(() => {}), new Promise((r) => setTimeout(() => { slow = late.off = true; r(); }, 5000))]);
+    if (slow) toast(`Formatting ${base(path)} took too long, so it was saved as it was.`, 5000);
+  }
   if (!b.dirty) { syncDoc(path); return true; }
   if (!b.virtual && b.mtime != null) {
     const now = await statOf(path);
@@ -1724,6 +1794,8 @@ $("tree").addEventListener("keydown", (ev) => {
   else if (k === "Enter") { if (isDir) toggleDir(p); else openFile(p).then(() => keepTab(p)); }
   else if (k === "Space") { if (isDir) toggleDir(p); else openFile(p, null, { keepFocus: true, preview: true }); }
   else if (k === "Delete") deletePath(p);
+  else if (k === "Ctrl+X" || k === "Ctrl+C") clipTree(p, k === "Ctrl+X");
+  else if (k === "Ctrl+V") pasteTree(isDir ? p : parent(p));
   else if (k === "Shift+F10" || k === "ContextMenu") { const r = el.getBoundingClientRect(); treeMenu(p, isDir, r.left + 24, r.bottom); }
   else if (k === "Esc") focusZone("editor");
   else if (ev.key.length === 1 && /[\w.\-]/.test(ev.key) && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
@@ -1780,10 +1852,50 @@ function treeMenu(p, isDir, x, y) {
     ...(/\.(csv|tsv|tab|psv)$/i.test(p) ? [{ label: "Open as a table", run: () => app.csvTable?.(p) }] : []),
     { label: "Open as hex", run: () => app.openHex?.(p) },
     { label: "Saved versions (local history)…", run: async () => { if (await openFile(p)) app.run("history.show"); } }, "-");
-  if (p) items.push("-", { label: "Rename…", hint: "F2", run: () => renamePath(p) }, { label: "Move to Recycle Bin", hint: "Delete", danger: true, run: () => deletePath(p) }, "-",
-    { label: "Copy path", run: () => copy(p) }, { label: "Copy relative path", run: () => copy(rel(p)) });
+  if (p && !isDir) items.splice(1, 0, { label: "Open to the side", run: async () => { if (await openFile(p)) splitRight(p); } });
+  if (p) items.push("-", { label: "Cut", hint: "Ctrl X", run: () => clipTree(p, true) }, { label: "Copy", hint: "Ctrl C", run: () => clipTree(p, false) });
+  if (treeClip) items.push({ label: `Paste ${base(treeClip.path)}`, hint: "Ctrl V", run: () => pasteTree(dirOf) });
+  if (p) items.push({ label: "Duplicate", run: () => duplicatePath(p) }, "-", { label: "Rename…", hint: "F2", run: () => renamePath(p) }, { label: "Move to Recycle Bin", hint: "Delete", danger: true, run: () => deletePath(p) }, "-",
+    { label: "Copy path", run: () => copy(/^[A-Za-z]:/.test(p) ? p.replace(/\//g, "\\") : p) }, { label: "Copy relative path", run: () => copy(rel(p)) },
+    { label: "Show in File Explorer", run: () => revealItemInDir(p).catch((e) => toast(String(e))) });
   else items.push("-", { label: "Refresh", run: refreshTree });
   showMenu(x, y, items);
+}
+// Cut, Copy and Paste in the explorer (files and folders, inside the open folder).
+let treeClip = null; // { path, cut }
+function clipTree(p, cut) { treeClip = { path: p, cut }; toast(`${cut ? "Cut" : "Copied"} ${base(p)}. Paste it into a folder with Ctrl V or the right-click menu.`); }
+async function freeName(dir, name) {
+  const dot = name.lastIndexOf("."), stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
+  for (let i = 0; i < 100; i++) {
+    const n = i === 0 ? name : `${stem} copy${i > 1 ? " " + i : ""}${ext}`;
+    if ((await invoke("file_stats", { paths: [join(dir, n)] }).catch(() => [null]))[0] == null) return join(dir, n);
+  }
+  return null;
+}
+async function pasteTree(dir) {
+  if (!treeClip) return;
+  const { path, cut } = treeClip;
+  if (cut && parent(path) === dir) return;
+  const to = await freeName(dir, base(path));
+  if (!to) return;
+  try {
+    if (cut) {
+      if (!(await closePagesUnder(path))) return;
+      await invoke("rename_path", { from: path, to });
+      await movedOnDisk(path, to);
+      treeClip = null;
+    } else await invoke("copy_path", { from: path, to });
+  } catch (e) { toast(String(e)); return; }
+  S.open.add(dir);
+  await refreshTree();
+  S.sel = to; renderTree();
+}
+async function duplicatePath(p) {
+  const to = await freeName(parent(p), base(p));
+  if (!to) return;
+  try { await invoke("copy_path", { from: p, to }); } catch (e) { toast(String(e)); return; }
+  await refreshTree();
+  S.sel = to; renderTree();
 }
 const copy = (s) => navigator.clipboard?.writeText(s).then(() => toast("Copied"), () => toast("Couldn't copy"));
 const folderLabel = (dir) => (dir === S.root ? base(S.root) : base(S.root) + "/" + rel(dir));
@@ -1801,7 +1913,7 @@ $("bCollapse").onclick = () => { S.open.clear(); renderTree(); saveSession(); };
 const validName = (n) => n && !/(^|\/)\.\.?(\/|$)/.test(n) && !/[<>:"|?*\\]/.test(n);
 async function newFile(dir = targetDir()) {
   if (!S.root) return openFolder();
-  const name = (await promptText(`New file in ${folderLabel(dir)}`, "", "e.g. Player.cs, or a path like utils/mod.rs"))?.trim();
+  const name = (await promptText(`New file in ${folderLabel(dir)}`, "", "e.g. notes.md, or a path like src/utils.js"))?.trim();
   if (!name) return;
   if (!validName(name)) { toast("That isn't a usable file name."); return; }
   const path = join(dir, name);
@@ -1929,7 +2041,9 @@ function renderTabs() {
     return `<div class="tab${on ? " on" : ""}${there ? " there" : ""}${b?.dirty ? " dirty" : ""}${p === S.preview ? " preview" : ""}${S.pinned.has(p) ? " pinned" : ""}" role="tab" aria-selected="${on}" style="--tc:var(--t-${dot})" data-tab="${esc(p)}" title="${esc(isPage(p) || b?.virtual ? tabLabel(p) : rel(p))}${there ? "  ·  open in the other pane" : ""}${i < 8 ? `  ·  Ctrl ${i + 1}` : ""}" tabindex="${on ? 0 : -1}">${isPage(p) || b?.virtual ? (/^@(csv|hex|img|db):/.test(p) && fileIcons() ? mark(p.replace(/^@[a-z]+:/, "")) : '<span class="dot pg"></span>') : mark(p)}<span class="tl${c.e ? " e" : c.w ? " w" : ""}">${esc(tabLabel(p))}</span>${b?.ro ? '<span class="ro">read-only</span>' : ""}<span class="x" data-close="${esc(p)}" role="button" aria-label="Close ${esc(tabLabel(p))}"><span>×</span></span></div>`;
   }).join("");
   $("tabs").hidden = !S.tabs.length;
+  $("tabs").insertAdjacentHTML("beforeend", `<button class="tabs-more" id="tabsMore" tabindex="-1" title="All open tabs" aria-label="All open tabs" hidden>⌄ ${S.tabs.length}</button>`);
   $("tabs").querySelector(".tab.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  tabsOverflow();
   if (hadFocus) $("tabs").querySelector(`[data-tab="${CSS.escape(hadFocus)}"]`)?.focus();
 }
 $("tabs").addEventListener("click", (ev) => {
@@ -1942,6 +2056,23 @@ $("tabs").addEventListener("click", (ev) => {
   if (ev.detail >= 2) { keepTab(t2.dataset.tab); return; }
   activate(t2.dataset.tab);
 });
+// More tabs than fit: the hidden edges fade, and a list of every open tab sits at the right end.
+function tabsOverflow() {
+  const t = $("tabs"), over = t.scrollWidth > t.clientWidth + 1;
+  t.classList.toggle("ofl-l", over && t.scrollLeft > 2);
+  t.classList.toggle("ofl-r", over && t.scrollLeft + t.clientWidth < t.scrollWidth - 2);
+  const more = $("tabsMore");
+  if (more) more.hidden = !over;
+}
+$("tabs").addEventListener("scroll", tabsOverflow, { passive: true });
+new ResizeObserver(() => tabsOverflow()).observe($("tabs"));
+$("tabs").addEventListener("click", async (ev) => {
+  if (!ev.target.closest("#tabsMore")) return;
+  ev.stopPropagation();
+  const keys = [...S.tabs];
+  const i = await choose("Open tabs", keys.map((k) => tabLabel(k) + (S.bufs.get(k)?.dirty ? "  ●" : "")), true, { filter: true });
+  if (i != null && i >= 0) activate(keys[i]);
+}, true);
 // The mouse wheel scrolls the tab bar sideways when the tabs don't fit.
 $("tabs").addEventListener("wheel", (ev) => { const t = $("tabs"); if (t.scrollWidth > t.clientWidth && Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) { t.scrollLeft += ev.deltaY; ev.preventDefault(); } }, { passive: false });
 $("tabs").addEventListener("dblclick", (ev) => { const t2 = ev.target.closest("[data-tab]"); if (t2) keepTab(t2.dataset.tab); });
@@ -2073,7 +2204,8 @@ function renderPos() {
   $("stPos").textContent = `Ln ${line.number}, Col ${sel.head - line.from + 1}${n ? ` (${n} selected)` : ""}`;
   const ind = indentOf(b);
   $("stIndent").textContent = ind.tabs ? "Tabs" : `Spaces: ${ind.size}`;
-  $("stLang").textContent = LANGS[b.lang].name + (b.eol === "\r\n" ? " · CRLF" : "") + (b.bom ? " · BOM" : "") + (ENC_LABEL[b.enc] ? " · " + ENC_LABEL[b.enc] : "");
+  $("stLang").textContent = LANGS[b.lang].name + (b.eol === "\r\n" ? " · CRLF" : " · LF") + (b.bom ? " · BOM" : "") + (ENC_LABEL[b.enc] ? " · " + ENC_LABEL[b.enc] : " · UTF-8");
+  $("stLang").title = "Language, line endings and encoding: click to change";
   renderServer();
 }
 function renderServer() {
@@ -2280,7 +2412,10 @@ async function pickScript(P) {
 async function startSteps(steps, onDone, onFail) {
   // Steps with their own folder (creating a project, installing a language) also run with no folder open.
   if (!S.root && !steps.every((s) => s.cwd || !s.godot && settingsFile)) { toast("Open a folder first."); return; }
-  await saveAll();
+  // F5 twice in a row: the second press waits for the first to get going instead of racing it.
+  if (startSteps.busy) return;
+  startSteps.busy = true;
+  try { await saveAll(); } finally { startSteps.busy = false; }
   showPanel("output");
   outFollow().reset(); // a new run always starts at the bottom
   S.queue = steps.slice(1);
@@ -2439,11 +2574,21 @@ function renderStatus() {
   $("stSearch").innerHTML = `Go to file <kbd>${esc(keymap.label("file.goto"))}</kbd>`;
   // On the welcome page, its own Go to file button and an empty problem count would just repeat it.
   $("stSearch").hidden = !S.tabs.length;
-  $("stProblems").hidden = !S.tabs.length && ![...S.diags.values()].some((l) => l?.length);
+  // Pages without code (Settings, an image, a table) have no problems to count, unless some file does.
+  $("stProblems").hidden = !S.bufs.has(S.active) && ![...S.diags.values()].some((l) => l?.length);
   $("stSettings").title = "Settings" + k("settings.open");
   $("stToggle").title = "Toggle explorer" + k("view.explorer");
 }
 $("stIndent").addEventListener("click", pickIndent);
+$("stLang").addEventListener("click", (ev) => {
+  if (!S.bufs.has(S.active)) return;
+  const r = ev.currentTarget.getBoundingClientRect();
+  showMenu(r.left, r.top - 100, [
+    { label: "Change line endings (CRLF or LF)…", run: () => keymap.cmds.get("file.eol")?.run() },
+    { label: "Convert to UTF-8…", run: () => keymap.cmds.get("file.toUtf8")?.run() },
+    { label: "Indentation…", run: pickIndent },
+  ]);
+});
 $("stTasks").addEventListener("click", (ev) => { const b = ev.target.closest("[data-task]"); if (b) (b.dataset.task === "debug" ? debug?.start() : runAction(b.dataset.task)); });
 $("stStop").onclick = stopTask;
 $("stLive").onclick = () => (live.port ? stopLive() : startLive());
@@ -2793,6 +2938,7 @@ function choose(head, options, wantIndex = false, opts = {}) {
     pal.options = options;
     pal.wantIndex = wantIndex;
     pal.filter = opts.filter ?? options.length > 8;
+    pal.create = opts.create || null; // (text) => label of a row that makes a new one from what's typed
     openPalette("choose", "", head);
     pal.resolve = resolve;
   });
@@ -2817,7 +2963,7 @@ function hlText(text, q) {
 }
 const fdot = (path) => ({ dot: dotOf(path), path }); // a palette row for a file: its icon
 const row = (i, dot, title, meta, extra, code) =>
-  `<div class="li" role="option" id="pal-opt-${i}" tabindex="-1" data-pi="${i}" aria-selected="${i === pal.sel}" style="--tc:var(--t-${dot.dot || dot})">${dot.path ? mark(dot.path) : '<span class="dot"></span>'}<span class="t">${title}</span><span class="m">${meta}</span>${extra ? `<span class="x${code ? " code" : ""}">${extra}</span>` : ""}</div>`;
+  `<div class="li" role="option" id="pal-opt-${i}" tabindex="-1" data-pi="${i}" aria-selected="${i === pal.sel}" style="--tc:var(--t-${dot.dot || dot})">${dot.path ? mark(dot.path) : dot === "none" ? "" : '<span class="dot"></span>'}<span class="t">${title}</span><span class="m">${meta}</span>${extra ? `<span class="x${code ? " code" : ""}">${extra}</span>` : ""}</div>`;
 
 function drawPalette() {
   const v = $("palIn").value, res = $("palRes");
@@ -2827,6 +2973,10 @@ function drawPalette() {
     const q = pal.filter ? v.trim().toLowerCase() : "";
     pal.list = pal.options.map((o, i) => ({ choice: o, i, score: q ? fuzzy(q, o) : 0 })).filter((x) => x.score >= 0);
     if (q) pal.list.sort((a, b) => b.score - a.score);
+    // A list that can make something new (branches): what you typed, as a new one.
+    const typed = v.trim();
+    // First when nothing else matches, last when something does (so typing finds what's there).
+    if (pal.create && typed && !pal.options.some((o) => o.split("  ")[0].toLowerCase() === typed.toLowerCase())) pal.list[pal.list.length ? "push" : "unshift"]({ choice: pal.create(typed), i: -2, create: typed });
     html = pal.list.map((o, j) => row(j, o.i === 0 ? "rs" : "other", q ? hlText(o.choice, q) : esc(o.choice), !pal.filter && j < 9 ? `<kbd>${j + 1}</kbd>` : "", "")).join("") || '<p class="empty" style="padding:8px 10px">Nothing matches.</p>';
   } else if (pal.mode === "text") {
     const q = v;
@@ -2857,8 +3007,25 @@ function drawPalette() {
     const q = v.slice(1).trim().toLowerCase();
     // Words match the title or the command's other names; US and British spellings both work.
     const hay = (c) => `${c.title} ${c.alias || ""}`.toLowerCase().replace(/colou?r/g, "colour color").replace(/\bgrey|\bgray/g, "grey gray");
-    pal.list = keymap.list().filter((c) => !c.hidden && (!q || q.split(/\s+/).every((w) => hay(c).includes(w)))).map((c) => ({ cmd: c }));
-    html = pal.list.map((c, i) => row(i, "cfg", hlText(c.cmd.title, q), keymap.label(c.cmd.id) ? `<kbd>${esc(keymap.label(c.cmd.id))}</kbd>` : "", "")).join("") || '<p class="empty" style="padding:8px 10px">No matching command.</p>';
+    const words = q.split(/\s+/).filter(Boolean), recent = prefs.recentCmds || [];
+    // Best first: the title starting with what you typed, then titles whose words start with it,
+    // then other names; commands for another language than the one you're in go lower, and ones
+    // you ran lately go higher.
+    const lang = S.bufs.get(S.active)?.lang || "";
+    const elsewhere = (t) => (/\b(Rust|Clippy|Cargo|rust-analyzer)\b/i.test(t) && lang !== "rust" && !S.proj.rust) || (/\bLust\b/.test(t) && !/^lust/.test(lang)) || (/\b(C#|\.NET|dotnet|csharp)\b/i.test(t) && lang !== "csharp" && !S.proj.dotnet) || (/\bGodot\b/.test(t) && !S.proj.godot);
+    const score = (c) => {
+      const t = c.title.toLowerCase(), r = recent.indexOf(c.id);
+      let n = r >= 0 ? 30 - r * 3 : 0;
+      if (q) {
+        if (t.startsWith(q)) n += 100;
+        else if (t.includes(q)) n += 50;
+        for (const w of words) if (new RegExp("(^|[^a-z])" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(t)) n += 12; else if (!t.includes(w)) n -= 15; // only in its other names
+      }
+      if (elsewhere(c.title)) n -= 40;
+      return n;
+    };
+    pal.list = keymap.list().filter((c) => !c.hidden && (!q || words.every((w) => hay(c).includes(w)))).map((c) => ({ cmd: c, s: score(c) })).sort((a, b) => b.s - a.s).map(({ cmd }) => ({ cmd }));
+    html = pal.list.map((c, i) => row(i, "none", hlText(c.cmd.title, q), keymap.label(c.cmd.id) ? `<kbd>${esc(keymap.label(c.cmd.id))}</kbd>` : "", !q && recent.includes(c.cmd.id) ? "recently used" : "")).join("") || '<p class="empty" style="padding:8px 10px">No matching command.</p>';
   } else if (v.startsWith(":")) {
     const [l, c] = v.slice(1).split(/[:,]/).map((x) => parseInt(x, 10));
     const has = S.bufs.has(S.active);
@@ -2880,7 +3047,9 @@ function drawPalette() {
       list = files.map((p) => [p, fuzzy(q, rel(p)) + (q.includes(" ") && base(p).toLowerCase().startsWith(last) ? 25 : 0)]).filter(([, s]) => s >= 0).sort((a, b) => b[1] - a[1]).slice(0, 80).map(([p]) => p);
     }
     pal.list = list.map((p) => ({ path: p, ...(at ? { line: +at[2] - 1, col: at[3] ? +at[3] - 1 : 0 } : {}) }));
-    html = pal.list.map((f, i) => { const r = rel(f.path), d = r.includes("/") ? r.slice(0, r.lastIndexOf("/")) : ""; return row(i, fdot(f.path), hlText(base(f.path), q.split(/\s+/).pop()), esc(d), ""); }).join("")
+    const nRecent = q ? 0 : list.filter((p) => S.tabs.includes(p) || (prefs.recentFiles?.[S.root] || []).includes(p)).length;
+    const sep = (t) => `<p class="palsep">${t}</p>`;
+    html = pal.list.map((f, i) => { const r = rel(f.path), d = r.includes("/") ? r.slice(0, r.lastIndexOf("/")) : ""; return (nRecent && i === 0 ? sep("Recently opened") : nRecent && i === nRecent ? sep("Other files") : "") + row(i, fdot(f.path), hlText(base(f.path), q.split(/\s+/).pop()), esc(d), ""); }).join("")
       || `<p class="empty" style="padding:8px 10px">${S.root ? (S.files ? "No files match." : "Loading files…") : "Open a folder first."}</p>`;
   }
   pal.sel = Math.min(pal.sel, Math.max(0, pal.list.length - 1));
@@ -2891,10 +3060,10 @@ function pick(i) {
   if (pal.mode === "prompt") { finishPalette($("palIn").value); return; }
   const it = pal.list[i];
   if (!it) return;
-  if (pal.mode === "choose") { finishPalette(pal.wantIndex ? it.i : it.choice); return; }
+  if (pal.mode === "choose") { finishPalette(it.create != null ? { create: it.create } : pal.wantIndex ? it.i : it.choice); return; }
   finishPalette(null);
   if (it.mode) it.mode.pick(it);
-  else if (it.cmd) it.cmd.run();
+  else if (it.cmd) { prefs.recentCmds = [it.cmd.id, ...(prefs.recentCmds || []).filter((x) => x !== it.cmd.id)].slice(0, 8); savePrefs(); it.cmd.run(); }
   else if (it.goto) activate(S.active, it.goto);
   else if (it.path) openFile(it.path, it.line != null ? { line: it.line, character: it.col } : null);
 }
@@ -2902,6 +3071,8 @@ $("palIn").oninput = () => { pal.sel = 0; drawPalette(); };
 $("palOv").addEventListener("keydown", (ev) => {
   const k = keyString(ev);
   if (k === "Esc") { ev.preventDefault(); finishPalette(null); return; }
+  // Search in files from Go to file: close this and go there, carrying what was typed.
+  if (pal.mode === "files" && keymap.lookup(k) === "search.files") { ev.preventDefault(); finishPalette(null); keymap.cmds.get("search.files").run(); return; }
   if (pal.mode === "choose" && !pal.filter && /^[1-9]$/.test(k) && +k <= pal.list.length) { ev.preventDefault(); pick(+k - 1); return; }
   if (k === "Down" || k === "Up" || (pal.mode === "choose" && (k === "Tab" || k === "Shift+Tab"))) {
     ev.preventDefault();
@@ -2951,7 +3122,8 @@ $("menu").addEventListener("keydown", (ev) => {
 const keymap = new Keymap();
 const C = (id, title, keys, run, opts) => keymap.add(id, title, keys, run, opts);
 const inTree = () => $("tree").contains(document.activeElement) && S.sel;
-C("settings.open", "Open settings", "Ctrl+P", openSettings);
+C("settings.open", "Open settings", "Ctrl+P", openSettings, { alias: "preferences options" });
+C("settings.keys", "Keyboard shortcuts", [], () => { openSettings(); requestAnimationFrame(() => $("sKeys")?.scrollIntoView({ block: "start" })); }, { alias: "keybindings keymap keys" });
 C("file.goto", "Go to file", "Ctrl+E", () => openPalette("files"));
 C("palette", "Show all commands", ["Ctrl+Shift+P", "F1"], () => openPalette("files", ">"));
 C("editor.gotoLine", "Go to line", "Ctrl+G", () => openPalette("files", ":"));
@@ -2977,6 +3149,7 @@ C("trust.toggle", "Trust this folder, or go back to restricted mode", [], async 
   if (!yes) setTrust(S.root, false);
   toast(yes ? `${base(S.root)} is trusted: its code can run (Run, Build, Test, Debug, Rust, C# and Lua analysis).` : `${base(S.root)} is in restricted mode: none of its code runs.`, 5000);
 });
+C("editor.indentation", "Indentation: spaces or tabs (and convert the file)", [], pickIndent, { alias: "indent using spaces tabs convert indentation" });
 C("file.eol", "Change line endings (CRLF or LF)", [], async () => {
   const b = S.bufs.get(S.active);
   if (!b || b.virtual || b.ro) return;
@@ -2988,6 +3161,8 @@ C("file.eol", "Change line endings (CRLF or LF)", [], async () => {
   scheduleUi(); renderPos();
   toast(`Saving will write ${eol === "\r\n" ? "CRLF" : "LF"} line endings.`);
 });
+// Other names people search for.
+queueMicrotask(() => { for (const [id, a] of [["file.toUtf8", "encoding charset"], ["file.eol", "crlf lf eol encoding"], ["view.zen", "focus distraction"], ["focus.reveal", "locate find in explorer"]]) { const c = keymap.cmds.get(id); if (c) c.alias = `${c.alias || ""} ${a}`; } });
 C("file.toUtf8", "Convert this file to UTF-8 (from UTF-16 or Windows-1252)", [], async () => {
   const b = S.bufs.get(S.active);
   if (!b || b.virtual) return;
@@ -3152,9 +3327,16 @@ function openFolder(path) {
 // folder, and the backend (src-tauri/src/trust.rs) enforces it. Projects made in Ledger are trusted.
 const trusted = () => !!S.root && (prefs.trust || {})[S.root] === true;
 const trustHooks = [];
+// Another window changed this folder's trust: follow it (servers, Run, the Restricted pill).
+window.addEventListener("storage", (e) => {
+  if (e.key !== PREF_KEY || !S.root || trustChanged.has(S.root)) return;
+  const was = trusted(), now = freshTrust()[S.root] === true;
+  if (was !== now) setTrust(S.root, now);
+});
 const hasProjectCode = () => hasAny(/^(package\.json|Cargo\.toml|project\.godot|\.luarc\.json|.*\.(csproj|sln|slnx|fsproj))$/i) || S.isRepo;
 function setTrust(root, yes) {
   prefs.trust = { ...(prefs.trust || {}), [root]: yes };
+  trustChanged.add(root);
   savePrefs();
   if (root !== S.root) return;
   invoke("set_window_trust", { trusted: yes }).catch(() => {});
@@ -3175,7 +3357,7 @@ function setTrust(root, yes) {
   renderStatus();
 }
 async function askTrust(path, force) {
-  if (!path || (!force && (prefs.trust || {})[path] !== undefined) || (!force && !hasProjectCode())) return trusted();
+  if (!path || (!force && freshTrust()[path] !== undefined) || (!force && !hasProjectCode())) return trusted();
   const c = await choose(`Do you trust the code in ${base(path)}? Trusting lets Ledger run it: Run, Build, Test and Debug, Rust, C# and Lua analysis, and the project's own Tailwind and Prettier. Without trust the folder opens in restricted mode: you can read, edit, search and commit, but none of its code runs. Trust only folders whose code you'd run yourself.`, ["Stay in restricted mode", "Trust it"]); // the safe answer is the one Enter picks
   if (c === "Trust it" || c === "Stay in restricted mode") setTrust(path, c === "Trust it");
   return trusted();
@@ -3234,7 +3416,7 @@ async function openFolderNow(path) {
   savePrefs();
   $("rootName").textContent = base(path).toUpperCase();
   getCurrentWindow().setTitle(`${base(path)} · ${APP_NAME}`).catch(() => {});
-  invoke("set_window_root", { root: path, trusted: (prefs.trust || {})[path] === true }).catch(() => {});
+  invoke("set_window_root", { root: path, trusted: freshTrust()[path] === true }).catch(() => {});
   each(folderHooks, path);
   const sess = prefs.sessions[path];
   await loadDir(path);
@@ -3363,7 +3545,7 @@ async function newProject() {
 async function openNewProject(p, main, server) {
   // Made here, so its code is yours; but not inside a folder you haven't trusted, whose settings
   // (.cargo/config, Directory.Build.*) apply to it too.
-  if (!(S.root && isUnder(p, S.root) && !trusted())) { prefs.trust = { ...(prefs.trust || {}), [p]: true }; savePrefs(); }
+  if (!(S.root && isUnder(p, S.root) && !trusted())) { prefs.trust = { ...(prefs.trust || {}), [p]: true }; trustChanged.add(p); savePrefs(); }
   if (S.root && isUnder(p, S.root)) {
     await revealInTree(join(p, main));
     S.open.add(p);
@@ -3450,7 +3632,7 @@ const app = {
   get view() { return view; }, get split() { return split; }, panes,
   command: (...a) => C(...a), setSetting, toast, choose, promptText, copy,
   showPanel, focusPanel, focusZone, currentZone, showSideView, sideViews, get sideView() { return sideView; },
-  openFile, activate, addTab, save, saveAll, startSteps, appendOut, renderTabs, renderMain, renderStatus, scheduleUi,
+  openFile, activate, addTab, keepTab, save, saveAll, startSteps, appendOut, renderTabs, renderMain, renderStatus, scheduleUi,
   dispatchBuf, serverOf, needServer, syncDoc, renderMd, hl, norm, rel, base, parent, join, isUnder, isAbs, esc, splitArgs,
   highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
   cwd: () => S.ctx?.dir || S.root || "",
@@ -3501,9 +3683,21 @@ listen("update-prepare", async (e) => {
   if (e.payload?.from === winLabel) return;
   saveSession();
   const ok = !e.payload.save || !dirtyPaths().length || (await saveAll());
-  if (ok) for (const b of S.bufs.values()) b.dirty = false; // restarting: no "unsaved changes" question on the way out
+  // Restarting: no "unsaved changes" question on the way out. Remembered, in case the install fails.
+  if (ok) { restartUnsaved = [...S.bufs].filter(([, b]) => b.dirty).map(([p]) => p); for (const b of S.bufs.values()) b.dirty = false; }
   emit("update-prepare-reply", { id: e.payload.id, label: winLabel, ok }).catch(() => {});
 });
+let restartUnsaved = [];
+// The install failed after the windows got ready for it: unsaved files are unsaved again, and the
+// language servers that were stopped start again.
+function updateAborted() {
+  for (const p of restartUnsaved) { const b = S.bufs.get(p); if (b) b.dirty = true; }
+  restartUnsaved = [];
+  renderTabs();
+  if (S.root) startProjectServers();
+  for (const b of S.bufs.values()) if (!b.virtual) ensureServer(b.lang);
+}
+listen("update-aborted", (e) => { if (e.payload?.from !== winLabel) updateAborted(); });
 listen("settings-changed", (e) => { if (e.payload?.from !== winLabel) reloadSettingsFromFile(true); });
 async function boot() {
   await loadSettings();
@@ -3522,13 +3716,18 @@ async function boot() {
     checkUpdate: () => updater?.check(),
   });
   updater = initUpdate({
+    aborted: () => { updateAborted(); emit("update-aborted", { from: winLabel }).catch(() => {}); },
     $, toast, settings, isMain: winLabel === "main",
     // Ledger restarts to update: every window's unsaved work is asked about and saved first, then
     // everything Ledger started is ended (the installer closes Ledger without the usual exit).
     beforeInstall: async () => {
       saveSession();
       await new Promise((r) => setTimeout(r, 400)); // saveSession writes after a short delay
-      const others = await askWindows("update-query", {}, 800);
+      // Every other window must answer: one that's busy (a big file loading) would otherwise be
+      // closed by the installer without being asked to save.
+      const total = await invoke("window_count").catch(() => 0);
+      const others = await askWindows("update-query", {}, 6000, Math.max(0, total - 1));
+      if (total && others.length < total - 1) { toast("Another Ledger window didn't answer, so Ledger didn't restart. Try again in a moment.", 7000); return false; }
       const mine = dirtyPaths();
       const names = [...mine.map(base), ...others.flatMap((r) => r.dirty || [])];
       let keep = true;

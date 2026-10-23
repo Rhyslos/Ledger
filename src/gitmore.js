@@ -183,8 +183,8 @@ export function ago(ms, now = Date.now()) {
   return "just now";
 }
 class BlameNote extends WidgetType {
-  constructor(info, onClick) { super(); this.info = info; this.onClick = onClick; }
-  eq(o) { return o.info === this.info; }
+  constructor(info, onClick, text) { super(); this.info = info; this.onClick = onClick; this.text = text; }
+  eq(o) { return o.info === this.info && o.text === this.text; }
   toDOM() {
     const s = document.createElement("span");
     s.className = "cm-blame";
@@ -193,7 +193,7 @@ class BlameNote extends WidgetType {
     const none = /^0+$/.test(i.sha);
     s.textContent = none ? "You · not committed yet" : `${i.author || "?"}, ${ago(i.time)} · ${i.summary || ""}`;
     s.title = none ? "This line has changed since the last commit." : `${i.sha.slice(0, 8)} · ${i.author} ${i.mail || ""}\n${new Date(i.time).toLocaleString()}\n\n${i.summary || ""}\n\nClick to see what this commit changed in the file.`;
-    if (!none) s.addEventListener("mousedown", (e) => { e.preventDefault(); this.onClick(i); });
+    if (!none) s.addEventListener("mousedown", (e) => { e.preventDefault(); this.onClick(i, undefined, this.text); });
     return s;
   }
   ignoreEvent() { return true; }
@@ -205,9 +205,10 @@ const blamePlugin = (onClick) => ViewPlugin.fromClass(class {
     const data = v.state.field(blameField, false);
     if (!data || v.state.selection.ranges.length > 1) return Decoration.none;
     const line = v.state.doc.lineAt(v.state.selection.main.head);
+    if (!line.text.trim()) return Decoration.none; // nothing to say about a blank line
     const info = blameFor(data, v.state.doc, line.number);
     if (!info) return Decoration.none;
-    return Decoration.set([Decoration.widget({ widget: new BlameNote(info, onClick), side: 1 }).range(line.to)]);
+    return Decoration.set([Decoration.widget({ widget: new BlameNote(info, onClick, line.text), side: 1 }).range(line.to)]);
   }
 }, { decorations: (v) => v.decorations });
 
@@ -274,7 +275,7 @@ export function initGitMore(app, gitApi) {
     const doc = b.state.doc;
     if (asked.get(path) === doc || doc.length > 2_000_000) return;
     asked.set(path, doc);
-    const r = await invoke("run_capture", { cwd: G.root, program: "git", args: ["-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "blame", "--porcelain", "--contents", "-", "--", relTo(path)], input: (b.bom ? "\uFEFF" : "") + (b.eol === "\r\n" ? doc.toString().replace(/\n/g, "\r\n") : doc.toString()) }).catch(() => null);
+    const r = await invoke("run_capture", { cwd: G.root, program: "git", timeoutMs: 30000, args: ["-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "blame", "--porcelain", "--contents", "-", "--", relTo(path)], input: (b.bom ? "\uFEFF" : "") + (b.eol === "\r\n" ? doc.toString().replace(/\n/g, "\r\n") : doc.toString()) }).catch(() => null);
     const now = S.bufs.get(path);
     if (!r || r.code !== 0 || !now || now.state.doc !== doc) return;
     app.dispatchBuf(path, { effects: setBlame.of({ lines: parseBlame(r.out), doc }) });
@@ -282,7 +283,7 @@ export function initGitMore(app, gitApi) {
   const soon = (path, ms) => { clearTimeout(pending.get(path)); pending.set(path, setTimeout(() => blame(path), ms)); };
   // Clicking a line's blame: that commit's change to this file, with who, when, the whole
   // message and the other files it touched (click one to see its change too).
-  async function showCommit(info, path = S.active) {
+  async function showCommit(info, path = S.active, lineText) {
     const rel = relTo(path), sha = info.sha, short = sha.slice(0, 7);
     const get = async (rev, file) => { const r = await gitApi.git(["show", `${rev}:${file}`]).catch(() => null); return r?.code === 0 ? r.out.replace(/\r\n/g, "\n") : ""; };
     const [before, after, meta, names] = await Promise.all([
@@ -294,6 +295,9 @@ export function initGitMore(app, gitApi) {
     const files = names?.code === 0 ? names.out.split("\n").filter(Boolean).map((l) => { const f = l.split("\t"); return { st: f[0][0], file: f[f.length - 1] }; }) : [];
     const date = when ? new Date(when) : null;
     app.openDiff?.({
+      // The line you clicked, in the commit's version of the file; a file the commit added isn't
+      // painted green from top to bottom.
+      line: lineText ? after.split("\n").indexOf(lineText) + 1 || undefined : undefined, added: !before,
       path, title: `${app.base(path)} · ${short}`, left: before, right: after, leftLabel: "Before " + short, rightLabel: `${short} · ${info.summary || ""}`,
       info: {
         head: `${an}${ae ? ` <${ae}>` : ""}${date && !isNaN(date) ? " · " + date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : ""} · ${sha}`,
@@ -304,6 +308,49 @@ export function initGitMore(app, gitApi) {
     });
   }
   const plugin = blamePlugin(showCommit);
+
+  // ----- history: the branch's commits; click one to see what it changed -----
+  const LOG = "@log:history", logEl = app.$("logpage");
+  let log = null, logBusy = false;
+  async function loadLog() {
+    logBusy = true;
+    const r = await gitApi.git(["log", "-n", "300", "--date=iso-strict", "--format=%H%x00%an%x00%ad%x00%s%x00%D"]).catch(() => null);
+    logBusy = false;
+    log = r?.code === 0 ? r.out.split("\n").filter(Boolean).map((l) => { const [sha, author, when, subject, refs] = l.split("\0"); return { sha, author, when, subject, refs }; }) : [];
+    if (S.active === LOG) renderLog();
+  }
+  const ago = (iso) => {
+    const s = (Date.now() - new Date(iso)) / 1000;
+    return s < 3600 ? `${Math.max(1, Math.round(s / 60))} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : s < 86400 * 30 ? `${Math.round(s / 86400)} days ago` : new Date(iso).toLocaleDateString();
+  };
+  function renderLog() {
+    if (!logEl) return;
+    if (!log) { logEl.innerHTML = '<p class="empty" style="padding:20px">Loading…</p>'; if (!logBusy) loadLog(); return; }
+    logEl.innerHTML = `<div class="diffhead"><b>History of ${app.esc(G.branch || "")}</b><span class="sp"></span><span class="hint">${log.length}${log.length >= 300 ? "+" : ""} commits · click one to see what it changed</span><button class="btn" data-lact="reload">Refresh</button></div>
+      <div class="logrows" role="list">${log.map((c, i) => `<div class="logrow" role="listitem" tabindex="${i ? -1 : 0}" data-li="${i}"><code>${c.sha.slice(0, 7)}</code><span class="ls">${app.esc(c.subject)}${c.refs ? ` <span class="lref">${app.esc(c.refs.replace(/HEAD -> /, ""))}</span>` : ""}</span><span class="la">${app.esc(c.author)}</span><span class="lw" title="${app.esc(new Date(c.when).toLocaleString())}">${ago(c.when)}</span></div>`).join("") || '<p class="empty" style="padding:20px">No commits yet.</p>'}</div>`;
+  }
+  async function openCommit(c) {
+    const r = await gitApi.git(["show", "--name-only", "--format=", c.sha]).catch(() => null);
+    const first = (r?.out || "").split("\n").find(Boolean);
+    if (!first) { app.toast("That commit doesn't change any files."); return; }
+    showCommit({ sha: c.sha, summary: c.subject }, (G.root || S.root) + "/" + first);
+  }
+  logEl?.addEventListener("click", (e) => {
+    if (e.target.closest('[data-lact="reload"]')) { log = null; renderLog(); return; }
+    const row = e.target.closest("[data-li]");
+    if (row) openCommit(log[+row.dataset.li]);
+  });
+  logEl?.addEventListener("keydown", (e) => {
+    const row = e.target.closest("[data-li]"), k = app.keyString(e);
+    if (!row) return;
+    const go = (n) => { if (!n) return; row.tabIndex = -1; n.tabIndex = 0; n.focus(); };
+    if (k === "Down") { e.preventDefault(); go(row.nextElementSibling); }
+    else if (k === "Up") { e.preventDefault(); go(row.previousElementSibling); }
+    else if (k === "Enter") { e.preventDefault(); openCommit(log[+row.dataset.li]); }
+  });
+  if (logEl) app.pages.push({ el: logEl, match: (k) => k === LOG, render: renderLog, label: () => "History", dot: "cfg", focus: () => logEl.querySelector('.logrow[tabindex="0"]')?.focus(), close: () => { log = null; } });
+  app.gitLog = () => { if (!G.ok) { app.toast("This folder isn't a Git repository."); return; } log = null; app.addTab(LOG); app.activate(LOG); };
+  app.command("git.log", "Git: history (the branch's commits)", [], () => app.gitLog(), { alias: "log commits timeline" });
   app.extraExt.push((path, b) => (settings.gitBlame && !b.virtual ? [blameField, plugin] : []));
   app.activeHooks.push((key) => { if (S.bufs.has(key)) soon(key, 200); });
   app.saveHooks.push((path) => soon(path, 600));

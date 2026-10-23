@@ -3,7 +3,7 @@
 // Enter / Shift Enter go to the next and previous match, Alt Enter selects every match,
 // Esc closes. Aa, ab and .* are match case, whole word and regular expression.
 import { SearchQuery, setSearchQuery, getSearchQuery, findNext, findPrevious, selectMatches, replaceNext, replaceAll, closeSearchPanel, openSearchPanel, searchPanelOpen } from "@codemirror/search";
-import { runScopeHandlers } from "@codemirror/view";
+import { runScopeHandlers, EditorView } from "@codemirror/view";
 
 const MAX_COUNT = 10000;
 let wantReplace = false;
@@ -21,7 +21,7 @@ class FindBar {
       <div class="fb-rows">
         <div class="fb-row">
           <div class="fb-in"><input class="fb-q" placeholder="Find" aria-label="Find" spellcheck="false" main-field="true">
-            <button class="fb-t" data-t="caseSensitive" title="Match case">Aa</button><button class="fb-t" data-t="wholeWord" title="Whole word"><u>ab</u></button><button class="fb-t" data-t="regexp" title="Regular expression">.*</button></div>
+            <button class="fb-t" data-t="caseSensitive" title="Match case (Alt C)">Aa</button><button class="fb-t" data-t="wholeWord" title="Whole word (Alt W)"><u>ab</u></button><button class="fb-t" data-t="regexp" title="Regular expression (Alt R)">.*</button></div>
           <span class="fb-count" aria-live="polite"></span>
           <button class="ibtn" data-a="prev" title="Previous match (Shift Enter)" aria-label="Previous match">↑</button>
           <button class="ibtn" data-a="next" title="Next match (Enter)" aria-label="Next match">↓</button>
@@ -31,7 +31,7 @@ class FindBar {
         <div class="fb-row fb-repl">
           <div class="fb-in"><input class="fb-r" placeholder="Replace" aria-label="Replace with" spellcheck="false"></div>
           <button class="btn" data-a="one" title="Replace this match (Enter in this box)">Replace</button>
-          <button class="btn" data-a="every" title="Replace every match">Replace all</button>
+          <button class="btn" data-a="every" title="Replace every match (Ctrl Alt Enter)">Replace all</button>
         </div>
       </div>`;
     this.q = dom.querySelector(".fb-q");
@@ -48,18 +48,39 @@ class FindBar {
       else if (a === "next") findNext(view);
       else if (a === "all") { selectMatches(view); view.focus(); }
       else if (a === "one") replaceNext(view);
-      else if (a === "every") replaceAll(view);
+      else if (a === "every") this.replaceEvery();
       else if (a === "close") { closeSearchPanel(view); view.focus(); }
     });
     dom.addEventListener("keydown", (e) => {
       if (runScopeHandlers(view, e, "search-panel")) { e.preventDefault(); return; }
+      const alt = e.altKey && !e.ctrlKey && !e.metaKey, k = e.key.toLowerCase();
+      if (alt && (k === "c" || k === "w" || k === "r")) { // VS Code's toggles
+        e.preventDefault();
+        const t = { c: "caseSensitive", w: "wholeWord", r: "regexp" }[k];
+        this.flags[t] = !this.flags[t];
+        this.commit();
+        return;
+      }
+      if (e.key === "Enter" && e.ctrlKey && e.altKey) { e.preventDefault(); this.replaceEvery(); return; }
       if (e.key === "Escape") { e.preventDefault(); closeSearchPanel(view); view.focus(); }
-      else if (e.key === "Enter" && e.target === this.r) { e.preventDefault(); e.ctrlKey || e.metaKey ? replaceAll(view) : replaceNext(view); }
+      else if (e.key === "Enter" && e.target === this.r) { e.preventDefault(); e.ctrlKey || e.metaKey ? this.replaceEvery() : replaceNext(view); }
       else if (e.key === "Enter" && e.altKey) { e.preventDefault(); selectMatches(view); view.focus(); }
       else if (e.key === "Enter") { e.preventDefault(); (e.shiftKey ? findPrevious : findNext)(view); }
     });
     this.flags = { caseSensitive: q.caseSensitive, wholeWord: q.wholeWord, regexp: q.regexp };
     this.paint();
+  }
+  // Replace all, then say how many and show where the cursor is.
+  replaceEvery() {
+    const q = getSearchQuery(this.view.state);
+    let n = 0;
+    if (q.valid && q.search) for (let c = q.getCursor(this.view.state), r = c.next(); !r.done; r = c.next()) n++;
+    replaceAll(this.view);
+    this.view.dispatch({ effects: EditorView.scrollIntoView(this.view.state.selection.main.head, { y: "center" }) });
+    this.note = n ? `Replaced ${n}` : "";
+    clearTimeout(this.noteT);
+    this.noteT = setTimeout(() => { this.note = ""; this.count(); }, 2500);
+    this.count();
   }
   commit() {
     const q = new SearchQuery({ search: this.q.value, replace: this.r.value, ...this.flags });
@@ -77,6 +98,7 @@ class FindBar {
   count() {
     const st = this.view.state, q = getSearchQuery(st), el = this.dom.querySelector(".fb-count");
     this.q.classList.toggle("bad", !!q.search && !q.valid);
+    if (this.note) { el.textContent = this.note; el.classList.remove("none"); return; }
     if (!q.search) { el.textContent = ""; return; }
     if (!q.valid) { el.textContent = "Not a valid pattern"; return; }
     const sel = st.selection.main;
