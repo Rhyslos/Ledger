@@ -536,10 +536,12 @@ async function formatBuffer(path) {
     return true;
   }
   if (!b || b.ro || !srv?.alive) return false;
-  syncDoc(path, b.state.doc);
-  const edits = await srv.request("textDocument/formatting", { textDocument: { uri: pathToUri(path) }, options: { tabSize: settings.tabSize, insertSpaces: true } });
-  if (!edits || !edits.length) return !!edits;
   const doc = b.state.doc;
+  syncDoc(path, doc);
+  const edits = await srv.request("textDocument/formatting", { textDocument: { uri: pathToUri(path) }, options: { tabSize: indentOf(b).size, insertSpaces: !indentOf(b).tabs } });
+  if (!edits || !edits.length) return !!edits;
+  // Typed more while the server worked: its edits are for the old text, so leave it.
+  if (S.bufs.get(path)?.state.doc !== doc) return true;
   dispatchBuf(path, { changes: edits.map((e) => ({ from: toOffset(doc, e.range.start), to: toOffset(doc, e.range.end), insert: e.newText })), userEvent: "format" });
   return true;
 }
@@ -560,9 +562,11 @@ async function renameSymbol() {
   const cur = w ? view.state.sliceDoc(w.from, w.to) : "";
   const name = await promptText("Rename symbol", cur);
   if (!name || name === cur) return;
-  syncDoc(path, view.state.doc);
-  const we = await srv.request("textDocument/rename", { ...srv.at(path, view.state.doc, pos), newName: name });
+  const before = view.state.doc;
+  syncDoc(path, before);
+  const we = await srv.request("textDocument/rename", { ...srv.at(path, before, pos), newName: name });
   if (!we) { toast("Can't rename that."); return; }
+  if (S.bufs.get(path)?.state.doc !== before) { toast("The file changed while the rename was worked out. Try again."); return; }
   const n = await applyWorkspaceEdit(we);
   toast(`Renamed in ${n} file${n === 1 ? "" : "s"}. Unsaved files are marked.`);
 }
@@ -583,8 +587,10 @@ async function codeActions() {
   const i = await choose("Quick fixes and refactors", list.map((a) => a.title), true);
   if (i == null) return;
   let a = list[i];
+  if (S.bufs.get(path)?.state.doc !== doc) { toast("The file changed in the meantime. Try again."); return; }
   if (typeof a.command === "string") { await srv.request("workspace/executeCommand", { command: a.command, arguments: a.arguments }); return; }
   if (!a.edit && srv.caps?.codeActionProvider?.resolveProvider) a = (await srv.request("codeAction/resolve", a)) || a;
+  if (a.edit && S.bufs.get(path)?.state.doc !== doc) { toast("The file changed in the meantime. Try again."); return; }
   if (a.edit) await applyWorkspaceEdit(a.edit);
   if (a.command) await srv.request("workspace/executeCommand", { command: a.command.command, arguments: a.command.arguments });
 }
@@ -712,7 +718,43 @@ const xExt = (path, b) => [
 function reconfigureExtras() {
   for (const [p, b] of S.bufs) dispatchBuf(p, { effects: xcfg.reconfigure(xExt(p, b)) });
 }
-const cfgExt = () => [EditorState.tabSize.of(settings.tabSize), indentUnit.of(" ".repeat(settings.tabSize)), settings.wordWrap ? EditorView.lineWrapping : []];
+// Indentation: what the file already uses (2 spaces, 4, tabs) when Settings › Editing › Detect
+// indentation is on, otherwise the tab size setting. The status bar shows it; click to change it.
+function detectIndent(text) {
+  const deltas = new Map();
+  let tabs = 0, spaced = 0, prev = 0;
+  for (const line of text.split("\n", 3000)) {
+    const m = /^([ \t]*)\S/.exec(line);
+    if (!m) continue;
+    const ws = m[1];
+    if (ws.startsWith("\t")) { tabs++; continue; }
+    if (/^ +$/.test(ws) || !ws) {
+      const n = ws.length, d = n - prev;
+      if (d > 0 && d <= 8) { spaced++; deltas.set(d, (deltas.get(d) || 0) + 1); }
+      prev = n;
+    }
+  }
+  if (tabs > spaced && tabs >= 2) return { tabs: true, size: settings.tabSize };
+  // A block comment's " * " lines step by 1: not an indent.
+  const best = [...deltas].filter(([d]) => d >= 2).sort((a, b) => b[1] - a[1])[0];
+  return best && best[1] >= 2 ? { tabs: false, size: best[0] } : null;
+}
+const indentOf = (b) => (b?.indentSet || (settings.detectIndent !== false && b?.indent)) || { tabs: false, size: settings.tabSize };
+const cfgExt = (b) => {
+  const ind = indentOf(b);
+  return [EditorState.tabSize.of(ind.tabs ? settings.tabSize : ind.size), indentUnit.of(ind.tabs ? "\t" : " ".repeat(ind.size)), settings.wordWrap ? EditorView.lineWrapping : []];
+};
+async function pickIndent() {
+  const b = S.bufs.get(S.active);
+  if (!b) return;
+  const opts = [["Spaces: 2", { tabs: false, size: 2 }], ["Spaces: 4", { tabs: false, size: 4 }], ["Spaces: 8", { tabs: false, size: 8 }], ["Tabs", { tabs: true, size: settings.tabSize }], ["As the file does it (detect)", null]];
+  const i = await choose(`Indentation in ${base(S.active)} (what Tab, Enter and formatting use)`, opts.map((o) => o[0]), true);
+  if (i == null || i < 0) return;
+  b.indentSet = opts[i][1];
+  if (!b.indentSet) b.indent = detectIndent(b.state.doc.toString());
+  dispatchBuf(S.active, { effects: cfg.reconfigure(cfgExt(b)) });
+  renderPos();
+}
 
 function extensionsFor(path, b) {
   const L = LANGS[b.lang], hasServer = !!L.server && !b.virtual;
@@ -720,7 +762,7 @@ function extensionsFor(path, b) {
     lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), history(), foldGutter(), drawSelection(), dropCursor(),
     EditorState.allowMultipleSelections.of(true), indentOnInput(), syntaxHighlighting(hl), bracketMatching(), closeBrackets(),
     rectangularSelection(), crosshairCursor(), highlightActiveLine(), selectingClass, highlightSelectionMatches(), search({ top: true }),
-    cfg.of(cfgExt()), infoField, xcfg.of(xExt(path, b)),
+    cfg.of(cfgExt(b)), infoField, xcfg.of(xExt(path, b)),
     autocompletion({
       override: [
         ...(hasServer ? [completionSource(path), (ctx) => (started(serverOf(S.bufs.get(path))) ? null : langDataSource(ctx))] : L.complete ? [L.complete] : [langDataSource]),
@@ -818,6 +860,7 @@ function makeBuffer(path, text, opts = {}) {
   b.eol = text.includes("\r\n") ? "\r\n" : "\n";
   b.ro = !!opts.virtual || (!isUnder(path, S.root) && TOOLCHAIN.test(path));
   b.saved = Text.of(text.split(/\r?\n/));
+  b.indent = detectIndent(text.length > 2_000_000 ? text.slice(0, 200_000) : text);
   b.state = EditorState.create({ doc: b.saved, extensions: extensionsFor(path, b) });
   S.bufs.set(path, b);
   const srv = serverOf(b);
@@ -1063,7 +1106,17 @@ const activeHooks = [];
 let twWarmT = null;
 activeHooks.push(() => { clearTimeout(twWarmT); twWarmT = setTimeout(tailwindWarm, 400); });
 
+// One save at a time per file: auto-save, Ctrl S and save-all can overlap, and the second would
+// see the first one's write as "changed on disk by another program".
 async function save(path = S.active) {
+  const b = S.bufs.get(path);
+  while (b?.saving) await b.saving.catch(() => {});
+  if (!b) return saveNow(path);
+  const p = saveNow(path);
+  b.saving = p;
+  try { return await p; } finally { if (b.saving === p) b.saving = null; }
+}
+async function saveNow(path) {
   const b = S.bufs.get(path);
   if (!b || b.ro) return true;
   if (settings.formatOnSave && (formatterFor(path, b) || serverOf(b)?.alive) && b.dirty) await formatBuffer(path);
@@ -1312,7 +1365,7 @@ async function reloadClean() {
     const stats = await invoke("file_stats", { paths }).catch(() => paths.map(() => undefined));
     for (let i = 0; i < paths.length; i++) {
       const path = paths[i], cur = S.bufs.get(path), m = stats[i];
-      if (!cur || m === undefined || cur.mtime === undefined) continue;
+      if (!cur || m === undefined || cur.mtime === undefined || cur.saving) continue;
       if (m === cur.mtime) continue;
       if (m === null) { // deleted
         if (cur.diskChanged !== "deleted") { cur.diskChanged = "deleted"; changed = true; }
@@ -1328,12 +1381,16 @@ async function reloadClean() {
   } finally { reloading = false; if (changed) { scheduleUi(); renderDiskBars(); } }
 }
 async function reloadFromDisk(path) {
+  const startDoc = S.bufs.get(path)?.state.doc;
   let text, enc;
   try { ({ text, encoding: enc } = await invoke("read_text", { path })); } catch { return; }
+  const mtime = await statOf(path);
   const cur = S.bufs.get(path);
   if (!cur) return;
+  // Typed while the file was being read: keep the typing, and show the "changed on disk" bar instead.
+  if (cur.state.doc !== startDoc) { cur.diskChanged = "changed"; renderDiskBars(); return; }
   cur.enc = enc;
-  cur.mtime = await statOf(path);
+  cur.mtime = mtime;
   const bom = text.startsWith("\uFEFF");
   if (bom) text = text.slice(1);
   cur.bom = bom;
@@ -1590,10 +1647,12 @@ $("tree").addEventListener("click", (ev) => {
     // a double-click moves into the editor.
     const p = f.dataset.file;
     S.sel = p; S.selDir = false;
+    // The second click of a double-click: the row was redrawn in between, so no dblclick event
+    // arrives; the click count says it. Keep the tab and go to the editor.
+    if (ev.detail >= 2) { openFile(p).then((ok) => { if (ok && S.active === p) { keepTab(p); if (S.bufs.get(p)) view.focus(); } }); return; }
     openFile(p, null, { keepFocus: true, preview: true }).then(() => { const n = $("tree").querySelector(`[data-file="${CSS.escape(p)}"]`); if (n) moveCursor(n); });
   }
 });
-$("tree").addEventListener("dblclick", (ev) => { if (ev.target.closest("[data-file]") && S.bufs.get(S.active)) { keepTab(S.active); view.focus(); } });
 $("tree").addEventListener("contextmenu", (ev) => {
   if (!S.root) return;
   ev.preventDefault();
@@ -1757,7 +1816,7 @@ function renderTabs() {
     const b = S.bufs.get(p), c = counts(S.diags.get(p)), on = p === S.active;
     const dot = p === SETTINGS_TAB ? "cfg" : b?.virtual ? "cs" : pageOf(p) ? pageOf(p).dot : dotOf(p);
     const there = split && otherPane().key === p;
-    return `<div class="tab${on ? " on" : ""}${there ? " there" : ""}${b?.dirty ? " dirty" : ""}${p === S.preview ? " preview" : ""}${S.pinned.has(p) ? " pinned" : ""}" role="tab" aria-selected="${on}" style="--tc:var(--t-${dot})" data-tab="${esc(p)}" title="${esc(isPage(p) || b?.virtual ? tabLabel(p) : rel(p))}${there ? "  ·  open in the other pane" : ""}${i < 8 ? `  ·  Ctrl ${i + 1}` : ""}" tabindex="${on ? 0 : -1}">${isPage(p) || b?.virtual ? '<span class="dot"></span>' : mark(p)}<span class="tl${c.e ? " e" : c.w ? " w" : ""}">${esc(tabLabel(p))}</span>${b?.ro ? '<span class="ro">read-only</span>' : ""}<span class="x" data-close="${esc(p)}" role="button" aria-label="Close ${esc(tabLabel(p))}"><span>×</span></span></div>`;
+    return `<div class="tab${on ? " on" : ""}${there ? " there" : ""}${b?.dirty ? " dirty" : ""}${p === S.preview ? " preview" : ""}${S.pinned.has(p) ? " pinned" : ""}" role="tab" aria-selected="${on}" style="--tc:var(--t-${dot})" data-tab="${esc(p)}" title="${esc(isPage(p) || b?.virtual ? tabLabel(p) : rel(p))}${there ? "  ·  open in the other pane" : ""}${i < 8 ? `  ·  Ctrl ${i + 1}` : ""}" tabindex="${on ? 0 : -1}">${isPage(p) || b?.virtual ? (/^@(csv|hex|img|db):/.test(p) && fileIcons() ? mark(p.replace(/^@[a-z]+:/, "")) : '<span class="dot pg"></span>') : mark(p)}<span class="tl${c.e ? " e" : c.w ? " w" : ""}">${esc(tabLabel(p))}</span>${b?.ro ? '<span class="ro">read-only</span>' : ""}<span class="x" data-close="${esc(p)}" role="button" aria-label="Close ${esc(tabLabel(p))}"><span>×</span></span></div>`;
   }).join("");
   $("tabs").querySelector(".tab.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   if (hadFocus) $("tabs").querySelector(`[data-tab="${CSS.escape(hadFocus)}"]`)?.focus();
@@ -1768,6 +1827,8 @@ $("tabs").addEventListener("click", (ev) => {
   const t2 = ev.target.closest("[data-tab]");
   if (t2) activate(t2.dataset.tab);
 });
+// The mouse wheel scrolls the tab bar sideways when the tabs don't fit.
+$("tabs").addEventListener("wheel", (ev) => { const t = $("tabs"); if (t.scrollWidth > t.clientWidth && Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) { t.scrollLeft += ev.deltaY; ev.preventDefault(); } }, { passive: false });
 $("tabs").addEventListener("dblclick", (ev) => { const t2 = ev.target.closest("[data-tab]"); if (t2) keepTab(t2.dataset.tab); });
 $("tabs").addEventListener("contextmenu", (ev) => {
   const t2 = ev.target.closest("[data-tab]");
@@ -1881,11 +1942,13 @@ const pages = [];
 // ---------- status bar ----------
 function renderPos() {
   const b = S.bufs.get(S.active);
-  if (!b || !view) { $("stPos").textContent = ""; $("stLang").textContent = ""; renderServer(); return; }
+  if (!b || !view) { $("stPos").textContent = ""; $("stLang").textContent = ""; $("stIndent").textContent = ""; renderServer(); return; }
   const sel = view.state.selection.main;
   const line = view.state.doc.lineAt(sel.head);
   const n = Math.abs(sel.to - sel.from);
   $("stPos").textContent = `Ln ${line.number}, Col ${sel.head - line.from + 1}${n ? ` (${n} selected)` : ""}`;
+  const ind = indentOf(b);
+  $("stIndent").textContent = ind.tabs ? "Tabs" : `Spaces: ${ind.size}`;
   $("stLang").textContent = LANGS[b.lang].name + (b.eol === "\r\n" ? " · CRLF" : "") + (b.bom ? " · BOM" : "") + ({ utf16le: " · UTF-16 LE", utf16be: " · UTF-16 BE", cp1252: " · Windows-1252" }[b.enc] || "");
   renderServer();
 }
@@ -2229,6 +2292,7 @@ function renderStatus() {
   $("stSettings").title = "Settings" + k("settings.open");
   $("stToggle").title = "Toggle explorer" + k("view.explorer");
 }
+$("stIndent").addEventListener("click", pickIndent);
 $("stTasks").addEventListener("click", (ev) => { const b = ev.target.closest("[data-task]"); if (b) (b.dataset.task === "debug" ? debug?.start() : runAction(b.dataset.task)); });
 $("stStop").onclick = stopTask;
 $("stLive").onclick = () => (live.port ? stopLive() : startLive());
@@ -2291,11 +2355,12 @@ function applyFonts() {
   view?.requestMeasure();
 }
 function reconfigureAll() {
-  for (const p of S.bufs.keys()) dispatchBuf(p, { effects: cfg.reconfigure(cfgExt()) });
+  for (const [p, b] of S.bufs) dispatchBuf(p, { effects: cfg.reconfigure(cfgExt(b)) });
 }
 function applySetting(key) {
   if (key === "fileIcons") { renderTree(); renderTabs(); renderPaneHeads(); }
   if ((key === "luaVersion" || key === "luaServer") && started(servers.lua)) startServer("lua");
+  if (key === "detectIndent") reconfigureAll();
   if (key === "theme" || key === "codeColours" || key === "smoothCaret" || key === "cursorStyle") applyTheme();
   if (["fontSize", "fontFamily", "uiFont", "uiSize"].includes(key)) applyFonts();
   if (key === "tabSize" || key === "wordWrap") reconfigureAll();
@@ -2552,11 +2617,13 @@ function promptText(head, init = "", placeholder = "") {
   });
 }
 /** Resolves to the chosen label (or its index with wantIndex), or null. */
-function choose(head, options, wantIndex = false) {
+/** Pick one of `options`. Lists of names (branches, bookmarks) pass { filter: true } for a box to
+ *  type in (so typing "b2" finds b2 instead of picking the second row); long lists get one anyway. */
+function choose(head, options, wantIndex = false, opts = {}) {
   return new Promise((resolve) => {
     pal.options = options;
     pal.wantIndex = wantIndex;
-    pal.filter = options.length > 8; // long lists (branches, bookmarks) get a box to type in
+    pal.filter = opts.filter ?? options.length > 8;
     openPalette("choose", "", head);
     pal.resolve = resolve;
   });
@@ -3159,6 +3226,7 @@ const app = {
   highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
   cwd: () => S.ctx?.dir || S.root || "",
   trusted: () => trusted(),
+  indentOf,
   updateCtx, taskKind, projectFor, projectDirs, invoke, keyString, openFolder, closeFolder,
   run: (id) => keymap.cmds.get(id)?.run(),
   openPaletteWith: (prefix) => openPalette("files", prefix),
@@ -3181,6 +3249,31 @@ async function reloadSettingsFromFile(quiet) {
   } catch (e) { if (!quiet) toast("settings.json has a mistake in it: " + e, 6000); }
 }
 // Another window changed a setting.
+// Updating from the main window: the other windows report and save their unsaved files.
+let askSeq = 0;
+function askWindows(event, payload, ms, expect = Infinity) {
+  const id = winLabel + ":" + ++askSeq, got = [];
+  return new Promise((resolve) => {
+    let un = null, timer = 0;
+    const finish = () => { clearTimeout(timer); un?.(); resolve(got); };
+    listen(event + "-reply", (e) => { if (e.payload?.id === id) { got.push(e.payload); if (got.length >= expect) finish(); } }).then((u) => {
+      un = u;
+      emit(event, { ...payload, id, from: winLabel }).catch(() => {});
+      timer = setTimeout(finish, ms);
+    });
+  });
+}
+listen("update-query", (e) => {
+  if (e.payload?.from === winLabel) return;
+  emit("update-query-reply", { id: e.payload.id, label: winLabel, dirty: dirtyPaths().map(base) }).catch(() => {});
+});
+listen("update-prepare", async (e) => {
+  if (e.payload?.from === winLabel) return;
+  saveSession();
+  const ok = !e.payload.save || !dirtyPaths().length || (await saveAll());
+  if (ok) for (const b of S.bufs.values()) b.dirty = false; // restarting: no "unsaved changes" question on the way out
+  emit("update-prepare-reply", { id: e.payload.id, label: winLabel, ok }).catch(() => {});
+});
 listen("settings-changed", (e) => { if (e.payload?.from !== winLabel) reloadSettingsFromFile(true); });
 async function boot() {
   await loadSettings();
@@ -3199,15 +3292,29 @@ async function boot() {
   });
   updater = initUpdate({
     $, toast, settings, isMain: winLabel === "main",
-    // Ledger restarts to update: save first, or let the user keep working.
+    // Ledger restarts to update: every window's unsaved work is asked about and saved first, then
+    // everything Ledger started is ended (the installer closes Ledger without the usual exit).
     beforeInstall: async () => {
       saveSession();
       await new Promise((r) => setTimeout(r, 400)); // saveSession writes after a short delay
-      const d = dirtyPaths();
-      if (!d.length) return true;
-      const c = await choose(`Save changes to ${d.length === 1 ? base(d[0]) : d.length + " files"} before Ledger restarts?`, ["Save all and restart", "Restart without saving", "Cancel"]);
-      if (!c || c === "Cancel") return false;
-      return c === "Save all and restart" ? saveAll() : true;
+      const others = await askWindows("update-query", {}, 800);
+      const mine = dirtyPaths();
+      const names = [...mine.map(base), ...others.flatMap((r) => r.dirty || [])];
+      let keep = true;
+      if (names.length) {
+        const wins = (mine.length ? 1 : 0) + others.filter((r) => r.dirty?.length).length;
+        const where = wins > 1 ? ` (in ${wins} windows)` : others.some((r) => r.dirty?.length) ? " in another window" : "";
+        const c = await choose(`Save changes to ${names.length === 1 ? names[0] : names.length + " files"}${where} before Ledger restarts?`, ["Save all and restart", "Restart without saving", "Cancel"]);
+        if (!c || c === "Cancel") return false;
+        keep = c === "Save all and restart";
+      }
+      if (keep && mine.length && !(await saveAll())) return false;
+      if (others.length) {
+        const done = await askWindows("update-prepare", { save: keep }, 30000, others.length);
+        if (done.length < others.length || done.some((r) => !r.ok)) { toast("Another window couldn't save its files, so Ledger didn't restart. Save them there, then try again.", 8000); return false; }
+      }
+      await invoke("stop_everything").catch(() => {});
+      return true;
     },
   });
   wireSettings($("settings"), (keep) => { if (S.active === SETTINGS_TAB) renderSettingsPage(keep); });

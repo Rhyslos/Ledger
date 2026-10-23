@@ -413,13 +413,22 @@ export function openPicker({ anchor, colour, inFile = [], onChange, onClose }) {
   q("[data-hex]").addEventListener("blur", (e) => (e.target.value = hex()));
 
   // ----- placing and closing -----
+  // Below the colour, else above it, else beside it: never on top of the colour being edited.
+  // In a short window it scrolls rather than running off the bottom.
   function place() {
-    const a = anchor?.getBoundingClientRect ? anchor.getBoundingClientRect() : anchor;
-    const w = el.offsetWidth, h = el.offsetHeight, M = 8;
-    let left = a ? a.left : (innerWidth - w) / 2, top = a ? a.bottom + 6 : (innerHeight - h) / 2;
-    if (left + w + M > innerWidth) left = innerWidth - w - M;
-    if (top + h + M > innerHeight) top = a ? Math.max(M, a.top - h - 6) : M;
-    Object.assign(el.style, { left: Math.max(M, left) + "px", top: Math.max(M, top) + "px" });
+    const a = anchor?.getBoundingClientRect ? anchor.getBoundingClientRect() : anchor, M = 8;
+    el.style.maxHeight = innerHeight - 2 * M + "px";
+    const w = el.offsetWidth, h = el.offsetHeight;
+    let left, top;
+    if (!a) { left = (innerWidth - w) / 2; top = (innerHeight - h) / 2; }
+    else if (a.bottom + 6 + h + M <= innerHeight) { left = a.left; top = a.bottom + 6; }
+    else if (a.top - 6 - h >= M) { left = a.left; top = a.top - 6 - h; }
+    else {
+      top = Math.min(Math.max(M, a.top - h / 2), innerHeight - h - M);
+      left = a.right + 16 + w + M <= innerWidth ? a.right + 16 : a.left - 16 - w;
+    }
+    left = Math.min(Math.max(M, left), innerWidth - w - M);
+    Object.assign(el.style, { left: left + "px", top: Math.max(M, top) + "px" });
   }
   const prevFocus = document.activeElement;
   let closed = false;
@@ -463,6 +472,9 @@ export function initColours(app) {
   }
   function edit(view, found, lang, anchor) {
     let from = found.from, to = found.to;
+    // Keep clear of the whole colour as written (swatch and text), not just the swatch.
+    const s = view.coordsAtPos(from, 1), e = view.coordsAtPos(to, -1), r0 = anchor?.getBoundingClientRect ? anchor.getBoundingClientRect() : anchor;
+    if (s && e) anchor = { left: Math.min(s.left, r0?.left ?? s.left), right: Math.max(e.right, r0?.right ?? e.right), top: Math.min(s.top, e.top, r0?.top ?? s.top), bottom: Math.max(s.bottom, e.bottom, r0?.bottom ?? s.bottom) };
     const fmt = found.c.fmt;
     let first = true, expected = view.state.doc;
     const close = openPicker({

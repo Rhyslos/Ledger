@@ -32,6 +32,7 @@ export const DEFAULTS = {
   dependencyHints: true,
   inlayHints: true,
   tabSize: 4,
+  detectIndent: true,
   formatOnSave: false,
   webFormatter: "prettier",
   emmet: true,
@@ -196,7 +197,8 @@ export function settingsHtml() {
     </section>
 
     <section aria-labelledby="sEdit"><h2 id="sEdit">Editing</h2>
-      ${row("Tab size", select("sTab", "tabSize", [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]]), "", "sTab")}
+      ${row("Tab size", select("sTab", "tabSize", [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]]), "For new files, and files that don't show how they're indented.", "sTab")}
+      ${row("Indentation", check("sDetIndent", "detectIndent", "Indent each file the way it already is (2 spaces, 4, tabs); the status bar shows it, click it to change"))}
       ${row("Wrapping", check("sWrap", "wordWrap", "Wrap long lines"), "Alt+Z turns it on and off from anywhere.")}
       ${row("Type hints", check("sHints", "inlayHints", "Show the types and parameter names the language server works out, in grey"), "They aren't part of your file. Rust, C#, TypeScript and Lua send them.")}
       ${row("Formatting", check("sFmt", "formatOnSave", "Format files when saving (Prettier for web files, the language server for the rest)"))}

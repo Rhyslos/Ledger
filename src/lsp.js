@@ -8,11 +8,16 @@ export const norm = (p) => String(p || "").replace(/\\/g, "/");
 
 export function pathToUri(p) {
   let s = norm(p);
+  // A network share, //server/share/…: the server goes where a URI's host goes.
+  if (s.startsWith("//")) { const [host, ...rest] = s.slice(2).split("/"); return "file://" + host + "/" + rest.map(encodeURIComponent).join("/"); }
   if (!s.startsWith("/")) s = "/" + s; // C:/x -> /C:/x
   return "file://" + s.split("/").map((seg, i) => (i === 1 && /^[A-Za-z]:$/.test(seg) ? seg : encodeURIComponent(seg))).join("/");
 }
 export function uriToPath(u) {
-  let s = decodeURIComponent(String(u).replace(/^file:\/\//, ""));
+  const rest = String(u).replace(/^file:\/\//, "");
+  let s = decodeURIComponent(rest);
+  // file://server/share/a.rs is a network share: //server/share/a.rs.
+  if (!rest.startsWith("/") && !/^[A-Za-z]:/.test(s)) return "//" + s;
   if (/^\/[A-Za-z]:\//.test(s)) s = s.slice(1);
   if (/^[a-z]:\//.test(s)) s = s[0].toUpperCase() + s.slice(1); // some servers lower-case the drive
   return s;

@@ -7,7 +7,7 @@
 // The overview ruler: a thin strip over the editor's scrollbar with a tick for every error and
 // warning, search match, Git change and bookmark in the file, and the cursor, so you can see where
 // they are in a long file. Other parts add their own ticks through app.scrollMarks.
-import { ViewPlugin, Decoration, EditorView } from "@codemirror/view";
+import { ViewPlugin, Decoration, EditorView, gutter, GutterMarker } from "@codemirror/view";
 import { StateField, StateEffect, RangeSet, RangeSetBuilder } from "@codemirror/state";
 import { forEachDiagnostic } from "@codemirror/lint";
 import { getSearchQuery, searchPanelOpen } from "@codemirror/search";
@@ -36,6 +36,20 @@ const bookmarkField = StateField.define({
     return set;
   },
   provide: (f) => EditorView.decorations.from(f),
+});
+// A small ribbon next to the line number, so a bookmark can't be mistaken for the cursor or a Git bar.
+class Ribbon extends GutterMarker {
+  toDOM() { const s = document.createElement("span"); s.className = "cm-bookmark-ribbon"; s.title = "Bookmark (Ctrl Alt K removes it)"; return s; }
+}
+const RIBBON = new Ribbon();
+const bookmarkGutter = gutter({
+  class: "cm-bookmark-gutter",
+  markers: (v) => {
+    const set = v.state.field(bookmarkField, false), out = [];
+    if (set) for (const c = set.iter(); c.value; c.next()) out.push(RIBBON.range(c.from));
+    return RangeSet.of(out);
+  },
+  initialSpacer: () => RIBBON,
 });
 export const bookmarkLines = (state) => {
   const out = [];
@@ -132,7 +146,7 @@ export function initMarks(app) {
     return b.finish();
   };
   const ruler = overview(app.scrollMarks);
-  app.extraExt.push((path, b) => [bookmarkField.init((state) => initial(path, state)), app.settings.overviewRuler === false ? [] : ruler]);
+  app.extraExt.push((path, b) => [bookmarkField.init((state) => initial(path, state)), bookmarkGutter, app.settings.overviewRuler === false ? [] : ruler]);
   app.saveHooks.push((path) => persist(path));
 
   function toggle() {
@@ -165,7 +179,7 @@ export function initMarks(app) {
       }
     }
     if (!items.length) { toast("No bookmarks in this folder yet. Ctrl Alt K marks the line."); return; }
-    const i = await app.choose("Bookmarks", items.map((x) => x.label), true);
+    const i = await app.choose("Bookmarks", items.map((x) => x.label), true, { filter: true });
     if (i == null || i < 0) return;
     const it = items[i];
     app.openFile(it.path, { line: it.n - 1, character: 0 });

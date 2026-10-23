@@ -34,7 +34,7 @@ const PLUGINS = {
 const SCRIPT = String.raw`
 const { createRequire } = require("node:module");
 const { join } = require("node:path");
-const file = process.argv[1], tabWidth = +process.argv[2] || 2;
+const file = process.argv[1], tabWidth = +process.argv[2] || 2, useTabs = process.argv[3] === "tabs";
 const out = (v) => { process.stdout.write(JSON.stringify(v)); process.exit(0); };
 let src = "";
 process.stdin.setEncoding("utf8");
@@ -46,7 +46,7 @@ process.stdin.on("end", async () => {
     const info = await p.getFileInfo(file, { ignorePath: join(process.cwd(), ".prettierignore") });
     if (info.ignored) out({ ignored: true });
     const cfg = await p.resolveConfig(file, { editorconfig: true });
-    const text = await p.format(src, { ...(cfg || { tabWidth }), filepath: file });
+    const text = await p.format(src, { ...(cfg || { tabWidth, useTabs }), filepath: file });
     out({ text });
   } catch (e) { out({ error: String(e && e.message || e).split("\n").slice(0, 6).join("\n") }); }
 });`;
@@ -89,7 +89,8 @@ export function initPrettier(app, formatters) {
   async function withBundled(text, path, lang) {
     const [parser, names] = PARSERS[lang];
     const [{ format }, ...plugins] = await Promise.all([import("prettier/standalone"), ...names.map((n) => PLUGINS[n]())]);
-    const cfg = (await bundledConfig(path)) || { tabWidth: settings.tabSize };
+    const ind = app.indentOf?.(app.S.bufs.get(path)) || { size: settings.tabSize, tabs: false };
+    const cfg = (await bundledConfig(path)) || { tabWidth: ind.size, useTabs: ind.tabs };
     return format(text, { ...cfg, parser, plugins: plugins.map((m) => m.default || m), filepath: path });
   }
 
@@ -102,7 +103,7 @@ export function initPrettier(app, formatters) {
       const P = await app.projectFor(path).catch(() => null);
       const dir = P?.dir || S.root;
       if (dir && app.trusted() && (await projectPrettier(dir))) {
-        const r = await invoke("run_capture", { cwd: dir, program: "node", args: ["-e", SCRIPT, path, String(settings.tabSize)], input: text }).catch((e) => ({ code: -1, out: "", err: String(e) }));
+        const r = await invoke("run_capture", { cwd: dir, program: "node", args: ["-e", SCRIPT, path, String((app.indentOf?.(b) || {}).size || settings.tabSize), app.indentOf?.(b)?.tabs ? "tabs" : "spaces"], input: text }).catch((e) => ({ code: -1, out: "", err: String(e) }));
         let res = null;
         try { res = JSON.parse(r.out); } catch {}
         if (res?.ignored) { toast("This file is in .prettierignore."); return text; }
