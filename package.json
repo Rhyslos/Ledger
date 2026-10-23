@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "tauri": "tauri",
-    "rename": "node scripts/rename.mjs"
+    "rename": "node scripts/rename.mjs",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",
