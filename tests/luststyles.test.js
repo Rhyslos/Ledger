@@ -21,7 +21,8 @@ test("the table is complete and consistent", () => {
     assert.ok(s.doc && s.example, s.name + " has a doc and an example");
   }
   // Every word Lust knows today (LUST.md section 17, check.rs check_styles).
-  for (const w of "pad padX padY padTop padRight padBottom padLeft gap width height grow minWidth maxWidth minHeight maxHeight size tiny small large huge weight bold muted strike nowrap color background subtle round pill border borderWidth shadow opacity left center right top middle bottom spread hover placeholder from to step cover disabled title".split(" ")) assert.ok(STYLE[w], w);
+  for (const w of "pad padX padY padTop padRight padBottom padLeft gap width height grow minWidth maxWidth minHeight maxHeight size tiny small large huge weight bold muted strike nowrap color background subtle round pill border borderWidth shadow opacity left center right top middle bottom spread hover placeholder from to step cover disabled title tip dark font animate columns cell down open x y toX toY radius thick".split(" ")) assert.ok(STYLE[w], w);
+  for (const p of "column row stack scroll space text button input textarea checkbox slider image every key dropdown menu item divider dialog grid split tabs tab branch progress canvas box circle line".split(" ")) assert.ok(PIECES[p], p);
   assert.equal(Object.keys(COLOURS).length, 2 + 9 + 9 + 9 * 9);
   for (const hex of Object.values(COLOURS)) assert.match(hex, /^#[0-9a-f]{6}$/);
   assert.equal(COLOURS.blue7, "#1c7ed6");
@@ -73,7 +74,7 @@ test("inside a piece's [ ]", () => {
 test("the window's [ ] has only the window's settings", () => {
   const c = cx('view [title "Hi", |');
   assert.equal(c.kind, "view");
-  assert.deepEqual(labels('view [title "Hi", |').sort(), ["background", "height", "minHeight", "minWidth", "title", "width"]);
+  assert.deepEqual(labels('view [title "Hi", |').sort(), ["background", "dark", "font", "height", "minHeight", "minWidth", "title", "width"]);
   assert.ok(!labels("view [|").includes("blue")); // no colour words on their own
   assert.ok(!labels("column [|").includes("title"));
 });
