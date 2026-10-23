@@ -92,6 +92,7 @@ function run(lang) {
 /** Tab expansion for a file in `lang` (nothing for other languages). */
 export const emmetFor = (lang) => (SYNTAX[lang] ? Prec.high(keymap.of([{ key: "Tab", run: run(lang) }])) : []);
 
+const oneLine = (t) => { const s = t.replace(/\s*\n\s*/g, "").replace(/\s+/g, " ").trim(); return s.length > 48 ? s.slice(0, 47) + "…" : s; };
 /** A suggestion showing what the abbreviation becomes (only for ones with operators, not words). */
 export const emmetSource = (lang) => (SYNTAX[lang] ? (ctx) => {
   const found = findAbbreviation(ctx.state, lang);
@@ -103,7 +104,7 @@ export const emmetSource = (lang) => (SYNTAX[lang] ? (ctx) => {
   const preview = text.replace(/\$\{\d+(?::([^}]*))?\}/g, "$1").replace(/\t/g, "  ");
   return {
     from: found.from,
-    options: [{ label: found.abbr, detail: "Emmet", type: "emmet", info: () => { const pre = document.createElement("pre"); pre.className = "cm-emmet-preview"; pre.textContent = preview; return pre; }, apply: (view, c, from, to) => snippet(text)(view, c, from, to) }],
+    options: [{ label: found.abbr, detail: "→ " + oneLine(preview) + "  · Emmet", type: "emmet", info: () => { const pre = document.createElement("pre"); pre.className = "cm-emmet-preview"; pre.textContent = preview; return pre; }, apply: (view, c, from, to) => snippet(text)(view, c, from, to) }],
     filter: false,
   };
 } : null);

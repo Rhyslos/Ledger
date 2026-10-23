@@ -17,6 +17,9 @@ import { initTodo } from "./todo.js";
 import { initCsv } from "./csv.js";
 import { initHex } from "./hex.js";
 import { initHistory } from "./history.js";
+import { initSearch } from "./search.js";
+import { initEditCommands } from "./editcmds.js";
+import { findPanel, openReplace } from "./findbar.js";
 import { iconHtml } from "./icons.js";
 import { VITE, createSteps, withTailwindPlugin, CSS_FILES, FIRST_FILES } from "./scaffold.js";
 import { initTailwind, tailwindSource, tailwindChanged, tailwindWarm, inClassList } from "./tailwind.js";
@@ -40,7 +43,7 @@ import { Lsp, norm, uriToPath, pathToUri, toOffset, toPos, severity, unsnippet, 
 import { ansiToHtml, esc } from "./ansi.js";
 import { LANGS, langOf, dotOf } from "./langs.js";
 import { Keymap, keyString } from "./keys.js";
-import { settings, DEFAULTS, loadSettings, setSetting, initSettings, settingsHtml, wireSettings, isRecording, refreshSettingsTools, openInBrowser, INSTALLS, INSTALL_FOR, installTool } from "./settings.js";
+import { settings, DEFAULTS, loadSettings, setSetting, initSettings, settingsHtml, applySettingsFind, wireSettings, isRecording, refreshSettingsTools, openInBrowser, INSTALLS, INSTALL_FOR, installTool } from "./settings.js";
 import { APP_NAME } from "./app.js";
 import { bracketColors, indentGuides, stickyScroll } from "./editorx.js";
 import { followBottom } from "./follow.js";
@@ -797,7 +800,7 @@ function extensionsFor(path, b) {
   return [
     lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), history(), foldGutter(), drawSelection(), dropCursor(),
     EditorState.allowMultipleSelections.of(true), indentOnInput(), syntaxHighlighting(hl), bracketMatching(), closeBrackets(),
-    rectangularSelection(), crosshairCursor(), highlightActiveLine(), selectingClass, highlightSelectionMatches(), search({ top: true }),
+    rectangularSelection(), crosshairCursor(), highlightActiveLine(), selectingClass, highlightSelectionMatches(), search({ top: true, createPanel: findPanel }),
     cfg.of(cfgExt(b)), infoField, xcfg.of(xExt(path, b)),
     autocompletion({
       override: [
@@ -826,6 +829,7 @@ function extensionsFor(path, b) {
     cmKeymap.of([
       { key: "Escape", run: closeInfo },
       ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, ...completionKeymap, ...lintKeymap, indentWithTab,
+      { key: "Escape", run: () => { if (!zen) return false; toggleZen(); return true; } }, // last: only when nothing else wanted Esc
     ]),
     L.ext(), L.extFor ? L.extFor(path) : [], theme,
     b.ro ? EditorState.readOnly.of(true) : [],
@@ -984,10 +988,18 @@ async function openMetadata(uri, at, srv) {
   return true;
 }
 
-function addTab(key) {
+// { preview: true } is for views opened in passing (a diff, a CSV table, a hex view): like a
+// single-clicked file, the tab is reused by the next one unless you pin, keep or double-click it.
+function addTab(key, opts = {}) {
   if (S.tabs.includes(key)) return;
   const i = S.tabs.indexOf(S.active);
   S.tabs.splice(i < 0 ? S.tabs.length : i + 1, 0, key);
+  if (opts.preview && settings.previewTabs !== false) {
+    const prev = S.preview;
+    S.preview = key;
+    // Closed once the caller has switched to the new tab.
+    if (prev && S.tabs.includes(prev) && !S.bufs.get(prev)?.dirty && !S.pinned.has(prev) && !pageOf(prev)?.confirmClose) Promise.resolve().then(() => { if (S.preview === key && S.active !== prev) closeTab(prev, true); });
+  }
   saveSession();
 }
 
@@ -1140,6 +1152,10 @@ function activate(key, at, opts = {}) {
   const cur = S.bufs.get(S.active);
   if (cur && S.active !== key && settings.autoSave === "focus" && cur.dirty) save(S.active);
   S.active = key;
+  if (S.root && S.bufs.has(key) && !isVirtual(key)) {
+    const r = ((prefs.recentFiles ||= {})[S.root] ||= []);
+    if (r[0] !== key) { prefs.recentFiles[S.root] = [key, ...r.filter((p) => p !== key)].slice(0, 30); clearTimeout(activate.t); activate.t = setTimeout(savePrefs, 1500); }
+  }
   if (key && !S.tabs.includes(key)) addTab(key);
   const b = S.bufs.get(key);
   showIn(fp, key);
@@ -1156,6 +1172,21 @@ function activate(key, at, opts = {}) {
   each(activeHooks, key);
 }
 const activeHooks = [];
+// The explorer follows the file in front (Settings › Editing › Explorer): its folders open and
+// its row scrolls into view, without taking the keyboard from the editor.
+let followT = null;
+activeHooks.push((key) => {
+  if (settings.followActive === false || !key || isPage(key) || S.bufs.get(key)?.virtual || !S.root || !isUnder(key, S.root)) return;
+  clearTimeout(followT);
+  followT = setTimeout(async () => {
+    if (S.active !== key) return;
+    let d = parent(key), closed = false;
+    while (isUnder(d, S.root) && d !== S.root) { if (!S.open.has(d)) closed = true; d = parent(d); }
+    if (closed && !$("treeFilter").value) await revealInTree(key);
+    const row = [...$("tree").querySelectorAll(".node")].find((n) => nodePath(n) === key);
+    row?.scrollIntoView({ block: "nearest" });
+  }, 120);
+});
 // Fetch a Tailwind project's classes in the background as soon as one of its files is in front.
 let twWarmT = null;
 activeHooks.push(() => { clearTimeout(twWarmT); twWarmT = setTimeout(tailwindWarm, 400); });
@@ -1374,6 +1405,14 @@ async function closeAllTabs() {
 }
 async function closeOthers(key) {
   for (const k of [...S.tabs]) if (k !== key && !S.pinned.has(k) && !(await closeTab(k))) return;
+}
+async function closeRight(key) {
+  for (const k of S.tabs.slice(S.tabs.indexOf(key) + 1)) if (!S.pinned.has(k) && !(await closeTab(k))) return;
+}
+// "Open to the side" from a tab: that file in the right-hand pane.
+async function splitRight(key) {
+  if (!split) { await activate(key); openSplit(); return; }
+  showIn(1, key); setFocusPane(1); renderTabs(); renderPaneHeads(); panes[1].view.focus();
 }
 
 async function closeAll() {
@@ -1759,7 +1798,7 @@ $("bCollapse").onclick = () => { S.open.clear(); renderTree(); saveSession(); };
 const validName = (n) => n && !/(^|\/)\.\.?(\/|$)/.test(n) && !/[<>:"|?*\\]/.test(n);
 async function newFile(dir = targetDir()) {
   if (!S.root) return openFolder();
-  const name = (await promptText(`New file in ${folderLabel(dir)}`, "", "Player.cs, main.rs, or a path like utils/mod.rs"))?.trim();
+  const name = (await promptText(`New file in ${folderLabel(dir)}`, "", "e.g. Player.cs, or a path like utils/mod.rs"))?.trim();
   if (!name) return;
   if (!validName(name)) { toast("That isn't a usable file name."); return; }
   const path = join(dir, name);
@@ -1838,7 +1877,7 @@ async function movedOnDisk(p, to) {
 }
 async function renamePath(p, newName) {
   if (!p) return;
-  const name = newName ?? (await promptText(`Rename ${base(p)}`, base(p)))?.trim();
+  const name = newName ?? (await promptText(`Rename ${base(p)}`, base(p), "", { select: [0, base(p).lastIndexOf(".") > 0 ? base(p).lastIndexOf(".") : base(p).length] }))?.trim();
   if (!name || name === base(p)) return;
   if (!validName(name) || name.includes("/")) { toast("That isn't a usable name."); return; }
   const to = join(parent(p), name);
@@ -1886,6 +1925,7 @@ function renderTabs() {
     const there = split && otherPane().key === p;
     return `<div class="tab${on ? " on" : ""}${there ? " there" : ""}${b?.dirty ? " dirty" : ""}${p === S.preview ? " preview" : ""}${S.pinned.has(p) ? " pinned" : ""}" role="tab" aria-selected="${on}" style="--tc:var(--t-${dot})" data-tab="${esc(p)}" title="${esc(isPage(p) || b?.virtual ? tabLabel(p) : rel(p))}${there ? "  ·  open in the other pane" : ""}${i < 8 ? `  ·  Ctrl ${i + 1}` : ""}" tabindex="${on ? 0 : -1}">${isPage(p) || b?.virtual ? (/^@(csv|hex|img|db):/.test(p) && fileIcons() ? mark(p.replace(/^@[a-z]+:/, "")) : '<span class="dot pg"></span>') : mark(p)}<span class="tl${c.e ? " e" : c.w ? " w" : ""}">${esc(tabLabel(p))}</span>${b?.ro ? '<span class="ro">read-only</span>' : ""}<span class="x" data-close="${esc(p)}" role="button" aria-label="Close ${esc(tabLabel(p))}"><span>×</span></span></div>`;
   }).join("");
+  $("tabs").hidden = !S.tabs.length;
   $("tabs").querySelector(".tab.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   if (hadFocus) $("tabs").querySelector(`[data-tab="${CSS.escape(hadFocus)}"]`)?.focus();
 }
@@ -1907,8 +1947,16 @@ $("tabs").addEventListener("contextmenu", (ev) => {
     { label: pinned ? "Unpin tab" : "Pin tab", key: "tab.pin", run: () => togglePin(k) },
     ...(S.preview === k ? [{ label: "Keep open", run: () => keepTab(k) }] : []),
     "-",
+    ...(!isPage(k) && !S.bufs.get(k)?.virtual ? [
+      { label: "Copy path", key: "file.copyPath", run: () => copy(/^[A-Za-z]:|^\/\//.test(k) ? k.replace(/\//g, "\\") : k) },
+      ...(isUnder(k, S.root) ? [{ label: "Copy relative path", key: "file.copyRelPath", run: () => copy(rel(k)) },
+        { label: "Show in explorer", key: "focus.reveal", run: async () => { await activate(k); revealActiveInExplorer(); } }] : []),
+      { label: "Open to the side", key: "editor.split", run: () => splitRight(k) },
+      "-",
+    ] : []),
     { label: "Close", key: "tab.close", run: () => closeTab(k) },
     { label: "Close others", run: () => closeOthers(k) },
+    ...(S.tabs.indexOf(k) < S.tabs.length - 1 ? [{ label: "Close to the right", run: () => closeRight(k) }] : []),
     { label: "Close saved tabs", key: "tab.closeSaved", run: () => closeSavedTabs() },
     { label: "Close all tabs", key: "tab.closeAll", danger: true, run: () => closeAllTabs() },
   ]);
@@ -1982,6 +2030,7 @@ function renderSettingsPage(keepFocus) {
   const fid = keepFocus && el.contains(a) ? (a.id ? "#" + CSS.escape(a.id) : a.dataset.rec ? `[data-rec="${CSS.escape(a.dataset.rec)}"]` : a.dataset.act ? `[data-act="${CSS.escape(a.dataset.act)}"]` : a.dataset.copy ? `[data-copy="${CSS.escape(a.dataset.copy)}"]` : null) : null;
   const top = el.scrollTop;
   el.innerHTML = settingsHtml();
+  applySettingsFind(el);
   el.scrollTop = top;
   if (fid) el.querySelector(fid)?.focus({ preventScroll: true });
 }
@@ -2381,6 +2430,9 @@ function renderStatus() {
     el.innerHTML = r ? `<span class="${r.code === 0 ? "" : "e"}">${r.code === 0 ? "✓" : "✕"} ${esc(r.label)} · ${r.secs}s</span>` : "";
   }
   $("stSearch").innerHTML = `Go to file <kbd>${esc(keymap.label("file.goto"))}</kbd>`;
+  // On the welcome page, its own Go to file button and an empty problem count would just repeat it.
+  $("stSearch").hidden = !S.tabs.length;
+  $("stProblems").hidden = !S.tabs.length && ![...S.diags.values()].some((l) => l?.length);
   $("stSettings").title = "Settings" + k("settings.open");
   $("stToggle").title = "Toggle explorer" + k("view.explorer");
 }
@@ -2412,7 +2464,7 @@ async function toggleZen() {
     if (S.panel) { S.panel = false; renderPanel(); }
     $("app").classList.add("zen");
     if (!zen.full) w.setFullscreen(true).catch(() => {});
-    toast(`Zen mode. ${keymap.label("view.zen") || "Toggle zen mode"} brings everything back.`);
+    toast(`Zen mode. Esc or ${keymap.label("view.zen") || "Toggle zen mode"} brings everything back.`);
   } else {
     $("app").classList.remove("zen");
     if (!zen.full) w.setFullscreen(false).catch(() => {});
@@ -2717,11 +2769,12 @@ function inTurn(open) {
   dialogTurn = p.then(() => {}, () => {});
   return p;
 }
-function promptText(head, init = "", placeholder = "") {
+/** `opts.select` = [from, to] picks part of `init` (a file's name without its extension). */
+function promptText(head, init = "", placeholder = "", opts = {}) {
   return inTurn((resolve) => {
     openPalette("prompt", init, head);
     $("palIn").placeholder = placeholder;
-    $("palIn").select();
+    if (opts.select) $("palIn").setSelectionRange(...opts.select); else $("palIn").select();
     pal.resolve = resolve;
   });
 }
@@ -2795,7 +2848,9 @@ function drawPalette() {
     html = r.html;
   } else if (v.startsWith(">")) {
     const q = v.slice(1).trim().toLowerCase();
-    pal.list = keymap.list().filter((c) => !c.hidden && (!q || q.split(/\s+/).every((w) => c.title.toLowerCase().includes(w)))).map((c) => ({ cmd: c }));
+    // Words match the title or the command's other names; US and British spellings both work.
+    const hay = (c) => `${c.title} ${c.alias || ""}`.toLowerCase().replace(/colou?r/g, "colour color").replace(/\bgrey|\bgray/g, "grey gray");
+    pal.list = keymap.list().filter((c) => !c.hidden && (!q || q.split(/\s+/).every((w) => hay(c).includes(w)))).map((c) => ({ cmd: c }));
     html = pal.list.map((c, i) => row(i, "cfg", hlText(c.cmd.title, q), keymap.label(c.cmd.id) ? `<kbd>${esc(keymap.label(c.cmd.id))}</kbd>` : "", "")).join("") || '<p class="empty" style="padding:8px 10px">No matching command.</p>';
   } else if (v.startsWith(":")) {
     const [l, c] = v.slice(1).split(/[:,]/).map((x) => parseInt(x, 10));
@@ -2804,17 +2859,20 @@ function drawPalette() {
     pal.list = has && l > 0 ? [{ goto: { line: Math.min(l, total) - 1, character: (c || 1) - 1 } }] : [];
     html = has ? (pal.list.length ? row(0, fdot(S.active), `Go to line ${Math.min(l, total)}${c ? `, column ${c}` : ""}`, "", "") : `<p class="empty" style="padding:8px 10px">Type a line number, 1 to ${total}.</p>`) : '<p class="empty" style="padding:8px 10px">Open a file first.</p>';
   } else {
-    const q = v.trim().toLowerCase().replace(/\\/g, "/");
+    // "main.rs:12" (or main.rs:12:5) goes to that line.
+    const at = /^(.*?):(\d+)(?::(\d+))?$/.exec(v.trim());
+    const q = (at ? at[1] : v).trim().toLowerCase().replace(/\\/g, "/");
     const files = S.files || [];
     let list;
     if (!q) {
-      const recent = [...S.tabs].reverse().filter((p) => p !== S.active && !isPage(p) && !isVirtual(p));
+      // Files used lately first: open tabs, then ones opened before in this folder.
+      const recent = [...new Set([...[...S.tabs].reverse(), ...(prefs.recentFiles?.[S.root] || [])])].filter((p) => p !== S.active && !isPage(p) && !isVirtual(p) && (S.tabs.includes(p) || files.includes(p)));
       list = [...recent, ...files.filter((p) => !recent.includes(p) && p !== S.active)].slice(0, 80);
     } else {
       const last = q.split(/\s+/).pop();
       list = files.map((p) => [p, fuzzy(q, rel(p)) + (q.includes(" ") && base(p).toLowerCase().startsWith(last) ? 25 : 0)]).filter(([, s]) => s >= 0).sort((a, b) => b[1] - a[1]).slice(0, 80).map(([p]) => p);
     }
-    pal.list = list.map((p) => ({ path: p }));
+    pal.list = list.map((p) => ({ path: p, ...(at ? { line: +at[2] - 1, col: at[3] ? +at[3] - 1 : 0 } : {}) }));
     html = pal.list.map((f, i) => { const r = rel(f.path), d = r.includes("/") ? r.slice(0, r.lastIndexOf("/")) : ""; return row(i, fdot(f.path), hlText(base(f.path), q.split(/\s+/).pop()), esc(d), ""); }).join("")
       || `<p class="empty" style="padding:8px 10px">${S.root ? (S.files ? "No files match." : "Loading files…") : "Open a folder first."}</p>`;
   }
@@ -2889,10 +2947,6 @@ const inTree = () => $("tree").contains(document.activeElement) && S.sel;
 C("settings.open", "Open settings", "Ctrl+P", openSettings);
 C("file.goto", "Go to file", "Ctrl+E", () => openPalette("files"));
 C("palette", "Show all commands", ["Ctrl+Shift+P", "F1"], () => openPalette("files", ">"));
-C("search.files", "Search in files", "Ctrl+Shift+F", () => {
-  const sel = S.bufs.has(S.active) ? view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to).split("\n")[0] : "";
-  openPalette("text", sel);
-});
 C("editor.gotoLine", "Go to line", "Ctrl+G", () => openPalette("files", ":"));
 C("task.run", "Run / Play (Continue while debugging)", "F5", () => (debug?.paused ? debug.cont() : runAction("run")));
 C("task.stop", "Stop (the debugger, or the running task)", "Shift+F5", () => (debug?.active ? debug.stop() : stopTask()));
@@ -2944,7 +2998,7 @@ C("live.open", "Live Server: open this page in the browser", [], openLive);
 C("task.scripts", "Run a package.json script…", [], () => runAction("scripts"));
 C("task.scene", "Play current scene (Godot)", "Ctrl+F5", () => runAction("scene"));
 C("task.custom", "Run a command…", [], async () => {
-  const s = (await promptText("Command to run in the project folder", taskKind() === "rust" ? "cargo run -- " : "dotnet ", "for example: cargo run -- input.txt"))?.trim();
+  const s = (await promptText("Command to run in the project folder", taskKind() === "rust" ? "cargo run -- " : "dotnet ", "e.g. cargo run -- input.txt"))?.trim();
   if (!s) return;
   const [program, ...args] = splitArgs(s);
   startSteps([{ label: s, program, args }]);
@@ -2975,7 +3029,7 @@ C("window.close", "Close window", "Ctrl+Shift+W", () => getCurrentWindow().close
 C("project.new", "New project", [], () => newProject());
 C("focus.explorer", "Show files", "Ctrl+Shift+E", () => showSideView("files", true));
 C("focus.side", "Focus side bar", [], () => focusZone("explorer"));
-C("focus.reveal", "Show current file in explorer", "Ctrl+Shift+R", revealActiveInExplorer);
+C("focus.reveal", "Show current file in explorer", "Ctrl+Shift+R", revealActiveInExplorer, { alias: "reveal locate" });
 C("focus.next", "Next area (explorer, editor, panel, status bar)", "F6", () => cycleZone(1));
 C("focus.prev", "Previous area", "Shift+F6", () => cycleZone(-1));
 C("panel.toggle", "Toggle panel", "Ctrl+J", togglePanel);
@@ -2985,10 +3039,10 @@ C("editor.unsplit", "Close split", "Ctrl+Shift+\\", closeSplit);
 C("panel.problems", "Show problems", "Ctrl+Shift+M", () => focusPanel("problems"));
 C("panel.output", "Show output", "Ctrl+Shift+U", () => focusPanel("output"));
 C("view.explorer", "Toggle explorer", "Ctrl+B", () => toggleExplorer());
-C("view.zoomIn", "Bigger editor text", ["Ctrl+Plus", "Ctrl+=", "Ctrl+Shift+Plus"], () => zoom(1));
-C("view.zoomOut", "Smaller editor text", "Ctrl+-", () => zoom(-1));
-C("view.zoomReset", "Reset editor text size", "Ctrl+0", () => zoom(0));
-C("view.theme", "Toggle light / dark", [], toggleTheme);
+C("view.zoomIn", "Bigger editor text", ["Ctrl+Plus", "Ctrl+=", "Ctrl+Shift+Plus"], () => zoom(1), { alias: "zoom in font size" });
+C("view.zoomOut", "Smaller editor text", "Ctrl+-", () => zoom(-1), { alias: "zoom out font size" });
+C("view.zoomReset", "Reset editor text size", "Ctrl+0", () => zoom(0), { alias: "zoom reset font size" });
+C("view.theme", "Toggle light / dark", [], toggleTheme, { alias: "theme dark mode light mode" });
 C("lsp.restart", "Restart language servers", [], () => { if (hasAny(/^Cargo\.toml$/) || started(servers.rust)) startServer("rust"); if (hasAny(/\.(csproj|slnx?)$/i) || started(servers.csharp)) startServer("csharp"); });
 C("hints.toggle", "Toggle type hints", [], toggleHints);
 C("program.input", "Type input for the running program", "Ctrl+I", focusInput);
@@ -3272,7 +3326,7 @@ async function newProject() {
   if (!dir) return;
   dir = norm(dir);
   const label = web ? (kind === "next" ? "Next.js" : VITE.find(([, t]) => t === web.template)[0]) + " app" : kinds[i];
-  const name = (await promptText(`New ${label} in ${base(dir)}`, "", web ? "project name, like my-app" : "project name, like hello_world"))?.trim();
+  const name = (await promptText(`New ${label} in ${base(dir)}`, "", web ? "e.g. my-app" : "e.g. hello_world"))?.trim();
   if (!name) return;
   if (web ? !/^[a-z0-9][a-z0-9._-]*$/.test(name) : !/^[A-Za-z][\w-]*$/.test(name)) {
     toast(web ? "Web app names use lowercase letters, numbers, - . and _ (npm's rule)." : "Use letters, numbers, - and _ only, starting with a letter.", 5000);
@@ -3489,7 +3543,9 @@ async function boot() {
   applySizes();
   applyStatusBar();
   $("app").classList.toggle("collapsed", !!prefs.collapsed);
-  showSideView(sideView);
+  initSearch(app); // before the side view shows: it may be the one that was open last time
+  initEditCommands(app);
+  showSideView(sideViews[sideView] ? sideView : "files");
   term = initTerminal(app);
   navx = initNav(app);
   initDeps(app);

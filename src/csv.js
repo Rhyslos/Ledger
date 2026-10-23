@@ -91,7 +91,7 @@ export function initCsv(app) {
     const more = rows.length > MAX_ROWS + 1;
     if (more) rows = rows.slice(0, MAX_ROWS + 1);
     const head = t.header && rows.length ? rows[0].cells : null;
-    let body = t.header ? rows.slice(1) : rows;
+    let body = (t.header ? rows.slice(1) : rows).map((r, i) => ({ ...r, n: i + 1 })); // n: the row's number in the data
     const width = Math.max(1, ...rows.slice(0, 200).map((r) => r.cells.length));
     if (t.filter) { const f = t.filter.toLowerCase(); body = body.filter((r) => r.cells.some((c) => c.toLowerCase().includes(f))); }
     if (t.sort) {
@@ -119,7 +119,7 @@ export function initCsv(app) {
         <button class="btn" data-act="text" title="Back to the text (Ctrl Shift V)">Edit as text</button>
       </div>
       <div class="csv-scroll" tabindex="0"><table class="csv-table"><thead><tr><th class="csv-n">#</th>${cols.map(th).join("")}</tr></thead><tbody>
-        ${body.map((r) => `<tr data-line="${r.line}"><td class="csv-n">${r.line + 1}</td>${cols.map((i) => `<td class="csv-c${i % COLS}">${esc(r.cells[i] ?? "")}</td>`).join("")}</tr>`).join("")}
+        ${body.map((r) => `<tr data-line="${r.line}"><td class="csv-n" title="Line ${r.line + 1} of the file">${r.n}</td>${cols.map((i) => `<td class="csv-c${i % COLS}">${esc(r.cells[i] ?? "")}</td>`).join("")}</tr>`).join("")}
       </tbody></table>${body.length ? "" : `<p class="hint" style="padding:12px">${t.filter ? "No rows match." : "This file is empty."}</p>`}</div>
     </div>`;
     el.querySelector(".csv-scroll").scrollTop = scroll;
@@ -131,7 +131,7 @@ export function initCsv(app) {
     if (!CSV_EXT.test(path)) { app.toast("Open a .csv or .tsv file to see it as a table."); return false; }
     const key = keyOf(path);
     if (!tables.has(key)) tables.set(key, { path: app.norm(path), sort: null, filter: "", header: true });
-    app.addTab(key);
+    app.addTab(key, { preview: !opts.background });
     if (!opts.background) app.activate(key);
     return true;
   }
