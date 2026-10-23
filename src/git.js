@@ -393,7 +393,7 @@ export function initGit(app) {
       <p class="hint" style="padding:8px 14px">Enter shows the changes, Space stages or unstages, Delete throws a change away, Shift F10 for more.</p>`;
     if (focusKey) {
       const el = focusKey.includes("|") ? box.querySelector(`[data-gk="${CSS.escape(focusKey.split("|")[0])}"][data-gp="${CSS.escape(focusKey.slice(focusKey.indexOf("|") + 1))}"]`) || box.querySelector(".node") : box.querySelector("#" + CSS.escape(focusKey)) || box.querySelector(`[data-gact="${CSS.escape(focusKey)}"]`);
-      if (el) { box.querySelectorAll(".node").forEach((n) => (n.tabIndex = n === el ? 0 : -1)); el.focus({ preventScroll: true }); }
+      if (el) { if (el.matches(".node")) box.querySelectorAll(".node").forEach((n) => (n.tabIndex = n === el ? 0 : -1)); el.focus({ preventScroll: true }); }
     }
   }
   function mergeBanner() {
@@ -492,7 +492,7 @@ export function initGit(app) {
     const st = G.files.get(path);
     if (!st) return;
     const untracked = st.x === "?";
-    const c = await app.choose(untracked ? `Delete ${app.base(path)}? It isn't in Git, so it can't be brought back.` : `Throw away your changes to ${app.base(path)}?`, [untracked ? "Delete the file" : "Throw away changes", "Cancel"]);
+    const c = await app.choose(untracked ? `Delete ${app.base(path)}? It isn't in Git, so it can't be brought back.` : `Throw away your changes to ${app.base(path)}?`, ["Cancel", untracked ? "Delete the file" : "Throw away changes"]); // Enter keeps the work
     if (!c || c === "Cancel") return;
     if (untracked) await invoke("delete_path", { path }).catch((e) => app.toast(String(e)));
     else await op("Discarding", ["restore", "--staged", "--worktree", "--source=HEAD", "--", relTo(path)]);

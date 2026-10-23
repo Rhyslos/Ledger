@@ -6,7 +6,7 @@
 //! The frontend asks the question; the answer is kept here, per window, and every command that
 //! starts a process in the folder checks it.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// The error text the frontend recognises: it asks "Trust this folder?" and tries again.
 pub const UNTRUSTED: &str = "untrusted: this folder isn't trusted, so Ledger won't run its code";
@@ -41,75 +41,99 @@ pub fn safe_task(program: &str, args: &[String]) -> bool {
     !git && safe_program(program, args)
 }
 
-/// The repository's own config file, if `cwd` is in one.
-fn git_config(cwd: &Path) -> Option<PathBuf> {
-    let mut d = Some(cwd);
-    while let Some(dir) = d {
-        let g = dir.join(".git");
-        if g.is_dir() {
-            return Some(g.join("config"));
-        }
-        if g.is_file() {
-            // A worktree or submodule: ".git" holds "gitdir: <path>".
-            let t = std::fs::read_to_string(&g).ok()?;
-            let p = t.trim().strip_prefix("gitdir:")?.trim().to_string();
-            let p = if Path::new(&p).is_absolute() { PathBuf::from(p) } else { dir.join(p) };
-            return Some(p.join("config"));
-        }
-        d = dir.parent();
-    }
-    None
+/// Settings git is told on its command line in a restricted folder. Command-line settings win
+/// over the repository's, and some (safe.bareRepository) are only honoured from here.
+pub fn restricted_git_flags() -> Vec<String> {
+    // A folder that doesn't exist: no hooks at all, whatever .git/hooks holds.
+    let none = std::env::temp_dir().join("ledger-no-hooks");
+    let mut v = vec![format!("core.hooksPath={}", none.display())];
+    v.extend(
+        [
+            "core.fsmonitor=false",
+            // A folder that is itself a repository's insides (HEAD, objects/, config at the top)
+            // isn't picked up as a repository unless named with --git-dir.
+            "safe.bareRepository=explicit",
+            // ext:: and fd:: remotes run commands, file:// ones read local uploadpack settings.
+            "protocol.allow=never",
+            "protocol.https.allow=always",
+            "protocol.http.allow=always",
+            "protocol.ssh.allow=always",
+            "protocol.git.allow=always",
+        ]
+        .map(String::from),
+    );
+    v.into_iter().flat_map(|kv| ["-c".to_string(), kv]).collect()
 }
 
-/// Settings in a repository's config that make git start another program.
-const RISKY: [&str; 16] = [
-    "filter.", ".textconv", ".command", ".driver", "include", "core.sshcommand", "core.editor", "core.pager", "core.askpass",
-    "core.gitproxy", "credential.", "gpg.", "diff.external", "core.hookspath", "core.fsmonitor", "uploadpack.",
-];
+/// Repository settings that are only data: anything else in a repository's own config (filters,
+/// textconv, includes, pagers, credential helpers, uploadpack, settings git adds in the future…)
+/// keeps Git off in a restricted folder. A list of what's allowed fails safe; a list of what isn't
+/// misses whatever it forgot.
+fn allowed_key(key: &str) -> bool {
+    const EXACT: [&str; 26] = [
+        "core.repositoryformatversion", "core.filemode", "core.bare", "core.logallrefupdates", "core.ignorecase", "core.symlinks",
+        "core.autocrlf", "core.eol", "core.safecrlf", "core.precomposeunicode", "core.longpaths", "core.checkstat", "core.quotepath",
+        "core.fsmonitor", "core.untrackedcache", "core.sparsecheckout", "core.splitindex", "core.commitgraph", "core.multipackindex",
+        "pull.rebase", "pull.ff", "push.default", "push.autosetupremote", "fetch.prune", "init.defaultbranch", "lfs.repositoryformatversion",
+    ];
+    if EXACT.contains(&key) || key.starts_with("user.") || key.starts_with("extensions.") || key.starts_with("i18n.") || key.starts_with("color.") {
+        return true;
+    }
+    // Per-branch, per-remote and per-submodule settings: the name is in the middle.
+    let mut parts = key.splitn(2, '.');
+    let (section, rest) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+    let last = rest.rsplit('.').next().unwrap_or("");
+    match section {
+        "branch" => matches!(last, "remote" | "merge" | "rebase" | "pushremote" | "description" | "vscode-merge-base"),
+        "remote" => matches!(last, "url" | "pushurl" | "fetch" | "push" | "prune" | "tagopt" | "mirror" | "skipdefaultupdate"),
+        "submodule" => matches!(last, "url" | "active" | "branch" | "shallow"),
+        _ => false,
+    }
+}
 
-/// What makes this repository's config unsafe, if anything ("filter.lfs.smudge", say).
-pub fn risky_git_config(cwd: &str) -> Option<String> {
-    let text = std::fs::read_to_string(git_config(Path::new(cwd))?).ok()?.to_lowercase();
-    let mut section = String::new();
-    for line in text.lines() {
-        let l = line.trim();
-        if l.starts_with('#') || l.starts_with(';') || l.is_empty() {
+/// From `git config --list --null --show-scope --includes`: the first setting of the repository's
+/// own (local or worktree) config that isn't plain data, if any.
+pub fn risky_in_listing(listing: &str) -> Option<String> {
+    let mut it = listing.split('\0');
+    while let (Some(scope), Some(entry)) = (it.next(), it.next()) {
+        let scope = scope.trim_start_matches('\n');
+        if scope != "local" && scope != "worktree" {
             continue;
         }
-        if let Some(s) = l.strip_prefix('[') {
-            // [filter "lfs"] -> filter.lfs.   [core] -> core.
-            let s = s.trim_end_matches(']').replace('"', "").replace(' ', ".");
-            section = s + ".";
-            if section.starts_with("include") {
-                return Some(section.trim_end_matches('.').to_string());
-            }
-            continue;
-        }
-        let key = format!("{section}{}", l.split('=').next().unwrap_or("").trim());
-        if RISKY.iter().any(|r| key.starts_with(r) || (r.starts_with('.') && key.ends_with(r)) || key.contains(r)) {
+        let (key, value) = entry.split_once('\n').unwrap_or((entry, ""));
+        let key = key.to_lowercase();
+        let url = key.ends_with(".url") || key.ends_with(".pushurl");
+        if !allowed_key(&key) || (url && (value.starts_with("ext::") || value.starts_with("fd::"))) {
             return Some(key);
         }
     }
     None
 }
 
-/// Extra arguments for git in a restricted folder (hooks off), or an error when the repository's
-/// settings would run programs.
-pub fn git_guard(cwd: &str, restricted: bool) -> Result<Vec<String>, String> {
+/// Extra arguments for git in a restricted folder, or an error when the repository's settings
+/// would run programs. `git()` makes a git command in that folder; it's used to ask git itself what
+/// the repository's settings are (listing them runs nothing), so worktrees, includes and
+/// unusual layouts are read the way git reads them.
+pub fn git_guard(restricted: bool, git: impl Fn() -> std::process::Command) -> Result<Vec<String>, String> {
     if !restricted {
         return Ok(vec![]);
     }
-    if let Some(key) = risky_git_config(cwd) {
-        return Err(format!("{UNTRUSTED}. This repository's settings start other programs ({key}), so Git stays off here until you trust the folder."));
+    let flags = restricted_git_flags();
+    let out = git().args(&flags).args(["config", "--list", "--null", "--show-scope", "--includes"]).output().map_err(|e| format!("Couldn't start Git: {e}"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("{UNTRUSTED}. Git couldn't read this repository's settings safely ({}), so it stays off here until you trust the folder.", err.trim().lines().next().unwrap_or("unknown error")));
     }
-    // A folder that doesn't exist: no hooks at all, whatever .git/hooks holds.
-    let none = std::env::temp_dir().join("ledger-no-hooks");
-    Ok(vec!["-c".into(), format!("core.hooksPath={}", none.display())])
+    if let Some(key) = risky_in_listing(&String::from_utf8_lossy(&out.stdout)) {
+        return Err(format!("{UNTRUSTED}. This repository has settings that can start other programs ({key}), so Git stays off here until you trust the folder."));
+    }
+    Ok(flags)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn paths_inside_the_folder() {
@@ -128,27 +152,81 @@ mod tests {
         assert!(!safe_program("cargo", &a(&["test"])));
     }
 
-    #[test]
-    fn risky_repository_settings() {
-        let d = std::env::temp_dir().join(format!("ledger-trust-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(d.join(".git")).unwrap();
-        let cfg = d.join(".git/config");
-        std::fs::write(&cfg, "[core]\n\trepositoryformatversion = 0\n\tbare = false\n[remote \"origin\"]\n\turl = x\n").unwrap();
-        assert_eq!(risky_git_config(d.to_str().unwrap()), None);
-        std::fs::create_dir_all(d.join("sub")).unwrap();
-        for (bad, want) in [
-            ("[filter \"lfs\"]\n\tsmudge = evil\n", "filter.lfs.smudge"),
-            ("[diff \"x\"]\n\ttextconv = evil\n", "diff.x.textconv"),
-            ("[include]\n\tpath = other\n", "include"),
-            ("[core]\n\tsshCommand = evil\n", "core.sshcommand"),
-            ("[core]\n\thooksPath = h\n", "core.hookspath"),
-        ] {
-            std::fs::write(&cfg, bad).unwrap();
-            assert_eq!(risky_git_config(d.join("sub").to_str().unwrap()).as_deref(), Some(want), "{bad}");
-            assert!(git_guard(d.to_str().unwrap(), true).is_err());
-            assert!(git_guard(d.to_str().unwrap(), false).unwrap().is_empty());
+    fn git_in(dir: &Path) -> impl Fn() -> std::process::Command + '_ {
+        move || {
+            let mut c = std::process::Command::new("git");
+            c.current_dir(dir).env("GIT_CONFIG_GLOBAL", "/dev/null").env("GIT_CONFIG_NOSYSTEM", "1");
+            c
         }
+    }
+    fn sh(dir: &Path, args: &[&str]) {
+        assert!(std::process::Command::new("git").args(args).current_dir(dir).env("GIT_CONFIG_GLOBAL", "/dev/null").output().unwrap().status.success(), "{args:?}");
+    }
+    fn fresh(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("ledger-trust-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn allowlist() {
+        let l = |s: &[(&str, &str)]| s.iter().map(|(k, v)| format!("local\0{k}\n{v}\0")).collect::<String>();
+        assert_eq!(risky_in_listing(&l(&[("core.bare", "false"), ("remote.origin.url", "https://x"), ("branch.main.merge", "refs/heads/main"), ("user.name", "a")])), None);
+        assert_eq!(risky_in_listing("global\0core.pager\nless\0"), None); // yours, not the folder's
+        assert_eq!(risky_in_listing(&l(&[("filter.x.clean", "evil")])).as_deref(), Some("filter.x.clean"));
+        assert_eq!(risky_in_listing(&l(&[("remote.origin.uploadpack", "evil")])).as_deref(), Some("remote.origin.uploadpack"));
+        assert_eq!(risky_in_listing(&l(&[("remote.origin.url", "ext::sh -c evil")])).as_deref(), Some("remote.origin.url"));
+        assert_eq!(risky_in_listing(&l(&[("submodule.a.update", "!evil")])).as_deref(), Some("submodule.a.update"));
+        assert_eq!(risky_in_listing(&l(&[("core.worktree", ".")])).as_deref(), Some("core.worktree"));
+    }
+
+    // The layouts the hand-written parser missed, checked with the real git.
+    #[test]
+    fn repository_layouts() {
+        if std::process::Command::new("git").arg("--version").output().is_err() {
+            return;
+        }
+        // 1. A key on its section's line.
+        let d = fresh("sameline");
+        sh(&d, &["init", "-q"]);
+        let cfg = d.join(".git/config");
+        let mut t = std::fs::read_to_string(&cfg).unwrap();
+        t.push_str("[filter \"x\"] clean = touch PWNED; cat\n");
+        std::fs::write(&cfg, t).unwrap();
+        assert!(git_guard(true, git_in(&d)).unwrap_err().contains("filter.x.clean"));
+        assert!(git_guard(false, git_in(&d)).unwrap().is_empty());
+
+        // 2. A worktree whose settings live in another folder (commondir).
+        let d = fresh("worktree");
+        std::fs::create_dir_all(d.join("main")).unwrap();
+        sh(&d.join("main"), &["init", "-q"]);
+        sh(&d.join("main"), &["-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "--allow-empty", "-m", "x"]);
+        sh(&d.join("main"), &["worktree", "add", "-q", "../wt"]);
+        assert!(git_guard(true, git_in(&d.join("wt"))).is_ok());
+        sh(&d.join("main"), &["config", "core.pager", "evil"]);
+        assert!(git_guard(true, git_in(&d.join("wt"))).unwrap_err().contains("core.pager"));
+
+        // 3. A folder that is itself a repository's insides.
+        let d = fresh("bare");
+        sh(&d, &["init", "-q", "--bare", "."]);
+        sh(&d, &["config", "core.bare", "false"]);
+        sh(&d, &["config", "core.worktree", "."]);
+        // Listing finds no repository here, and neither does any git command with the flags.
+        let flags = git_guard(true, git_in(&d)).unwrap();
+        let st = git_in(&d)().args(&flags).arg("status").output().unwrap();
+        assert!(!st.status.success() && String::from_utf8_lossy(&st.stderr).contains("bare repository"));
+
+        // 4. Include files and a plain, safe repository.
+        let d = fresh("include");
+        sh(&d, &["init", "-q"]);
+        std::fs::write(d.join("inc"), "[core]\n\tsshCommand = evil\n").unwrap();
+        sh(&d, &["config", "include.path", "../inc"]);
+        assert!(git_guard(true, git_in(&d)).is_err());
+        let d = fresh("plain");
+        sh(&d, &["init", "-q"]);
+        sh(&d, &["remote", "add", "origin", "https://example.com/x.git"]);
+        let flags = git_guard(true, git_in(&d)).unwrap();
+        assert!(flags.iter().any(|f| f == "safe.bareRepository=explicit"));
     }
 }

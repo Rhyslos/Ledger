@@ -37,6 +37,9 @@ export function initSearch(app) {
             return `<div class="shit" role="treeitem" tabindex="-1" data-sp="${esc(p)}" data-sl="${h.line}" data-sc="${h.col}" data-sn="${h.len}"><span class="sln">${h.line + 1}</span><span class="stx">${esc(pre)}<mark>${esc(mid)}</mark>${st.showRepl && st.repl !== "" ? `<ins>${esc(previewRepl(mid))}</ins>` : ""}${esc(post)}</span></div>`;
           }).join(""));
       }).join("")}</div>`;
+    // The results are one Tab stop (arrows move inside), so the keyboard can reach them.
+    const first = box.querySelector(".sres [tabindex]");
+    if (first) first.tabIndex = 0;
     if (focusId) { const el = document.getElementById(focusId); el?.focus(); if (caret && el?.setSelectionRange) el.setSelectionRange(caret[0], caret[1]); }
   }
 
@@ -86,32 +89,65 @@ export function initSearch(app) {
   }
   const soon = () => { clearTimeout(timer); timer = setTimeout(search, 250); };
 
+  // Each hit's replacement: the pattern run again at exactly that spot in its line (so lookarounds
+  // and anchors see the same line), and only there. Null when the match isn't there any more.
+  function replacer() {
+    const base = pattern(), re = new RegExp(base.source, base.flags.replace("g", "") + "y");
+    return (line, h) => {
+      if (!st.regex) { const t = line.substr(h.col, h.len); return (st.kase ? t === st.q : t.toLowerCase() === st.q.toLowerCase()) ? st.repl : null; }
+      re.lastIndex = h.col;
+      const m = re.exec(line);
+      if (!m || m.index !== h.col || m[0].length !== h.len) return null;
+      re.lastIndex = h.col;
+      const out = line.replace(re, st.repl);
+      return out.slice(h.col, h.col + out.length - line.length + h.len);
+    };
+  }
+  // Replaces exactly the matches listed in the results, nothing the list didn't show: a pattern
+  // like [^;]* can't run on past the end of its line.
   async function replaceAll() {
     const r = st.res;
     if (!r?.hits.length) return;
     const files = [...new Set(r.hits.map((h) => norm(h.path)))];
-    const c = await app.choose(`Replace ${r.hits.length} match${r.hits.length === 1 ? "" : "es"} in ${files.length} file${files.length === 1 ? "" : "s"} with “${st.repl}”? Open files change in the editor (undo works); the others are saved right away.`, ["Replace all", "Cancel"]);
+    const c = await app.choose(`Replace ${r.hits.length} match${r.hits.length === 1 ? "" : "es"} in ${files.length} file${files.length === 1 ? "" : "s"} with “${st.repl}”? Open files change in the editor (undo works); the others are saved right away, with their old text kept in Local history.`, ["Replace all", "Cancel"]);
     if (c !== "Replace all") return;
-    let re;
-    try { re = pattern(); } catch (e) { toast(String(e)); return; }
-    let done = 0, failed = 0;
+    let rep;
+    try { rep = replacer(); } catch (e) { toast(String(e)); return; }
+    let done = 0, failed = 0, moved = 0;
     for (const p of files) {
+      const hits = r.hits.filter((h) => norm(h.path) === p).sort((a, b) => b.line - a.line || b.col - a.col); // right to left
       const b = S.bufs.get(p);
       if (b) {
         if (b.ro) continue;
-        const text = b.state.doc.toString(), changes = [];
-        for (const m of text.matchAll(re)) if (m[0]) changes.push({ from: m.index, to: m.index + m[0].length, insert: st.regex ? m[0].replace(new RegExp(re.source, re.flags.replace("g", "")), st.repl) : st.repl });
+        const doc = b.state.doc, changes = [];
+        for (const h of hits) {
+          if (h.line >= doc.lines) { moved++; continue; }
+          const l = doc.line(h.line + 1), out = rep(l.text, h);
+          if (out == null) { moved++; continue; }
+          changes.push({ from: l.from + h.col, to: l.from + h.col + h.len, insert: out });
+        }
         if (changes.length) { app.dispatchBuf(p, { changes, userEvent: "input.replace" }); done += changes.length; }
         continue;
       }
       try {
         const f = await invoke("read_text", { path: p });
+        const parts = f.text.split(/(\r?\n)/); // lines at even indexes, their endings between
         let n = 0;
-        const out = f.text.replace(re, (...m) => { n++; return st.regex ? m[0].replace(new RegExp(re.source, re.flags.replace("g", "")), st.repl) : st.repl; });
-        if (n) { await invoke("write_file", { path: p, contents: out, encoding: f.encoding }); done += n; }
+        for (const h of hits) {
+          const i = h.line * 2, line = parts[i];
+          const out = line == null ? null : rep(line, h);
+          if (out == null) { moved++; continue; }
+          parts[i] = line.slice(0, h.col) + out + line.slice(h.col + h.len);
+          n++;
+        }
+        if (n) {
+          await invoke("history_add", { path: p, text: f.text }).catch(() => {}); // so Local history can bring it back
+          await invoke("write_file", { path: p, contents: parts.join(""), encoding: f.encoding });
+          done += n;
+        }
       } catch { failed++; }
     }
-    toast(`Replaced ${done} match${done === 1 ? "" : "es"}${failed ? `; ${failed} file${failed === 1 ? "" : "s"} couldn't be changed` : ""}.`, 5000);
+    toast(`Replaced ${done} match${done === 1 ? "" : "es"}${moved ? `; ${moved} weren't there any more and were left alone` : ""}${failed ? `; ${failed} file${failed === 1 ? "" : "s"} couldn't be changed` : ""}.`, 5000);
     app.reloadClean?.();
     search();
   }

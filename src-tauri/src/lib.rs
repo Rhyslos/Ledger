@@ -159,7 +159,12 @@ fn find_tool(name: &str) -> PathBuf {
 
 fn command_at(exe: &Path) -> Command {
     let mut c = Command::new(exe);
-    c.env("PATH", child_path());
+    // cmd.exe (which runs .cmd shims such as npm's) looks for "node" in the working folder before
+    // PATH unless this is set, so a node.cmd planted in a project would run instead.
+    c.env("PATH", child_path()).env("NoDefaultCurrentDirectoryInExePath", "1");
+    // Not Ledger's own working folder, which can be a project ("Open with Ledger" in Explorer):
+    // callers that work in a folder say so with current_dir.
+    c.current_dir(std::env::temp_dir());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -987,7 +992,8 @@ struct Win {
 /// servers ("rust", "csharp") and debug adapters ("dap").
 struct Pipe {
     child: Child,
-    stdin: Shared<ChildStdin>,
+    /// Messages for the process, written in order by one thread (see lsp_start).
+    stdin: std::sync::mpsc::Sender<String>,
 }
 
 struct Term {
@@ -1136,8 +1142,14 @@ fn restricted(procs: &Procs, label: &str, cwd: &str) -> bool {
 /// git with Ledger's settings: no fsmonitor, no prompts, English messages, and in a restricted
 /// folder no hooks (or no git at all when the repository's settings would run programs).
 fn git_command(cwd: &str, restricted: bool) -> Res<Command> {
-    let guard = trust::git_guard(cwd, restricted)?;
-    let mut c = command_at(&find_tool("git"));
+    let git = find_tool("git");
+    let base = || {
+        let mut c = command_at(&git);
+        c.current_dir(cwd).env("GIT_TERMINAL_PROMPT", "0");
+        c
+    };
+    let guard = trust::git_guard(restricted, base)?;
+    let mut c = command_at(&git);
     c.args(["-c", "core.quotepath=false", "-c", "core.fsmonitor=false"])
         .args(guard)
         .current_dir(cwd)
@@ -1345,11 +1357,15 @@ fn push_line(app: &AppHandle, label: &str, run: u64, name: &'static str, cargo: 
 /// Anything already running in this window is stopped first.
 /// `run` is chosen by the frontend, so it knows the id before any event arrives.
 #[tauri::command]
-async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_, Procs>, run: u64, root: String, program: String, args: Vec<String>, scaffold: Option<bool>) -> Res<u64> {
+async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_, Procs>, run: u64, root: String, program: String, args: Vec<String>, install: Option<bool>) -> Res<u64> {
     let label = window.label().to_string();
-    // Running, building and testing run the project's code. Making a new project (npm create,
-    // cargo new) runs only the tool, so it works in a restricted folder too.
-    if !scaffold.unwrap_or(false) && restricted(&procs, &label, &root) && !trust::safe_task(&program, &args) {
+    // Installing a tool (Settings: npm -g, dotnet tool, cargo install, winget, rustup) runs in your
+    // home folder, never a project's: npm, NuGet and cargo read settings from the folder they run in
+    // (.npmrc, NuGet.Config, .cargo/config), and a project could point them at its own packages.
+    let root = if install.unwrap_or(false) { home().unwrap_or_else(std::env::temp_dir).to_string_lossy().into_owned() } else { root };
+    // Running, building and testing run the project's code, and so does making a project inside it
+    // (dotnet new and npm create read its Directory.Build.*, NuGet.Config and .npmrc).
+    if !install.unwrap_or(false) && restricted(&procs, &label, &root) && !trust::safe_task(&program, &args) {
         return Err(trust::UNTRUSTED.into());
     }
     stop_task(&procs, &label);
@@ -1788,7 +1804,11 @@ end
 
 /// `cargo new` / `dotnet new` style project creation. Returns the new folder.
 #[tauri::command]
-async fn new_project(parent: String, name: String, kind: String) -> Res<String> {
+async fn new_project(window: tauri::WebviewWindow, procs: State<'_, Procs>, parent: String, name: String, kind: String) -> Res<String> {
+    // cargo new and dotnet new read settings from the folders above (.cargo/config, Directory.Build.*).
+    if restricted(&procs, window.label(), &parent) {
+        return Err(trust::UNTRUSTED.into());
+    }
     if kind == "lustscript" {
         // LustScript: a .lsc file that turns into Lua (lust build writes main.lua next to it).
         let dir = Path::new(&parent).join(&name);
@@ -1927,7 +1947,10 @@ async fn lsp_start(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_
     };
     let path = path.ok_or_else(|| format!("not found: {exe}"))?;
     let mut cmd = command_at(&path);
-    cmd.args(&args).current_dir(&root).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    // In a restricted folder the servers that are allowed (web, JSON) get the folder only as
+    // rootUri, not as their working folder: nothing there is ever looked up as a program.
+    let wd = if restricted(&procs, &label, &root) { std::env::temp_dir() } else { PathBuf::from(&root) };
+    cmd.args(&args).current_dir(&wd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -1937,7 +1960,17 @@ async fn lsp_start(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_
     job::adopt(child.id());
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
-    let stdin = Arc::new(Mutex::new(child.stdin.take().unwrap()));
+    // One writer per process, fed in the order messages were sent: with incremental document sync,
+    // two edits written the other way round would leave the server's copy of the file wrong.
+    let (stdin, rx) = std::sync::mpsc::channel::<String>();
+    let mut pipe_in = child.stdin.take().unwrap();
+    thread::spawn(move || {
+        for msg in rx {
+            if write!(pipe_in, "Content-Length: {}\r\n\r\n{}", msg.len(), msg).and_then(|_| pipe_in.flush()).is_err() {
+                break;
+            }
+        }
+    });
     let pid = child.id();
     procs.with(&label, |w| w.pipes.insert(id.clone(), Pipe { child, stdin }));
 
@@ -1991,12 +2024,12 @@ async fn lsp_start(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_
     Ok(Started { exe: plain_path(&path), pid, host: std::process::id() })
 }
 
+/// Not async on purpose: sync commands run one after another in the order they were sent, and
+/// this only queues the message, so it's quick.
 #[tauri::command]
-async fn lsp_send(window: tauri::WebviewWindow, procs: State<'_, Procs>, id: String, msg: String) -> Res<()> {
+fn lsp_send(window: tauri::WebviewWindow, procs: State<'_, Procs>, id: String, msg: String) -> Res<()> {
     let stdin = procs.with(window.label(), |w| w.pipes.get(&id).map(|p| p.stdin.clone())).ok_or("not running")?;
-    let mut s = stdin.lock().unwrap_or_else(|e| e.into_inner());
-    write!(s, "Content-Length: {}\r\n\r\n{}", msg.len(), msg).map_err(err)?;
-    s.flush().map_err(err)
+    stdin.send(msg).map_err(|_| "not running".into())
 }
 
 #[tauri::command]
@@ -2078,6 +2111,7 @@ async fn term_open(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_
         cmd.cwd(&cwd);
     }
     cmd.env("PATH", child_path());
+    cmd.env("NoDefaultCurrentDirectoryInExePath", "1"); // see command_at
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| format!("Couldn't start {shell} ({e})"))?;
