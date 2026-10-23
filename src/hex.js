@@ -2,6 +2,9 @@
 // aren't text open here instead of failing, and "Open as hex" shows any file this way. Only the
 // rows on screen are drawn, so files of many megabytes scroll smoothly. Read-only.
 const ROW = 16, ROW_H = 20;
+// Chromium can't make an element taller than about 33 million pixels (1.7 million rows, 26 MB):
+// past that the scrollbar stands for a scaled position, and rows are placed from it.
+const MAX_H = 15_000_000;
 
 const hex2 = (n) => n.toString(16).padStart(2, "0");
 const printable = (b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : "·");
@@ -43,17 +46,20 @@ export function initHex(app) {
         <input class="hex-go" placeholder="Go to offset (0x1F0 or 496)" aria-label="Go to offset" spellcheck="false">
       </div>
       <div class="hex-head"><span class="hex-off">Offset</span><span class="hex-bytes">${Array.from({ length: ROW }, (_, i) => hex2(i).toUpperCase()).join(" ")}</span><span class="hex-text">Text</span></div>
-      <div class="hex-scroll" tabindex="0"><div class="hex-space" style="height:${rows * ROW_H}px"><div class="hex-rows"></div></div></div>
+      <div class="hex-scroll" tabindex="0"><div class="hex-space" style="height:${Math.min(rows * ROW_H, MAX_H)}px"><div class="hex-rows"></div></div></div>
     </div>`;
     const sc = el.querySelector(".hex-scroll");
     sc.addEventListener("scroll", paint, { passive: true });
     paint();
     info();
   }
+  // The end of the scrollbar has to reach the last row, so the scale leaves out one screen.
+  const scale = (f, ch) => { const total = Math.ceil(f.bytes.length / ROW) * ROW_H; return total <= MAX_H ? 1 : (total - ch) / (MAX_H - ch); };
   function paint() {
     const f = cur(), sc = el?.querySelector(".hex-scroll");
     if (!f?.bytes || !sc) return;
-    const first = Math.max(0, Math.floor(sc.scrollTop / ROW_H) - 5), count = Math.ceil(sc.clientHeight / ROW_H) + 10;
+    const ratio = scale(f, sc.clientHeight), top = sc.scrollTop * ratio; // where the view is in the full, unscaled list
+    const first = Math.max(0, Math.floor(top / ROW_H) - 5), count = Math.ceil(sc.clientHeight / ROW_H) + 10;
     const out = [], b = f.bytes, digits = Math.max(8, b.length.toString(16).length);
     for (let r = first; r < Math.min(first + count, Math.ceil(b.length / ROW)); r++) {
       const o = r * ROW, hex = [], txt = [];
@@ -64,7 +70,7 @@ export function initHex(app) {
         hex.push(`<i data-o="${at}" class="${b[at] === 0 ? "hx-0" : b[at] >= 0x20 && b[at] < 0x7f ? "hx-p" : "hx-b"}${s}">${hex2(b[at])}</i>`);
         txt.push(`<i data-o="${at}" class="${s.trim()}">${esc(printable(b[at]))}</i>`);
       }
-      out.push(`<div class="hex-row" style="top:${r * ROW_H}px"><span class="hex-off">${o.toString(16).padStart(digits, "0").toUpperCase()}</span><span class="hex-bytes">${hex.join(" ")}</span><span class="hex-text">${txt.join("")}</span></div>`);
+      out.push(`<div class="hex-row" style="top:${sc.scrollTop + r * ROW_H - top}px"><span class="hex-off">${o.toString(16).padStart(digits, "0").toUpperCase()}</span><span class="hex-bytes">${hex.join(" ")}</span><span class="hex-text">${txt.join("")}</span></div>`);
     }
     el.querySelector(".hex-rows").innerHTML = out.join("");
   }
@@ -80,8 +86,8 @@ export function initHex(app) {
     if (!f?.bytes) return;
     f.sel = Math.max(0, Math.min(f.bytes.length - 1, o));
     if (scroll) {
-      const sc = el.querySelector(".hex-scroll"), y = Math.floor(f.sel / ROW) * ROW_H;
-      if (y < sc.scrollTop || y > sc.scrollTop + sc.clientHeight - ROW_H) sc.scrollTop = y - sc.clientHeight / 3;
+      const sc = el.querySelector(".hex-scroll"), ratio = scale(f, sc.clientHeight), y = Math.floor(f.sel / ROW) * ROW_H, top = sc.scrollTop * ratio;
+      if (y < top || y > top + sc.clientHeight - ROW_H) sc.scrollTop = (y - sc.clientHeight / 3) / ratio;
     }
     paint(); info();
   }
@@ -121,7 +127,7 @@ export function initHex(app) {
     focus: () => el.querySelector(".hex-scroll")?.focus({ preventScroll: true }),
     close: (k) => { files.delete(k); if (shown === k) shown = null; },
   });
-  app.openers.push((path) => (String(path).startsWith("@hex:") ? openHex(path) : null));
+  app.openers.push((path, opts) => (String(path).startsWith("@hex:") ? openHex(path, opts) : null));
   app.openHex = openHex;
   app.command("file.hex", "Open as hex (the file's bytes)", [], () => openHex(S.active?.startsWith("@") ? String(S.active).replace(/^@[a-z]+:/, "") : S.active));
 }

@@ -46,14 +46,20 @@ export const bookmarkLines = (state) => {
 
 // ---------- overview ruler ----------
 const MAX_SEARCH = 2000;
+const searchCache = { doc: null, q: null, found: [] };
 function collect(view, extra) {
   const st = view.state, marks = [];
   forEachDiagnostic(st, (d) => marks.push({ pos: d.from, kind: d.severity === "error" ? "error" : d.severity === "warning" ? "warning" : "info" }));
   if (searchPanelOpen(st)) {
     const q = getSearchQuery(st);
     if (q.valid && q.search) {
-      const cur = q.getCursor(st);
-      for (let i = 0, r = cur.next(); !r.done && i < MAX_SEARCH; r = cur.next(), i++) marks.push({ pos: r.value.from, kind: "search" });
+      // Found again only when the text or the search changes, not on every cursor move.
+      if (searchCache.doc !== st.doc || !searchCache.q?.eq(q)) {
+        const found = [], cur = q.getCursor(st);
+        for (let i = 0, r = cur.next(); !r.done && i < MAX_SEARCH; r = cur.next(), i++) found.push({ pos: r.value.from, kind: "search" });
+        Object.assign(searchCache, { doc: st.doc, q, found });
+      }
+      marks.push(...searchCache.found);
     }
   }
   st.field(bookmarkField, false)?.between(0, st.doc.length, (from) => { marks.push({ pos: from, kind: "bookmark" }); });

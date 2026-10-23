@@ -15,11 +15,16 @@ const TAGS = new Set(("a abbr address area article aside audio b base bdi bdo bl
 const OPERATORS = /[.#>+*^{[(:!]/;
 
 const ancestors = (state, pos) => { const out = []; for (let n = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent) out.push(n.name); return out; };
-// The last character that isn't space before `pos`, looking back a few lines.
-function prevChar(state, pos) {
+// Whether JSX can start at `pos` outside a tag: right after a "(" that opens a group, not a call
+// ("return (", "=> (", "= (", "? (", ", (" and the like), looking back a few lines.
+function jsxCanStart(state, pos) {
   const text = state.sliceDoc(Math.max(0, pos - 400), pos).replace(/\s+$/, "");
-  return text[text.length - 1] || "";
+  if (!text.endsWith("(")) return false;
+  const before = text.slice(0, -1).replace(/\s+$/, "");
+  return !before || /(^|[^\w$.])return$|=>$|[=(,?:&|[{]$/.test(before);
 }
+// The element the abbreviation starts with: "div" in div.card>p, "Card" in Card*2.
+const firstName = (abbr) => /^[A-Za-z][\w-]*/.exec(abbr)?.[0] || "";
 function inCssBlock(state, pos, lang, names) {
   if (lang === "css" || names.includes("StyleSheet")) return names.includes("Block");
   // SCSS and Less have no syntax tree: count braces before the cursor.
@@ -55,9 +60,11 @@ export function findAbbreviation(state, lang) {
   } else {
     if (names.some((n) => /String|Comment|TemplateString|JSXAttribute/.test(n))) return null;
     const inJsx = names[0] === "JSXText" || (names.includes("JSXElement") && charBefore === ">");
-    if (!inJsx && !/[(>]/.test(prevChar(state, from))) return null; // JSX goes after "(" or a tag
+    if (!inJsx && !jsxCanStart(state, from)) return null; // outside a tag, only where JSX can begin
     if (charBefore && !/[\s>(]/.test(charBefore)) return null;
-    if (bare && !TAGS.has(abbr) && !/^[A-Z]/.test(abbr)) return null;
+    // It has to start with an HTML element or a component, so user.name or items.map isn't one.
+    const first = firstName(abbr);
+    if (first ? !TAGS.has(first) && !/^[A-Z]/.test(first) : !/^[.#]/.test(abbr)) return null;
     if (!bare && !OPERATORS.test(abbr)) return null;
   }
   return { from, to: pos, abbr, type: "markup", syntax: SYNTAX[lang] === "html" ? "html" : "jsx" };
@@ -96,7 +103,7 @@ export const emmetSource = (lang) => (SYNTAX[lang] ? (ctx) => {
   const preview = text.replace(/\$\{\d+(?::([^}]*))?\}/g, "$1").replace(/\t/g, "  ");
   return {
     from: found.from,
-    options: [{ label: found.abbr, detail: "Emmet", type: "emmet", boost: 99, info: () => { const pre = document.createElement("pre"); pre.className = "cm-emmet-preview"; pre.textContent = preview; return pre; }, apply: (view, c, from, to) => snippet(text)(view, c, from, to) }],
+    options: [{ label: found.abbr, detail: "Emmet", type: "emmet", info: () => { const pre = document.createElement("pre"); pre.className = "cm-emmet-preview"; pre.textContent = preview; return pre; }, apply: (view, c, from, to) => snippet(text)(view, c, from, to) }],
     filter: false,
   };
 } : null);

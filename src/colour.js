@@ -60,12 +60,16 @@ function readableOn(hex) {
 }
 
 // ---------- colours in text ----------
-const NUM = String.raw`[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?`;
+const NUM = String.raw`[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?`;
+// Hex (not in an HTML entity, a link like href="#top", or url(#id)), rgb()/hsl() in CSS's
+// spelling, and Godot's Color(r, g, b) with a capital C.
 const RE = new RegExp(
-  String.raw`(?<![&\w#])#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})(?![\w-])` +
-  String.raw`|\b(?:rgba?|hsla?)\(\s*${NUM}(?:deg|turn|%)?(?:\s*,\s*|\s+)${NUM}%?(?:\s*,\s*|\s+)${NUM}%?(?:\s*[,/]\s*${NUM}%?)?\s*\)` +
+  String.raw`(?<![&\w#])(?<!href=["']?)(?<!url\(["']?)#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])` +
+  String.raw`|\b(?:rgba?|hsla?|RGBA?|HSLA?)\(\s*${NUM}(?:deg|turn|%)?(?:\s*,\s*|\s+)${NUM}%?(?:\s*,\s*|\s+)${NUM}%?(?:\s*[,/]\s*${NUM}%?)?\s*\)` +
   String.raw`|\bColor\(\s*${NUM}f?\s*,\s*${NUM}f?\s*,\s*${NUM}f?(?:\s*,\s*${NUM}f?)?\s*\)`,
-  "gi");
+  "g");
+// In prose (Markdown, plain text) #123 is an issue number, not a colour: only six or eight digits there.
+const PROSE = new Set(["markdown", "text"]);
 const GODOT = new Set(["gdscript", "godot", "csharp", "gdshader"]);
 
 /** Reads one colour as written. Returns { r, g, b, a, fmt } or null. */
@@ -94,8 +98,9 @@ export function parseColour(text) {
     }
     let h = parseFloat(parts[0]);
     if (parts[0].endsWith("turn")) h *= 360;
-    const rgb = hslToRgb({ h, s: clamp(num(parts[1], 1), 0, 1), l: clamp(num(parts[2], 1), 0, 1) });
-    return isNaN(h) ? null : { ...rgb, a, fmt };
+    const hsl = { h, s: clamp(num(parts[1], 1), 0, 1), l: clamp(num(parts[2], 1), 0, 1) };
+    const rgb = hslToRgb(hsl);
+    return isNaN(h) ? null : { ...rgb, a, fmt: { ...fmt, hsl, rgb } };
   }
   return null;
 }
@@ -119,7 +124,9 @@ export function formatColour({ r, g, b, a = 1 }, fmt) {
     if (!fmt.comma) return `rgb(${c.join(" ")}${withA ? " / " + A : ""})`;
     return withA ? `rgba(${c.join(", ")}, ${A})` : `${fmt.fn === "rgba" ? "rgba" : "rgb"}(${c.join(", ")}${fmt.fn === "rgba" ? ", 1" : ""})`;
   }
-  const { h, s, l } = rgbToHsl({ r, g, b });
+  // The colour itself unchanged (only alpha moved): keep the numbers as they were written.
+  const same = fmt.hsl && fmt.rgb && Math.round(r) === fmt.rgb.r && Math.round(g) === fmt.rgb.g && Math.round(b) === fmt.rgb.b;
+  const { h, s, l } = same ? fmt.hsl : rgbToHsl({ r, g, b });
   const c = [trim(h, 1), trim(s * 100, 1) + "%", trim(l * 100, 1) + "%"];
   if (!fmt.comma) return `hsl(${c.join(" ")}${withA ? " / " + A : ""})`;
   return withA ? `hsla(${c.join(", ")}, ${A})` : `${fmt.fn === "hsla" ? "hsla" : "hsl"}(${c.join(", ")}${fmt.fn === "hsla" ? ", 1" : ""})`;
@@ -132,6 +139,7 @@ export function coloursIn(text, lang) {
   RE.lastIndex = 0;
   for (let m; (m = RE.exec(text)); ) {
     if (m[0][0] === "C" && !GODOT.has(lang)) continue;
+    if (m[0][0] === "#" && PROSE.has(lang) && m[0].length < 7) continue;
     const c = parseColour(m[0]);
     if (c) out.push({ from: m.index, to: m.index + m[0].length, text: m[0], c });
   }
@@ -456,18 +464,21 @@ export function initColours(app) {
   function edit(view, found, lang, anchor) {
     let from = found.from, to = found.to;
     const fmt = found.c.fmt;
-    let first = true;
-    openPicker({
+    let first = true, expected = view.state.doc;
+    const close = openPicker({
       anchor,
       colour: found.c,
       inFile: inFile(view.state, lang).filter((h) => h !== rgbToHex(found.c)),
       onChange(c) {
-        if (view.state.sliceDoc(from, to) == null) return;
+        // The editor shows something else now (another tab, a reload, an edit from elsewhere):
+        // stop, rather than write into the wrong place.
+        if (view.state.doc !== expected || !view.dom.isConnected) { close(); return; }
         const text = formatColour(c, fmt);
         if (text === view.state.sliceDoc(from, to)) return;
         view.dispatch({ changes: { from, to, insert: text }, userEvent: first ? "input.colour" : "input.colour.drag", scrollIntoView: false });
         first = false;
         to = from + text.length;
+        expected = view.state.doc;
       },
       onClose: () => view.focus(),
     });

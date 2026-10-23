@@ -126,13 +126,13 @@ export function initCsv(app) {
     if (hadFocus) { const i = el.querySelector(".csv-filter"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
   }
 
-  async function openTable(path = S.active) {
+  async function openTable(path = S.active, opts = {}) {
     path = String(path || "").replace(/^@csv:/, "");
     if (!CSV_EXT.test(path)) { app.toast("Open a .csv or .tsv file to see it as a table."); return false; }
     const key = keyOf(path);
     if (!tables.has(key)) tables.set(key, { path: app.norm(path), sort: null, filter: "", header: true });
     app.addTab(key);
-    app.activate(key);
+    if (!opts.background) app.activate(key);
     return true;
   }
   el?.addEventListener("click", (e) => {
@@ -172,7 +172,7 @@ export function initCsv(app) {
     focus: () => el.querySelector(".csv-scroll")?.focus({ preventScroll: true }),
     close: (k) => { tables.delete(k); if (shown === k) shown = null; },
   });
-  app.openers.push((path) => (String(path).startsWith("@csv:") ? openTable(path) : null));
+  app.openers.push((path, opts) => (String(path).startsWith("@csv:") ? openTable(path, opts) : null));
   app.csvTable = (path = S.active) => (String(path).startsWith("@csv:") ? app.openFile(path.slice(5)) : openTable(path));
   app.command("csv.table", "CSV: show as a table (or back to the text)", [], () => app.csvTable());
 }

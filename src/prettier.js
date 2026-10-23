@@ -95,6 +95,9 @@ export function initPrettier(app, formatters) {
 
   formatters.push((path, b) => {
     if (settings.webFormatter === "server" || !PARSERS[b.lang] || b.virtual) return null;
+    // Vue, Svelte and Astro files open as HTML, but Prettier's HTML parser breaks them: they need
+    // the project's own Prettier with its plugin, so they're left to the language server here.
+    if (b.lang === "html" && !/\.html?$/i.test(path)) return null;
     return async (text) => {
       const P = await app.projectFor(path).catch(() => null);
       const dir = P?.dir || S.root;

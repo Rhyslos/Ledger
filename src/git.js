@@ -474,6 +474,17 @@ export function initGit(app) {
     if (!el) { if (k === "Esc") { ev.preventDefault(); app.focusZone("editor"); } return; }
     const nodes = [...$("git").querySelectorAll(".node")], i = nodes.indexOf(el);
     const go = (n) => { if (!n) return; nodes.forEach((x) => (x.tabIndex = x === n ? 0 : -1)); n.focus(); n.scrollIntoView({ block: "nearest" }); };
+    // A stash row: Enter or Space pops it, Delete drops it, Shift F10 for the rest.
+    if (el.dataset.gstash && !["Down", "Up", "Home", "End", "Esc"].includes(k)) {
+      const ref = el.dataset.gstash;
+      if (k === "Enter" || k === "Space") stashOp("pop", ref);
+      else if (k === "Delete") stashOp("drop", ref);
+      else if (k === "Shift+F10" || k === "ContextMenu") { const rc = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: rc.left + 24, clientY: rc.bottom })); }
+      else return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
     if (k === "Down") go(nodes[i + 1]);
     else if (k === "Up") { if (i === 0) $("commitMsg")?.focus(); else go(nodes[i - 1]); }
     else if (k === "Home") go(nodes[0]);

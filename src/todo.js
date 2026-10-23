@@ -27,7 +27,7 @@ export function initTodo(app) {
     try {
       const root = S.root;
       // One search per word (the search is plain text), then keep the lines where it's in a comment.
-      const found = (await Promise.all(WORDS.map((w) => invoke("search_text", { root, query: w, caseSensitive: true }).catch(() => [])))).flat();
+      const found = (await invoke("find_todos", { root }).catch(() => null)) || [];
       if (root !== S.root) return;
       const seen = new Set();
       items = [];

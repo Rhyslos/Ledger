@@ -617,6 +617,37 @@ async fn search_text(root: String, query: String, case_sensitive: bool) -> Res<V
     Ok(hits)
 }
 
+/// Lines with TODO, FIXME, HACK, XXX or BUG in them, in one walk of the folder (the TODO panel
+/// keeps the ones where the word is in a comment).
+#[tauri::command]
+async fn find_todos(root: String) -> Res<Vec<Hit>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        const WORDS: [&str; 5] = ["TODO", "FIXME", "HACK", "XXX", "BUG"];
+        let mut hits = Vec::new();
+        'files: for ent in walker(&root).flatten() {
+            if !ent.file_type().is_some_and(|t| t.is_file()) || ent.metadata().map(|m| m.len() > 2 * 1024 * 1024).unwrap_or(true) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(ent.path()) else { continue };
+            if !WORDS.iter().any(|w| text.contains(w)) {
+                continue;
+            }
+            for (i, line) in text.lines().enumerate() {
+                if WORDS.iter().any(|w| line.contains(w)) {
+                    let t: String = line.trim_end().chars().take(300).collect();
+                    hits.push(Hit { path: ent.path().to_string_lossy().into(), line: i, col: 0, text: t });
+                    if hits.len() >= 5000 {
+                        break 'files;
+                    }
+                }
+            }
+        }
+        Ok(hits)
+    })
+    .await
+    .map_err(err)?
+}
+
 /// Modified time (ms since 1970) of each path, or null if it's gone. Lets the
 /// editor notice files changed on disk by other programs.
 #[tauri::command]
@@ -1559,6 +1590,10 @@ async fn git(cwd: String, args: Vec<String>) -> Res<Captured> {
             .args(&args)
             .current_dir(&cwd)
             .env("GIT_TERMINAL_PROMPT", "0")
+            // Git's messages in English whatever Windows' language, so Ledger can recognise them
+            // ("would be overwritten", "not fully merged", "CONFLICT").
+            .env("LC_ALL", "C")
+            .env("LANGUAGE", "C")
             .env("GIT_OPTIONAL_LOCKS", "0")
             .stdin(Stdio::null())
             .output()
@@ -1795,6 +1830,7 @@ pub fn run() {
             run_capture,
             run_test,
             history_add,
+            find_todos,
             history_list,
             history_read,
             test_stop,

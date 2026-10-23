@@ -17,6 +17,9 @@ const START = /^<{7}(?: |$)/, BASE = /^\|{7}(?: |$)/, MID = /^={7}$/, END = /^>{
 export function findConflicts(doc) {
   const out = [];
   if (doc.length > 5_000_000) return out;
+  let any = false;
+  for (const it = doc.iterLines(); !it.next().done; ) if (it.value.startsWith("<<<<<<<")) { any = true; break; }
+  if (!any) return out;
   let cur = null;
   for (let n = 1; n <= doc.lines; n++) {
     const text = doc.line(n).text;
@@ -51,11 +54,23 @@ class ConflictBar extends WidgetType {
     const d = document.createElement("div");
     d.className = "cm-conflict-bar";
     const label = (s, fallback) => (s && s !== "HEAD" ? s : fallback);
-    d.innerHTML = `<span class="cm-conflict-what">Conflict</span>
-      <button data-k="ours" title="Keep the lines from ${label(this.c.ours, "your branch")}">Keep yours</button>
-      <button data-k="theirs" title="Keep the lines from ${label(this.c.theirs, "the other branch")}">Keep theirs</button>
-      <button data-k="both" title="Keep both, yours first">Keep both</button>
-      <button data-k="compare" title="See the two sides next to each other">Compare</button>`;
+    // Built with the DOM: the branch names come from the file, so they never go through innerHTML.
+    const what = document.createElement("span");
+    what.className = "cm-conflict-what";
+    what.textContent = "Conflict";
+    d.append(what);
+    for (const [k, text, title] of [
+      ["ours", "Keep yours", `Keep the lines from ${label(this.c.ours, "your branch")}`],
+      ["theirs", "Keep theirs", `Keep the lines from ${label(this.c.theirs, "the other branch")}`],
+      ["both", "Keep both", "Keep both, yours first"],
+      ["compare", "Compare", "See the two sides next to each other"],
+    ]) {
+      const b = document.createElement("button");
+      b.dataset.k = k;
+      b.textContent = text;
+      b.title = title;
+      d.append(b);
+    }
     d.addEventListener("mousedown", (e) => {
       const k = e.target.closest("button")?.dataset.k;
       if (!k) return;
@@ -75,9 +90,10 @@ const conflictLine = {
 };
 function conflictDecos(state, onCompare) {
   const doc = state.doc;
-  if (!doc.sliceString(0, Math.min(doc.length, 5_000_000)).includes("<<<<<<<")) return Decoration.none;
+  const list = findConflicts(doc);
+  if (!list.length) return Decoration.none;
   const b = new RangeSetBuilder();
-  for (const c of findConflicts(doc)) {
+  for (const c of list) {
     b.add(doc.line(c.start).from, doc.line(c.start).from, Decoration.widget({ widget: new ConflictBar(c, onCompare), side: -1, block: true }));
     for (let n = c.start; n <= c.end; n++) {
       const kind = n === c.start || n === c.mid || n === c.end || n === c.base ? "marker" : n < (c.base || c.mid) ? "ours" : n < c.mid ? "base" : "theirs";
@@ -89,7 +105,19 @@ function conflictDecos(state, onCompare) {
 // Block widgets have to come from a state field, not a view plugin.
 const conflictField = (onCompare) => StateField.define({
   create: (st) => conflictDecos(st, onCompare),
-  update: (v, tr) => (tr.docChanged ? conflictDecos(tr.state, onCompare) : v),
+  update(v, tr) {
+    if (!tr.docChanged) return v;
+    // Most files have no conflicts: only look again when the file has some, or the edit
+    // touched a line that looks like a marker (a paste, a merge reloading the file).
+    if (v.size) return conflictDecos(tr.state, onCompare);
+    let marker = false;
+    tr.changes.iterChangedRanges((fa, ta, fb, tb) => {
+      if (marker) return;
+      const doc = tr.state.doc, last = doc.lineAt(Math.min(tb, doc.length)).number;
+      for (let n = doc.lineAt(fb).number; n <= last && n - doc.lineAt(fb).number < 50000; n++) if (/^(<{7}|>{7}|={7})/.test(doc.line(n).text)) { marker = true; return; }
+    });
+    return marker ? conflictDecos(tr.state, onCompare) : v;
+  },
   provide: (f) => EditorView.decorations.from(f),
 });
 
@@ -205,7 +233,14 @@ export function initGitMore(app, gitApi) {
   // ----- blame -----
   const pending = new Map(); // path -> timer
   const asked = new Map(); // path -> doc it was asked for
+  const running = new Map(); // path -> true while git blame runs; "again" if asked meanwhile
   async function blame(path) {
+    if (running.has(path)) { running.set(path, "again"); return; }
+    running.set(path, true);
+    try { await blameNow(path); }
+    finally { const again = running.get(path) === "again"; running.delete(path); if (again) soon(path, 300); }
+  }
+  async function blameNow(path) {
     const b = S.bufs.get(path);
     if (!b || b.virtual || !G.ok || !settings.gitBlame || !path.toLowerCase().startsWith((G.root || "\0").toLowerCase() + "/")) return;
     const st = G.files.get(path);
