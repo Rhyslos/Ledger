@@ -13,6 +13,8 @@ import { sCSS, less } from "@codemirror/legacy-modes/mode/css";
 import { webColours, legacyCssColours } from "./webcolours.js";
 import { tailwindSwatches } from "./tailwind.js";
 import { csvColumns } from "./csv.js";
+import { PIECES, STYLES, COLOURS } from "./luststyles.js";
+import { lustStyleSource, lustViewHelp } from "./lustview.js";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { clike } from "@codemirror/legacy-modes/mode/clike";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
@@ -107,11 +109,12 @@ const LUST_MODULE = "fetch get pass end save load saved lua view style native";
 const LUST_TYPES = "int float string bool array cMap map";
 const LUST_BUILTINS = "print wait ask";
 const LUST_OBJECTS = "Maths Files Time Json Web Random";
-const LUST_PIECES = "column row stack scroll space text button input checkbox slider image every";
-const LUST_STYLES = "pad padX padY padTop padRight padBottom padLeft gap width height grow minWidth maxWidth minHeight maxHeight size tiny small large huge weight bold muted strike nowrap color background round pill border borderWidth shadow opacity left center right top middle bottom spread subtle hover placeholder from to step cover disabled title fill";
+// The pieces of a view, its style words and its colours live in luststyles.js, with their explanations.
+const LUST_PIECES = Object.keys(PIECES).join(" ");
+const LUST_STYLES = [...STYLES.map((s) => s.name), "fill"].join(" ");
 const lustSet = (s) => new Set(s.split(" "));
 // Colours a view can use: [blue], background gray1, color red7…
-const LUST_COLOURS = ["black", "white", ..."gray red orange yellow green teal blue indigo purple pink".split(" ").flatMap((c) => [c, ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => c + n)])].join(" ");
+const LUST_COLOURS = Object.keys(COLOURS).join(" ");
 // The standard library and the methods on text and arrays (Lust's src/stdlib.rs), for completing after Maths:, name: and name.
 const LUST_LIB = {
   Maths: ["abs(x)", "min(a, b)", "max(a, b)", "clamp(x, low, high)", "round(x)", "floor(x)", "ceil(x)", "sqrt(x)", "sin(x)", "cos(x)", "tan(x)", "power(x, p)"],
@@ -289,7 +292,7 @@ const lustCompletions = completeFromList([
   ...LUST_OBJECTS.split(" ").map((l) => ({ label: l, type: "class", detail: "built-in object" })),
   ...LUST_PIECES.split(" ").map((l) => ({ label: l, type: "keyword", detail: "piece of a view" })),
   ...LUST_STYLES.split(" ").filter((l) => !LK.pieces.has(l)).map((l) => ({ label: l, type: "property", detail: "style" })),
-  ...LUST_COLOURS.split(" ").map((l) => ({ label: l, type: "constant", detail: "colour", boost: -1 })),
+  ...LUST_COLOURS.split(" ").map((l) => ({ label: l, type: "constant", detail: "colour", boost: -1, lustColour: COLOURS[l] })),
   { label: "true", type: "constant" }, { label: "false", type: "constant" }, { label: "nothing", type: "constant" },
   snip("Random[${1}, ${6}]", { label: "Random", detail: "a random number from the first to the second", type: "function" }),
   snip("class ${Name} {\n\thas {\n\t\t${string} ${name} = ${\"\"};\n\t}\n\n\tmethod ${hello}() {\n\t\t${}\n\t}\n}", { label: "class", detail: "blueprint, made with new", type: "class" }),
@@ -335,6 +338,12 @@ const lustCompletions = completeFromList([
   snip("every ${1.0} {\n\t${}\n}", { label: "every", detail: "runs again and again while shown", type: "keyword" }),
   snip("style ${card} = [${pad 16, round, shadow}];", { label: "style", detail: "a named set of styles", type: "keyword" }),
 ]);
+
+// Inside a view's [ ], only the style words that fit (lustview.js); anywhere else, the list above.
+function lustComplete(ctx) {
+  const styles = lustStyleSource(ctx);
+  return styles !== undefined ? styles : lustMembers(ctx) || lustCompletions(ctx);
+}
 
 // ----- C# -----
 // C#'s own colouring, made to read calmly: declarations and control flow in the
@@ -435,7 +444,7 @@ export const LANGS = {
   rust: { name: "Rust", dot: "rs", server: "rust", languageId: "rust", ext: () => [rust(), rustLanguage.data.of({ closeBrackets: { brackets: ["(", "[", "{", '"'] } })] },
   csharp: { name: "C#", dot: "cs", server: "csharp", languageId: "csharp", ext: () => new LanguageSupport(StreamLanguage.define(csMode)) },
   gdshader: { name: "Godot shader", dot: "shader", ext: () => new LanguageSupport(StreamLanguage.define(gdshaderMode)), complete: gdshaderCompletions },
-  lust: { name: "Lust", dot: "lust", ext: () => [new LanguageSupport(StreamLanguage.define(lustMode)), Prec.high(syntaxHighlighting(lustStyle))], complete: (ctx) => lustMembers(ctx) || lustCompletions(ctx) },
+  lust: { name: "Lust", dot: "lust", ext: () => [new LanguageSupport(StreamLanguage.define(lustMode)), Prec.high(syntaxHighlighting(lustStyle)), lustViewHelp()], complete: lustComplete },
   gdscript: { name: "GDScript", dot: "gd", ext: () => legacy(python, { commentTokens: { line: "#" } }) },
   godot: { name: "Godot resource", dot: "godot", ext: () => legacy(godotResource) },
   javascript: { name: "JavaScript", dot: "js", server: "web", tailwind: true, languageId: "javascript", ext: () => [javascript(), webColours(), tailwindSwatches()] },

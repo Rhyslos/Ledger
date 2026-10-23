@@ -487,7 +487,8 @@ export function initColours(app) {
     const found = colourAt(view.state, pos, lang);
     if (found) edit(view, found, lang, swatchEl);
   };
-  app.extraExt.push((path, b) => (settings.colourSwatches === false || b.lang === "text" ? [] : colourSwatches(b.lang, open(b.lang))));
+  // Lust views draw their own swatches (src/lustview.js), so Lust files don't get a second set.
+  app.extraExt.push((path, b) => (settings.colourSwatches === false || b.lang === "text" || b.lang === "lust" ? [] : colourSwatches(b.lang, open(b.lang))));
 
   app.command("colour.pick", "Pick a colour", [], () => {
     const v = app.view, b = S.bufs.get(S.active);

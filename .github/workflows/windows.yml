@@ -70,6 +70,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Run the tests
+        run: npm test
+
       - name: Number this build
         shell: pwsh
         run: |

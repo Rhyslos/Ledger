@@ -11,14 +11,14 @@ To change the name, see [Renaming](#renaming).
 - **Rust**: run, check, test and Clippy with cargo; live errors, completions, hover docs, go to definition, rename, quick fixes and formatting through rust-analyzer.
 - **C#**: build, run and test with dotnet; the same editor features through a C# language server (csharp-ls by default).
 - **Godot**: Play builds the C# project, then starts the game with its output in the panel. Play scene runs the open `.tscn`. Godot can open scripts in Ledger at the right line, and shaders (`.gdshader`) get highlighting and completion for Godot's shading language. Scene and resource files are highlighted too.
-- **Lust**: our own language, [Lust 2](https://github.com/Rhyslos/Lust). `.lst` programs and `.lsc` LustScript files get highlighting, completions, snippets and their own icons: **Lt** for programs, **Ls** for LustScript and **Lq** for LustQL (old `.lust` files get Lt too). Views are coloured too: the pieces of the screen (`column`, `text`, `button`…) in the classes' blue and the style words in `[ ]` muted, with snippets for each piece. **New project › Lust program** asks whether to start with a window (with a piece of it in `ui/`). **Run** (F5) runs the open file with `lust run`, with the Input box for `ask`; **Check** and **Build** use `lust check` and `lust build`. Lust runs from the project's folder (the one with `main.lst`), so programs split over several files work, and clicking a mistake opens the right file. Every time you save, Ledger checks the file quietly and its mistakes show up in Problems and as squiggles. Ledger needs `lust.exe`: **Install Lust** in Settings › Lust builds it from the Lust repo with Rust (or set the path to one you have). Building programs needs Rust. The installer makes `.lst`, `.lsc`, `.lql` and `.lust` files open in Ledger, each with its own icon in File Explorer.
+- **Lust**: our own language, [Lust 2](https://github.com/Rhyslos/Lust). `.lst` programs and `.lsc` LustScript files get highlighting, completions, snippets and their own icons: **Lt** for programs, **Ls** for LustScript and **Lq** for LustQL (old `.lust` files get Lt too). Views are coloured too: the pieces of the screen (`column`, `text`, `button`…) in the classes' blue and the style words in `[ ]` muted, with snippets for each piece. Inside a piece's `[ ]`, completion offers only the style words that fit that piece (the window's settings on `view [ ]`, `placeholder` only on `input`, `from`/`to`/`step` only on `slider`…), colours after `color`, `background` and `border`, and the styles your file names. Colours show a little square of their real colour, in the list and next to colour words and `"#hex"` colours in `[ ]`, and hovering a style word or a piece explains it with an example. **New project › Lust program** asks whether to start with a window (with a piece of it in `ui/`). **Run** (F5) runs the open file with `lust run`, with the Input box for `ask`; **Check** and **Build** use `lust check` and `lust build`. Lust runs from the project's folder (the one with `main.lst`), so programs split over several files work, and clicking a mistake opens the right file. Every time you save, Ledger checks the file quietly and its mistakes show up in Problems and as squiggles. Ledger needs `lust.exe`: **Install Lust** in Settings › Lust builds it from the Lust repo with Rust (or set the path to one you have). Building programs needs Rust. The installer makes `.lst`, `.lsc`, `.lql` and `.lust` files open in Ledger, each with its own icon in File Explorer.
 - **Web**: HTML, CSS (SCSS, Less), JavaScript and TypeScript with React, in Ledger's colours. Completions, errors and go to definition through the TypeScript, HTML, CSS and JSON language servers; Tailwind classes complete (with colour swatches) from the project's own Tailwind. `package.json` projects run their `dev`/`start` script with F5, Build, Test and Lint use their scripts, and **Scripts…** runs any of them. A single `.js` or `.ts` file runs with Node.
 - **Live Server**: **Go Live** in the status bar serves the folder and reloads the browser on save (CSS changes swap in without a reload). Settings › Web picks the browser and port.
 - **Lua**: highlighting, Run with F5, and the Lua language server (with a Lua version setting).
 - **New project**: website, Vite (React, Vue, Svelte, Preact, Solid, Lit, Qwik, vanilla) and Next.js through their own create commands, in TypeScript or JavaScript, with Tailwind if you want it; Node.js, Lua, Lust, LustScript, Rust and C# projects too.
 - **Database viewer**: `.db` and `.sqlite` files open in a tab: tables and views, a grid with sorting, search and filters, the structure of each table, a SQL tab with completion and history, editing with review before saving, export to CSV or JSON. While its tab is in front, it updates when another program writes to the file. New SQLite databases from the explorer's right-click menu.
 - **Images**: PNG, JPEG, GIF, WebP, SVG, AVIF, BMP and ICO open in a viewer with zoom, a transparency checkerboard and a pixel-art mode; SVGs can be edited as code.
-- **Colour picker**: every colour in code (`#hex`, `rgb()`, `hsl()`, Godot's `Color()`, Lust's `"#2f9e44"`) gets a small swatch; click it for a colour wheel (circle or triangle inside) or a detailed hexagon grid with CMYK, an alpha slider, Hex and RGB fields, the colours already in the file and your saved colours. The code changes as you pick, written the way it was (`#abc` stays short, `rgb()` stays `rgb()`). **Pick a colour** puts a new one at the cursor.
+- **Colour picker**: every colour in code (`#hex`, `rgb()`, `hsl()`, Godot's `Color()`) gets a small swatch; click it for a colour wheel (circle or triangle inside) or a detailed hexagon grid with CMYK, an alpha slider, Hex and RGB fields, the colours already in the file and your saved colours. The code changes as you pick, written the way it was (`#abc` stays short, `rgb()` stays `rgb()`). **Pick a colour** puts a new one at the cursor.
 - **Emmet** in HTML, JSX and CSS: type `ul>li.item*3`, `div.card>h2+p`, `!` for a whole page, or `m10`, `df`, `p10-20` in CSS, then Tab. The suggestion list shows what it becomes. Tab only expands where an abbreviation makes sense, so it still indents everywhere else.
 - **Prettier**: Format (Shift Alt F, or on save) uses the project's own Prettier for JavaScript, TypeScript, HTML, CSS, JSON, Markdown and YAML, with its `.prettierrc` and `.prettierignore`, or Ledger's built-in Prettier when the project has none. Settings › Editing can hand formatting back to the language servers.
 - **Markdown preview**: Ctrl Shift V shows the rendered file beside the editor while you type.
@@ -196,7 +196,7 @@ npm install
 npm run tauri dev
 ```
 
-With `set VITE_DEBUG=1` first, the app's console output also shows in the terminal.
+With `set VITE_DEBUG=1` first, the app's console output also shows in the terminal. `npm test` runs the tests in `tests/` (plain Node, nothing to install).
 
 ```
 index.html            the window: explorer, tabs, editor, settings page, panel, status bar
@@ -214,6 +214,8 @@ src/win.js            per-window events
 src/settings.js       settings file and the settings page
 src/keys.js           shortcut parsing and the remappable keymap
 src/langs.js          file types, highlighting, Godot shader and scene support, Lust
+src/luststyles.js     Lust views: the pieces, style words and colours (one line each), and where the cursor is
+src/lustview.js       Lust views in the editor: style completion, colour swatches, hover help
 src/webcolours.js     HTML, CSS and JavaScript colours
 src/tailwind.js       Tailwind class completion
 src/db.js             the database tab (with src-tauri/src/db.rs)
@@ -240,4 +242,5 @@ src-tauri/src/live.rs Live Server
 src-tauri/windows/hooks.nsh  installer steps: Lust file icons, "Open with Ledger"
 build.ps1, build.cmd  local Windows build
 scripts/              rename and collect helpers
+tests/                tests for npm test
 ```
