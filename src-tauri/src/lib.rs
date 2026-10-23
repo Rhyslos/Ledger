@@ -251,9 +251,33 @@ fn exe_path() -> String {
 fn resolve_path(path: String, cwd: String) -> Option<(String, String)> {
     let p = Path::new(&path);
     let p = if p.is_absolute() { p.to_path_buf() } else { Path::new(&cwd).join(p) };
-    let p = std::fs::canonicalize(p).ok()?;
-    let kind = if p.is_dir() { "dir" } else { "file" };
-    Some((plain_path(&p), kind.into()))
+    if !p.exists() {
+        return None;
+    }
+    // Tidy "." and ".." by hand rather than canonicalize: that turns a mapped drive (Z:\) into
+    // \\server\share and follows links, so the path wouldn't match the folder you opened.
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    let kind = if out.is_dir() { "dir" } else { "file" };
+    Some((plain_path(&out), kind.into()))
+}
+
+/// "C:" on its own means "the current folder on drive C"; a folder path means the drive's root.
+fn dir_arg(path: &str) -> String {
+    let b = path.as_bytes();
+    if b.len() == 2 && b[1] == b':' && b[0].is_ascii_alphabetic() {
+        format!("{path}\\")
+    } else {
+        path.to_string()
+    }
 }
 
 /// Nearest folder above `file` that looks like a project root.
@@ -319,6 +343,7 @@ struct Entry {
 
 #[tauri::command]
 fn list_dir(path: String) -> Res<Vec<Entry>> {
+    let path = dir_arg(&path);
     let mut out = Vec::new();
     for ent in std::fs::read_dir(&path).map_err(err)? {
         let ent = ent.map_err(err)?;
@@ -555,7 +580,7 @@ fn delete_path(path: String) -> Res<()> {
 const SKIP_DIRS: [&str; 7] = [".git", "target", "node_modules", "bin", "obj", ".godot", ".import"];
 
 fn walker(root: &str) -> ignore::Walk {
-    ignore::WalkBuilder::new(root)
+    ignore::WalkBuilder::new(dir_arg(root))
         .hidden(false)
         .filter_entry(|e| !(e.file_type().is_some_and(|t| t.is_dir()) && SKIP_DIRS.iter().any(|s| e.file_name() == *s)))
         .build()
@@ -726,6 +751,29 @@ fn stop_window(procs: &Procs, label: &str, wait: bool) {
     });
     if wait {
         let _ = job.join();
+    }
+}
+
+/// Ends every program, language server, terminal and test run Ledger started, in every window.
+/// Called before an update installs: the installer ends Ledger without the usual exit, and
+/// anything left running would hold files the installer has to replace.
+#[tauri::command]
+fn stop_everything(app: AppHandle) {
+    let procs = app.state::<Procs>();
+    let labels: Vec<String> = procs.wins.lock().unwrap().keys().cloned().collect();
+    for l in labels {
+        stop_window(&procs, &l, true);
+    }
+    let pids: Vec<u32> = TEST_PIDS.lock().unwrap_or_else(|e| e.into_inner()).drain().map(|(_, p)| p).collect();
+    for pid in pids {
+        #[cfg(windows)]
+        {
+            let _ = command_at(Path::new("taskkill")).args(["/T", "/F", "/PID", &pid.to_string()]).status();
+        }
+        #[cfg(unix)]
+        {
+            let _ = Command::new("kill").args(["-s", "KILL", "--", &format!("-{pid}")]).status();
+        }
     }
 }
 
@@ -1829,6 +1877,7 @@ pub fn run() {
             git,
             run_capture,
             run_test,
+            stop_everything,
             history_add,
             find_todos,
             history_list,

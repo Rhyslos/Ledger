@@ -11,6 +11,7 @@ import { ViewPlugin, Decoration, WidgetType, EditorView } from "@codemirror/view
 import { StateField, StateEffect, RangeSetBuilder } from "@codemirror/state";
 
 // ---------- conflicts ----------
+let currentBranch = () => "";
 const START = /^<{7}(?: |$)/, BASE = /^\|{7}(?: |$)/, MID = /^={7}$/, END = /^>{7}(?: |$)/;
 
 /** Every conflict in the document: line numbers of the markers and the text of each side. */
@@ -53,15 +54,16 @@ class ConflictBar extends WidgetType {
   toDOM(view) {
     const d = document.createElement("div");
     d.className = "cm-conflict-bar";
-    const label = (s, fallback) => (s && s !== "HEAD" ? s : fallback);
+    // "HEAD" means the branch you're on; a stash says "Updated upstream" / "Stashed changes".
+    const label = (s, fallback) => (!s ? fallback : s === "HEAD" ? currentBranch() || fallback : s.length > 28 ? s.slice(0, 27) + "…" : s);
     // Built with the DOM: the branch names come from the file, so they never go through innerHTML.
     const what = document.createElement("span");
     what.className = "cm-conflict-what";
     what.textContent = "Conflict";
     d.append(what);
     for (const [k, text, title] of [
-      ["ours", "Keep yours", `Keep the lines from ${label(this.c.ours, "your branch")}`],
-      ["theirs", "Keep theirs", `Keep the lines from ${label(this.c.theirs, "the other branch")}`],
+      ["ours", `Keep yours (${label(this.c.ours, "your side")})`, `Keep the lines from ${label(this.c.ours, "your side")}`],
+      ["theirs", `Keep theirs (${label(this.c.theirs, "the other side")})`, `Keep the lines from ${label(this.c.theirs, "the other side")}`],
       ["both", "Keep both", "Keep both, yours first"],
       ["compare", "Compare", "See the two sides next to each other"],
     ]) {
@@ -196,9 +198,10 @@ export function initGitMore(app, gitApi) {
     app.openDiff?.({
       path, title: app.base(path) + " · conflict",
       left: resolution(doc, c, "ours"), right: resolution(doc, c, "theirs"),
-      leftLabel: c.ours && c.ours !== "HEAD" ? c.ours : "Yours", rightLabel: c.theirs || "Theirs",
+      leftLabel: `Yours (${c.ours && c.ours !== "HEAD" ? c.ours : G.branch || "this branch"})`, rightLabel: `Theirs (${c.theirs || "the other branch"})`,
     });
   }
+  currentBranch = () => (G.branch && G.branch !== "(detached)" ? G.branch : "");
   const field = conflictField(compare);
   app.extraExt.push(() => field);
   function jump(dir) {

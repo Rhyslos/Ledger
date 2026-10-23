@@ -74,7 +74,8 @@ export function initNav(app) {
   async function loadSymbols(force) {
     const path = S.active, b = S.bufs.get(path);
     const srv = b && app.serverOf(b);
-    if (!b || !srv?.alive) { Object.assign(sym, { path, doc: null, list: [], flat: [], none: !srv ? "nolang" : "noserver" }); return sym; }
+    // No server: remember that for this text, so the @ list doesn't ask again on every redraw.
+    if (!b || !srv?.alive) { Object.assign(sym, { path, doc: b ? b.state.doc : null, list: [], flat: [], none: !srv ? "nolang" : "noserver" }); return sym; }
     if (!force && sym.path === path && sym.doc === b.state.doc) return sym;
     if (sym.loading && sym.loadingFor === path) return sym.loading;
     sym.loadingFor = path;
@@ -183,7 +184,7 @@ export function initNav(app) {
   app.palModes.push({
     prefix: "@",
     draw(q, redraw, row) {
-      if (sym.path !== S.active || sym.doc !== S.bufs.get(S.active)?.state.doc) { loadSymbols().then(redraw); }
+      if (S.bufs.has(S.active) && (sym.path !== S.active || sym.doc !== S.bufs.get(S.active).state.doc) && !sym.loading) { loadSymbols().then((r) => { if (r?.doc) redraw(); }); }
       const b = S.bufs.get(S.active);
       if (!b) return { list: [], html: '<p class="empty" style="padding:8px 10px">Open a file first.</p>' };
       if (sym.path !== S.active) return { list: [], html: '<p class="empty" style="padding:8px 10px">Loading symbols…</p>' };
@@ -192,7 +193,7 @@ export function initNav(app) {
       return {
         list: list.map((s) => ({ s })),
         html: list.map((s, i) => row(i, dotOf(S.active), esc("  ".repeat(q ? 0 : s.depth)) + `<span class="kind" style="color:var(--faint);font:600 10.5px var(--mono);margin-right:6px">${kindLabel(s.kind)}</span>` + esc(s.name), `${s.range.start.line + 1}`, s.detail && s.detail.length < 90 ? esc(s.detail) : "", true)).join("")
-          || `<p class="empty" style="padding:8px 10px">${sym.none === "nolang" ? "No symbols for this kind of file." : sym.flat.length ? "No symbols match." : "No symbols found."}</p>`,
+          || `<p class="empty" style="padding:8px 10px">${sym.none === "nolang" ? "No symbols for this kind of file." : sym.none === "noserver" ? "Symbols come from the language server, which isn't running for this file." : sym.flat.length ? "No symbols match." : "No symbols found."}</p>`,
       };
     },
     pick(it) { goSymbol(it.s); },

@@ -26,11 +26,12 @@ To change the name, see [Renaming](#renaming).
 - **Hex view**: binary files open as offset, bytes and text instead of failing, with go to offset; **Open as hex** (right-click a file) shows any file that way.
 - **Text encodings**: opens and saves UTF-8, UTF-16 (PowerShell 5 output, .reg exports) and old Windows-1252 files in the encoding they came in; the status bar shows which, and **Convert this file to UTF-8** switches it.
 - **Tests panel**: finds Rust, C# and Lust tests, runs all of them, the failed ones, a file or one test, shows the output live while they run (with a Stop button), shows each failure's message and line, and marks results next to each test in the editor. **Tests: create a test for this file** gets you started.
-- **Bookmarks**: Ctrl Alt K marks a line, Ctrl Alt L and Ctrl Alt J go to the next and previous, **Bookmarks: list** shows them all. They're kept for next time.
+- **Bookmarks**: Ctrl Alt K marks a line (a blue ribbon by its number), Ctrl Alt L and Ctrl Alt J go to the next and previous, **Bookmarks: list** shows them all. They're kept for next time.
 - **Overview ruler**: errors, warnings, search matches, Git changes and bookmarks are marked along the scrollbar, so you can see where they are in a long file.
 - **TODO panel**: every `TODO`, `FIXME`, `HACK`, `XXX` and `BUG` comment in the folder, grouped by file and filtered by word, in the bottom panel. The words are tinted in the editor too.
 - **Zen mode**: Ctrl Alt Z hides everything but the editor and goes full screen; the same key brings it all back.
 - **Local history**: every save keeps a copy (the last 50 per file, in Ledger's own folder, not your project), plus the file as it was before you started editing. **Local history: this file's saved versions** (or right-click a file) shows any of them next to the file now, with **Restore this version**. Works in folders without Git.
+- **Indentation**: each file is indented the way it already is (2 spaces, 4, tabs), shown in the status bar; click it to change it for that file. Enter, Emmet and Prettier follow it.
 - **Editor**: tabs, split editor (Ctrl \\), search and replace (Ctrl F), multiple cursors, folding, coloured bracket pairs, indent guides, sticky scroll (the line that opens the current function or block stays pinned at the top), problems list, clickable file:line links in build output, back and forward through your jumps, a warning when a file you're editing changes on disk.
 - **Getting around**: find all references (Shift F12), an Outline of the open file (Ctrl Shift O), symbol search (type @ or # in Ctrl E), parameter hints while you type a call.
 - **Debugging**: breakpoints (F9), start with Shift F9, step with F10, F11 and Shift F11, continue with F5. Variables, watches, call stack and a debug console. Rust uses codelldb, C# and Godot use netcoredbg; Ledger downloads them the first time you need them.
@@ -38,8 +39,8 @@ To change the name, see [Renaming](#renaming).
 - **Terminal**: real PowerShell terminals in the bottom panel (Ctrl ` shows one, Ctrl T opens a new one).
 - **Git**: changed files are coloured in the explorer, changed lines are marked next to the line numbers, a side-by-side diff view, and a Source control view to stage, commit, pull and push (Ctrl Shift G).
   - **Branches**: click the branch in the status bar (or in Source control) to switch, make a new one, merge one in or delete one. If switching would lose changes, Ledger offers to stash them first.
-  - **Stashes**: put changes aside (Source control's ⋯ menu, or **Git: stash changes**) and pop them back from the Stashes list.
-  - **Merge conflicts**: each conflict gets **Keep yours**, **Keep theirs**, **Keep both** and **Compare** above it, with the two sides tinted; Alt F7 goes to the next one. Source control shows the merge in progress, with **Abort the merge**.
+  - **Stashes**: put changes aside (Source control's ⋯ menu, or **Git: stash changes**) and click one in the Stashes list to pop it back, apply it, see what's in it or drop it.
+  - **Merge conflicts**: each conflict gets **Keep yours**, **Keep theirs**, **Keep both** and **Compare** above it, with the two sides tinted; Alt F7 goes to the next one. Source control shows the merge in progress: which files still have conflicts, **Stage the resolved files** and **Abort the merge**, with Git's merge message ready in the commit box. Ledger won't commit a file that still has conflict markers without asking, and **Commit all** asks before adding files Git doesn't track yet.
   - **Blame**: the cursor's line shows who last changed it, when, and the commit message, faintly at its end; click it to see what that commit changed. **Git: blame on/off**, or Settings › Git.
 - **Dependencies**: in Cargo.toml and .csproj files, the newest version of each package shows at the end of its line; click it to update.
 - **Snippets**: your own, per language, in snippets.json (Settings › Editing › Edit snippets).

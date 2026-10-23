@@ -36,7 +36,7 @@ export function initHistory(app) {
     if (!b || b.virtual) { toast("Open a file first."); return; }
     const list = await invoke("history_list", { path }).catch(() => []);
     if (!list.length) { toast(settings.localHistory === false ? "Local history is off (Settings › Editing)." : `No saved versions of ${base(path)} yet. Every save from now on keeps one.`); return; }
-    const i = await app.choose(`Saved versions of ${base(path)}`, list.map((v, n) => `${when(v.time)}  ·  ${ago(v.time)}  ·  ${size(v.size)}${n === 0 ? "  ·  latest save" : ""}`), true);
+    const i = await app.choose(`Saved versions of ${base(path)}`, list.map((v, n) => `${when(v.time)}  ·  ${ago(v.time)}  ·  ${size(v.size)}${n === 0 ? "  ·  latest save" : ""}`), true, { filter: list.length > 8 });
     if (i == null || i < 0) return;
     const v = list[i];
     let text;
