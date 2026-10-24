@@ -82,7 +82,7 @@ class ConflictBar extends WidgetType {
     });
     return d;
   }
-  ignoreEvent() { return true; }
+  ignoreEvent(e) { return !!(e.ctrlKey || e.metaKey); } // other clicks go to the editor
 }
 const conflictLine = {
   marker: Decoration.line({ class: "cm-conflict-marker" }),
@@ -192,11 +192,13 @@ class BlameNote extends WidgetType {
     const i = this.info;
     const none = /^0+$/.test(i.sha);
     s.textContent = none ? "You · not committed yet" : `${i.author || "?"}, ${ago(i.time)} · ${i.summary || ""}`;
-    s.title = none ? "This line has changed since the last commit." : `${i.sha.slice(0, 8)} · ${i.author} ${i.mail || ""}\n${new Date(i.time).toLocaleString()}\n\n${i.summary || ""}\n\nClick to see what this commit changed in the file.`;
-    if (!none) s.addEventListener("mousedown", (e) => { e.preventDefault(); this.onClick(i, undefined, this.text); });
+    s.title = none ? "This line has changed since the last commit." : `${i.sha.slice(0, 8)} · ${i.author} ${i.mail || ""}\n${new Date(i.time).toLocaleString()}\n\n${i.summary || ""}\n\nCtrl+click to see what this commit changed in the file.`;
+    // A plain click here is someone putting the cursor at the end of the line, so the commit opens
+    // with Ctrl+click (or "Git: show this line's commit").
+    if (!none) s.addEventListener("mousedown", (e) => { if (!e.ctrlKey && !e.metaKey) return; e.preventDefault(); this.onClick(i, undefined, this.text); });
     return s;
   }
-  ignoreEvent() { return true; }
+  ignoreEvent(e) { return !!(e.ctrlKey || e.metaKey); } // other clicks go to the editor
 }
 const blamePlugin = (onClick) => ViewPlugin.fromClass(class {
   constructor(v) { this.decorations = this.build(v); }
@@ -308,6 +310,13 @@ export function initGitMore(app, gitApi) {
     });
   }
   const plugin = blamePlugin(showCommit);
+  app.command("git.lineCommit", "Git: show this line's commit", [], () => {
+    const v = app.view, b = S.bufs.get(S.active), data = b && v?.state.field(blameField, false);
+    if (!data) { app.toast("No blame for this file yet (Git: blame on/off)."); return; }
+    const line = v.state.doc.lineAt(v.state.selection.main.head), info = blameFor(data, v.state.doc, line.number);
+    if (!info || /^0+$/.test(info.sha)) { app.toast("This line isn't committed yet."); return; }
+    showCommit(info, S.active, line.text);
+  }, { alias: "blame commit who changed" });
 
   // ----- history: the branch's commits; click one to see what it changed -----
   const LOG = "@log:history", logEl = app.$("logpage");

@@ -24,7 +24,7 @@ export function initSearch(app) {
     box.innerHTML = `<div class="sform">
         <div class="srow1"><button class="ibtn sexp" id="srShowRepl" aria-expanded="${st.showRepl}" title="Replace">${st.showRepl ? "▾" : "▸"}</button>
           <div class="sinput"><input id="srQ" placeholder="Search" value="${esc(st.q)}" spellcheck="false" aria-label="Search in files">
-            ${toggle("srCase", st.kase, "Aa", "Match case")}${toggle("srWord", st.word, "<u>ab</u>", "Whole word")}${toggle("srRe", st.regex, ".*", "Regular expression")}</div></div>
+            ${toggle("srCase", st.kase, "Aa", "Match case (Alt C)")}${toggle("srWord", st.word, "<u>ab</u>", "Whole word (Alt W)")}${toggle("srRe", st.regex, ".*", "Regular expression (Alt R)")}</div></div>
         ${st.showRepl ? `<div class="srow1"><span class="sexp"></span><div class="sinput"><input id="srR" placeholder="Replace" value="${esc(st.repl)}" spellcheck="false" aria-label="Replace with"><button class="btn" id="srAll" ${r?.hits?.length ? "" : "disabled"} title="Replace every match below">Replace all</button></div></div>` : ""}
         <input id="srInc" placeholder="Files to look in (e.g. src, *.ts)" value="${esc(st.inc)}" spellcheck="false" aria-label="Files to look in">
         <input id="srExc" placeholder="Files to leave out (e.g. dist, *.min.js)" value="${esc(st.exc)}" spellcheck="false" aria-label="Files to leave out">
@@ -116,6 +116,7 @@ export function initSearch(app) {
     let rep;
     try { rep = replacer(); } catch (e) { toast(String(e)); return; }
     let done = 0, failed = 0, moved = 0;
+    const gone = new Map(); // replaced hit -> how much longer its line got
     for (const p of files) {
       const hits = r.hits.filter((h) => norm(h.path) === p).sort((a, b) => b.line - a.line || b.col - a.col); // right to left
       const b = S.bufs.get(p);
@@ -127,8 +128,9 @@ export function initSearch(app) {
           const l = doc.line(h.line + 1), out = rep(l.text, h);
           if (out == null) { moved++; continue; }
           changes.push({ from: l.from + h.col, to: l.from + h.col + h.len, insert: out });
+          gone.set(h, out.length - h.len);
         }
-        if (changes.length) { app.dispatchBuf(p, { changes, userEvent: "input.replace" }); done += changes.length; }
+        if (changes.length) { app.dispatchBuf(p, { changes: changes.reverse(), userEvent: "input.replace" }); done += changes.length; }
         continue;
       }
       try {
@@ -140,6 +142,7 @@ export function initSearch(app) {
           const out = line == null ? null : rep(line, h);
           if (out == null) { moved++; continue; }
           parts[i] = line.slice(0, h.col) + out + line.slice(h.col + h.len);
+          gone.set(h, out.length - h.len);
           n++;
         }
         if (n) {
@@ -151,7 +154,17 @@ export function initSearch(app) {
     }
     toast(`Replaced ${done} match${done === 1 ? "" : "es"}${moved ? `; ${moved} weren't there any more and were left alone` : ""}${failed ? `; ${failed} file${failed === 1 ? "" : "s"} couldn't be changed` : ""}.`, 5000);
     app.reloadClean?.();
-    search();
+    // Like VS Code: what was replaced leaves the list (rather than searching again, which can
+    // find the new text too), and matches after it on the same line move along.
+    if (st.res) {
+      const left = st.res.hits.filter((h) => !gone.has(h)).map((h) => {
+        let col = h.col;
+        for (const [g, d] of gone) if (norm(g.path) === norm(h.path) && g.line === h.line && g.col < h.col) col += d;
+        return col === h.col ? h : { ...h, col };
+      });
+      st.res = { ...st.res, hits: left };
+      draw();
+    }
   }
 
   box?.addEventListener("input", (e) => {
@@ -201,6 +214,9 @@ export function initSearch(app) {
   }
   box?.addEventListener("keydown", (e) => {
     const k = app.keyString(e);
+    // The find bar's toggles: Alt C, Alt W, Alt R.
+    const tog = { "Alt+C": "kase", "Alt+W": "word", "Alt+R": "regex" }[k];
+    if (tog) { e.preventDefault(); st[tog] = !st[tog]; search(); return; }
     if (e.target.matches("input")) {
       if (k === "Enter" && e.target.id !== "srR") { e.preventDefault(); search(); }
       else if (k === "Enter" && e.target.id === "srR") { e.preventDefault(); replaceAll(); }
@@ -221,6 +237,8 @@ export function initSearch(app) {
     focus: () => { const q = document.getElementById("srQ"); q?.focus(); q?.select(); },
   };
   app.folderHooks.push(() => { st.res = null; st.err = ""; if (app.sideView === "search") draw(); });
+  // Go to file passes what was typed there (Ctrl Shift F from Ctrl E).
+  app.searchFor = (text) => { st.q = text; app.showSideView("search", true); draw(); search(); const q = document.getElementById("srQ"); q?.focus(); q?.setSelectionRange(text.length, text.length); };
   app.command("search.files", "Search in files", "Ctrl+Shift+F", () => {
     const v = app.view;
     const sel = S.bufs.has(S.active) && v ? v.state.sliceDoc(v.state.selection.main.from, v.state.selection.main.to).split("\n")[0] : "";

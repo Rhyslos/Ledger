@@ -7,7 +7,7 @@
 import expand, { extract } from "emmet";
 import { keymap } from "@codemirror/view";
 import { Prec } from "@codemirror/state";
-import { syntaxTree } from "@codemirror/language";
+import { syntaxTree, indentUnit } from "@codemirror/language";
 import { snippet } from "@codemirror/autocomplete";
 
 const SYNTAX = { html: "html", jsx: "jsx", tsx: "jsx", css: "css", scss: "scss", less: "less" };
@@ -111,4 +111,29 @@ export const emmetSource = (lang) => (SYNTAX[lang] ? (ctx) => {
 
 export function initEmmet(app) {
   app.extraExt.push((path, b) => (app.settings.emmet === false ? [] : emmetFor(b.lang)));
+  app.command("emmet.wrap", "Emmet: wrap with abbreviation", [], async () => {
+    const b = app.S.bufs.get(app.S.active), v = app.view;
+    if (!b || !v || b.ro) return;
+    if (!SYNTAX[b.lang] || /css|scss|less/.test(SYNTAX[b.lang])) { app.toast("Wrapping works in HTML and JSX files."); return; }
+    const abbr = (await app.promptText("Wrap with (e.g. div.card, ul>li*, a[href=#])", "", "e.g. div.card"))?.trim();
+    if (!abbr) return;
+    if (!wrapWithAbbreviation(v, b.lang, abbr)) app.toast("That isn't an abbreviation Emmet understands.");
+    v.focus();
+  }, { alias: "emmet wrap surround tag" });
+}
+
+/** Emmet's "wrap with abbreviation": the selection (or the cursor's line) inside what `abbr`
+ *  makes, e.g. ul>li* puts each selected line in its own <li>. Returns false if it can't. */
+export function wrapWithAbbreviation(view, lang, abbr) {
+  if (!SYNTAX[lang] || SYNTAX[lang] === "css" || SYNTAX[lang] === "scss" || SYNTAX[lang] === "less") return false;
+  const st = view.state, r = st.selection.main;
+  const from = r.empty ? st.doc.lineAt(r.head).from : r.from, to = r.empty ? st.doc.lineAt(r.head).to : r.to;
+  const sel = st.sliceDoc(from, to), indent = /^\s*/.exec(sel)[0];
+  const lines = sel.split("\n").map((l) => l.trim()).filter(Boolean);
+  let out;
+  try { out = expand(abbr, { syntax: SYNTAX[lang] === "html" ? "html" : "jsx", text: /\*(?!\d)/.test(abbr) ? lines : lines.join("\n"), options: { "output.indent": st.facet(indentUnit) } }); } catch { return false; }
+  if (!out) return false;
+  out = out.split("\n").map((l, i) => (i ? indent + l : l)).join("\n");
+  view.dispatch({ changes: { from: from + indent.length, to, insert: out }, userEvent: "input" });
+  return true;
 }

@@ -370,7 +370,8 @@ export function initGit(app) {
 
   function fileRow(path, st, kind, i) {
     const r = app.rel(path), dir = r.includes("/") ? r.slice(0, r.lastIndexOf("/")) : "";
-    const l = kind === "staged" ? (st.x === "?" ? "U" : st.x) : letter(st);
+    let l = kind === "staged" ? (st.x === "?" ? "U" : st.x) : letter(st);
+    if (st.conflict && (G.conflicts || []).some((x) => x.path === path && !x.left)) l = "M"; // resolved, not staged yet
     return `<button class="node g-${l === "!" ? "X" : l}" role="treeitem" tabindex="${i === 0 ? 0 : -1}" data-gp="${esc(path)}" data-gk="${kind}" style="padding-left:12px;--tc:var(--t-${dotOf(path)})" title="${esc(r)} · ${esc(describe(st))}">${app.fileIcon(path)}<span class="lbl" style="flex:0 1 auto">${esc(app.base(path))}</span><span class="sub" style="flex:1">${esc(dir)}</span><span class="gacts" aria-hidden="true"><span class="ga" data-grow="open" title="Open the file (Shift Enter)">↗</span>${kind === "staged" ? "" : '<span class="ga" data-grow="discard" title="Throw away the changes (Delete)">↶</span>'}<span class="ga" data-grow="stage" title="${kind === "staged" ? "Unstage" : "Stage"} (Space)">${kind === "staged" ? "−" : "+"}</span></span><span class="gs ${l === "!" ? "X" : l}">${l}</span></button>`;
   }
   function renderView() {
@@ -390,8 +391,8 @@ export function initGit(app) {
       <div class="sec"><h3 style="text-transform:none;letter-spacing:0;font-size:12.5px"><button class="gbranch" data-gact="branch" id="gBranch" title="Switch branch, or make a new one">${esc(G.branch === "(detached)" ? G.oid.slice(0, 7) : G.branch)} ▾</button> <span>${G.upstream ? esc(G.upstream) : "not pushed yet"}${G.ahead ? ` · ${G.ahead} to push` : ""}${G.behind ? ` · ${G.behind} to pull` : ""}</span></h3>
         <div class="commit">
           <textarea id="commitMsg" placeholder="Commit message (Ctrl Enter commits)" spellcheck="true" aria-label="Commit message">${esc(msg)}</textarea>
-          <div class="bar"><button class="btn primary" data-gact="commit" id="gCommit">${G.merging ? "Commit merge" : `Commit${st.length ? "" : un.length ? " all" : ""}`}</button><button class="btn" data-gact="pull" id="gPull">Pull</button><button class="btn" data-gact="push" id="gPush">Push</button><button class="btn plain" data-gact="more" id="gMore" title="Branches and stashes" aria-label="Branches and stashes">⋯</button><button class="btn plain" data-gact="refresh" id="gRefresh" title="Refresh">↻</button></div>
-          ${G.busy ? `<div class="hint spin">${esc(G.busy)}…</div>` : G.merging ? `<div class="hint">${(G.conflicts || []).some((x) => x.left) ? "Resolve and stage each conflicted file, then Commit merge finishes the merge." : "Commit merge finishes the merge."}</div>` : !st.length && un.length ? '<div class="hint">Nothing is staged, so Commit all includes every change below.</div>' : ""}
+          <div class="bar"><button class="btn primary" data-gact="commit" id="gCommit">${G.merging ? "Commit merge" : `Commit${st.length ? "" : un.length ? " all" : ""}`}</button>${G.merging ? "" : '<button class="btn" data-gact="pull" id="gPull">Pull</button><button class="btn" data-gact="push" id="gPush">Push</button>'}<button class="btn plain" data-gact="more" id="gMore" title="Branches and stashes" aria-label="Branches and stashes">⋯</button><button class="btn plain" data-gact="refresh" id="gRefresh" title="Refresh">↻</button></div>
+          ${G.busy ? `<div class="hint spin">${esc(G.busy)}…</div>` : G.merging ? "" /* the merge banner above says what to do */ : !st.length && un.length ? '<div class="hint">Nothing is staged, so Commit all includes every change below.</div>' : ""}
         </div>
       </div>
       ${st.length ? `<div class="sec"><h3>Staged <span>${st.length}</span></h3><div class="rows" role="tree">${st.map(([p, s]) => fileRow(p, s, "staged", i++)).join("")}</div></div>` : ""}
@@ -408,8 +409,8 @@ export function initGit(app) {
     const what = G.merging ? "<b>Merging.</b> " : "<b>Conflicts.</b> ";
     const text = left.length
       ? `${left.length} file${left.length === 1 ? " still has" : "s still have"} conflicts: open ${left.length === 1 ? "it" : "each"} and pick a side above every conflict, then save.`
-      : done.length ? `Every conflict is resolved. Stage ${done.length === 1 ? "the file" : "the files"} to say so${G.merging ? ", then commit to finish the merge" : ""}.`
-      : "No conflicts left: commit to finish the merge.";
+      : done.length ? (G.merging ? "Every conflict is resolved. Commit merge stages the resolved files and finishes the merge." : `Every conflict is resolved. Stage ${done.length === 1 ? "the file" : "the files"} to say so.`)
+      : "No conflicts left: Commit merge finishes the merge.";
     const list = c.map((x) => `<button class="glink" data-gopen="${esc(x.path)}" title="${esc(app.rel(x.path))}">${esc(app.base(x.path))}</button>${x.left ? "" : ' <span class="hint">resolved</span>'}`).join(" · ");
     return `<div class="gmerge">${what}${text}${list ? `<div>${list}</div>` : ""}<div class="bar">${done.length ? `<button class="btn primary" data-gact="stageResolved">Stage the resolved file${done.length === 1 ? "" : "s"}</button>` : ""}${G.merging ? '<button class="btn" data-gact="abortMerge">Abort the merge</button>' : ""}</div></div>`;
   }
@@ -458,7 +459,12 @@ export function initGit(app) {
       if (c === "Commit anyway") { /* their call */ }
       else { if (c?.startsWith("Open")) app.openFile(files[0]); return; }
     }
-    if (!any.some(staged)) {
+    // Finishing a merge: the files whose conflicts are resolved are staged along with it.
+    if (G.merging) {
+      const resolved = (G.conflicts || []).filter((x) => !x.left).map((x) => relTo(x.path));
+      if (resolved.length) { const r = await op("Staging", ["add", "--", ...resolved]); if (!r || r.code !== 0) return; }
+    }
+    if (!any.some(staged) && !G.merging) {
       // Commit all: say so when that would add files Git doesn't track yet.
       const fresh = [...G.files.entries()].filter(([, s]) => s.x === "?").map(([p]) => p);
       let args = ["add", "-A"];
@@ -722,16 +728,28 @@ export function initGit(app) {
     }
     await afterSwitch();
   }
-  async function showStash(ref) {
-    const r = await git(["stash", "show", "-p", "--include-untracked", ref]).catch(() => null);
-    if (!r || r.code !== 0) { app.toast("Couldn't read that stash."); return; }
-    openDiff({ path: null, left: "", right: r.out, leftLabel: "", rightLabel: ref, title: ref + " · stashed changes" });
+  // A stash as file-by-file comparisons (before the stash ↔ stashed), with its other files listed.
+  async function showStash(ref, file) {
+    const names = async (args) => ((await git(args).catch(() => null))?.out || "").split("\n").filter(Boolean);
+    const tracked = await names(["stash", "show", "--name-only", ref]);
+    const untracked = await names(["show", "--name-only", "--format=", ref + "^3"]).catch(() => []);
+    const files = [...tracked, ...untracked.filter((f) => !tracked.includes(f))];
+    if (!files.length) { app.toast("That stash is empty."); return; }
+    const f = file || files[0], fresh = !tracked.includes(f);
+    const show = async (rev) => { const r = await git(["show", `${rev}:${f}`]).catch(() => null); return r?.code === 0 ? r.out.replace(/\r\n/g, "\n") : ""; };
+    const [left, right] = fresh ? ["", await show(ref + "^3")] : await Promise.all([show(ref + "^1"), show(ref)]);
+    const note = G.stashes.find((x) => x.ref === ref);
+    openDiff({
+      path: (G.root || S.root) + "/" + f, left, right, added: fresh, leftLabel: "Before the stash", rightLabel: "Stashed",
+      title: `${app.base(f)} · ${ref}`,
+      info: { head: `${note ? note.msg.replace(/^On [^:]+: /, "") + " · " + note.when : ref}`, body: "", copy: ref, files: files.map((x) => ({ label: x, st: tracked.includes(x) ? "M" : "U", on: x === f, run: () => showStash(ref, x) })) },
+    });
   }
   function stashMenu(ref, x, y) {
     app.showMenu(x, y, [
+      { label: "Show what's in it", run: () => showStash(ref) },
       { label: "Pop: bring the changes back and remove the stash", run: () => stashOp("pop", ref) },
       { label: "Apply: bring the changes back, keep the stash", run: () => stashOp("apply", ref) },
-      { label: "Show what's in it", run: () => showStash(ref) },
       "-",
       { label: "Drop", danger: true, run: () => stashOp("drop", ref) },
     ]);

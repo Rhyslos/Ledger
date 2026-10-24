@@ -686,25 +686,33 @@ fn write_file(path: String, contents: String, encoding: Option<String>) -> Res<(
 /// attributes and permissions). A crash, a power cut or a full disk leaves the old file whole.
 /// A link, or a folder where that can't be done, is written in place as before.
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let meta = std::fs::symlink_metadata(path);
-    let plain = match &meta {
-        Err(_) => true,                       // a new file: nothing to protect
-        Ok(m) => m.file_type().is_symlink(), // keep the link, write through it
+    // A link: write the file it points to, the same careful way, and keep the link.
+    let resolved;
+    let path = match std::fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_symlink() => {
+            resolved = std::fs::canonicalize(path)?;
+            resolved.as_path()
+        }
+        _ => path,
     };
+    if !path.exists() {
+        return std::fs::write(path, bytes); // a new file: nothing to protect
+    }
     let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    if plain {
-        return std::fs::write(path, bytes);
-    }
     let tmp = dir.join(format!(".{name}.ledger-save-{}", std::process::id()));
     let written = (|| {
         let mut f = std::fs::File::create(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()
     })();
-    if written.is_err() {
-        // A folder that doesn't allow new files: the old way.
+    if let Err(e) = written {
         let _ = std::fs::remove_file(&tmp);
+        // The disk is full: writing over the file in place would cut it short. Leave it as it was.
+        if disk_full(&e) {
+            return Err(e);
+        }
+        // A folder that doesn't allow new files: the old way.
         return std::fs::write(path, bytes);
     }
     // A virus scanner or sync program holding the file makes the swap fail now and then: retry.
@@ -716,25 +724,27 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         thread::sleep(Duration::from_millis(60));
         result = replace_file(path, &tmp);
     }
-    match result {
-        Ok(()) => Ok(()),
-        // The swap failed half-way (Windows can leave the old file gone and the new text only in
-        // the temporary file): move that into place rather than lose both.
-        Err(_) if !path.exists() => std::fs::rename(&tmp, path).or_else(|_| std::fs::write(path, bytes).map(|_| {
-            let _ = std::fs::remove_file(&tmp);
-        })),
-        Err(_) => {
-            // The old file is untouched: write over it the plain way, and keep the temporary copy
-            // if even that fails, so the text is somewhere on disk.
-            match std::fs::write(path, bytes) {
-                Ok(()) => {
-                    let _ = std::fs::remove_file(&tmp);
-                    Ok(())
-                }
-                Err(e) => Err(e),
-            }
-        }
+    if result.is_ok() {
+        return Ok(());
     }
+    // A plain rename over the file (MoveFileEx on Windows) also leaves either the old or the new
+    // text whole, and works where the swap doesn't (some network shares). Windows can also leave
+    // the old file gone after a failed swap: then this puts the new text in its place.
+    if std::fs::rename(&tmp, path).is_ok() {
+        return Ok(());
+    }
+    // Last resort: write over it. The new text was written once already, so there is room; if
+    // even this fails, the temporary copy stays next to the file.
+    std::fs::write(path, bytes).map(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    }).map_err(|e| std::io::Error::new(e.kind(), format!("{e}. Your text is saved in {}", tmp.display())))
+}
+
+/// Out of disk space (or quota).
+fn disk_full(e: &std::io::Error) -> bool {
+    let code = e.raw_os_error();
+    matches!(e.kind(), std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded)
+        || if cfg!(windows) { matches!(code, Some(112) | Some(39)) } else { matches!(code, Some(28) | Some(122)) }
 }
 
 #[cfg(windows)]
@@ -788,7 +798,8 @@ fn copy_path(from: String, to: String) -> Res<()> {
     if to.exists() {
         return Err("Something with that name already exists.".into());
     }
-    if to.starts_with(&from) {
+    // (Windows ignores case: C:/Proj and c:/proj/x are the same folder.)
+    if trust::inside(&to.to_string_lossy(), &from.to_string_lossy()) {
         return Err("A folder can't be copied into itself.".into());
     }
     fn go(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -852,16 +863,22 @@ struct Hit {
 }
 
 #[tauri::command]
-async fn search_text(root: String, query: String, case_sensitive: bool) -> Res<Vec<Hit>> {
-    blocking(move || search_text_now(root, query, case_sensitive)).await?
+async fn search_text(window: tauri::WebviewWindow, root: String, query: String, case_sensitive: bool) -> Res<Vec<Hit>> {
+    let stale = new_search(window.label().to_string() + ":text");
+    blocking(move || search_text_now(root, query, case_sensitive, &stale)).await?
 }
-fn search_text_now(root: String, query: String, case_sensitive: bool) -> Res<Vec<Hit>> {
+fn search_text_now(root: String, query: String, case_sensitive: bool, stale: &dyn Fn() -> bool) -> Res<Vec<Hit>> {
     if query.is_empty() {
         return Ok(vec![]);
     }
     let needle = if case_sensitive { query.clone() } else { query.to_lowercase() };
     let mut hits = Vec::new();
+    let mut seen = 0usize;
     'files: for ent in walker(&root).flatten() {
+        seen += 1;
+        if seen % 64 == 0 && stale() {
+            return Err("cancelled".into()); // a newer search from the same window
+        }
         if !ent.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
@@ -928,17 +945,21 @@ fn globs(list: &str) -> Res<Option<globset::GlobSet>> {
 #[allow(clippy::too_many_arguments)]
 async fn search_files(window: tauri::WebviewWindow, root: String, query: String, regex: bool, case_sensitive: bool, whole_word: bool, include: String, exclude: String) -> Res<SearchResult> {
     // A newer search from the same window (the next keystroke) stops this one's walk.
-    let label = window.label().to_string();
-    let gen = {
-        let mut g = SEARCHES.lock().unwrap_or_else(|e| e.into_inner());
-        let n = g.get(&label).copied().unwrap_or(0) + 1;
-        g.insert(label.clone(), n);
-        n
-    };
-    let stale = move || SEARCHES.lock().unwrap_or_else(|e| e.into_inner()).get(&label).copied() != Some(gen);
+    let stale = new_search(window.label().to_string());
     blocking(move || search_now(&root, &query, regex, case_sensitive, whole_word, &include, &exclude, &stale)).await?
 }
 static SEARCHES: std::sync::LazyLock<Mutex<HashMap<String, u64>>> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Starts a search for `key` (a window, or a window's palette): any older one for the same key
+/// sees the returned check turn true and stops.
+fn new_search(key: String) -> impl Fn() -> bool + Send + 'static {
+    let gen = {
+        let mut g = SEARCHES.lock().unwrap_or_else(|e| e.into_inner());
+        let n = g.get(&key).copied().unwrap_or(0) + 1;
+        g.insert(key.clone(), n);
+        n
+    };
+    move || SEARCHES.lock().unwrap_or_else(|e| e.into_inner()).get(&key).copied() != Some(gen)
+}
 
 #[allow(clippy::too_many_arguments)]
 fn search_now(root: &str, query: &str, regex: bool, case_sensitive: bool, whole_word: bool, include: &str, exclude: &str, stale: &dyn Fn() -> bool) -> Res<SearchResult> {
@@ -1207,8 +1228,11 @@ fn global_tsserver() -> Option<String> {
 }
 
 /// Whether `cwd` is in the window's folder and that folder isn't trusted.
+/// Whether something run in `cwd` is under this window's restricted mode: inside the untrusted
+/// folder, or in a folder above it (Git runs at the repository's top, which can be above the
+/// folder you opened, and reads that repository's settings and hooks).
 fn restricted(procs: &Procs, label: &str, cwd: &str) -> bool {
-    procs.with(label, |w| !w.trusted && w.root.as_deref().is_some_and(|r| trust::inside(cwd, r)))
+    procs.with(label, |w| !w.trusted && w.root.as_deref().is_some_and(|r| trust::inside(cwd, r) || trust::inside(r, cwd)))
 }
 
 /// git with Ledger's settings: no fsmonitor, no prompts, English messages, and in a restricted
@@ -1383,8 +1407,13 @@ fn pump(app: AppHandle, label: String, run: u64, stream: impl Read + Send + 'sta
                 };
                 if valid > 0 {
                     push_line(&app, &label, run, name, cargo, &pending[..valid], true, &mut batch);
-                    last_partial = pending.clone();
                 }
+            }
+            // Whatever was decided about the unfinished line, it's been dealt with: wait for more
+            // output now instead of timing out again straight away (cargo's JSON, or half a
+            // character, would otherwise spin here).
+            if quiet && !done {
+                last_partial = pending.clone();
             }
             if !batch.is_empty() {
                 flush(&app, &label, run, &mut batch);
@@ -1601,6 +1630,16 @@ mod save_tests {
             assert_eq!(std::fs::read(&f).unwrap(), b"through the link");
         }
         let _ = std::fs::remove_dir_all(&d);
+    }
+    /// A full disk leaves the old file whole. Needs a tiny disk: LEDGER_FULL_DIR=<64 KB tmpfs>.
+    #[test]
+    #[ignore]
+    fn full_disk_keeps_the_old_file() {
+        let Ok(d) = std::env::var("LEDGER_FULL_DIR") else { return };
+        let f = std::path::Path::new(&d).join("full.txt");
+        std::fs::write(&f, vec![b'a'; 20_000]).unwrap();
+        assert!(write_atomic(&f, &vec![b'b'; 50_000]).is_err());
+        assert_eq!(std::fs::read(&f).unwrap(), vec![b'a'; 20_000]);
     }
 }
 
