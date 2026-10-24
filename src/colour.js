@@ -309,7 +309,7 @@ export function openPicker({ anchor, colour, inFile = [], onChange, onClose }) {
     <div class="cp-row"><span class="cp-label">Saved</span><div class="cp-dots" data-list="saved"></div></div>
     <div class="cp-readout">
       <div class="cp-line">
-        <span class="cp-preview" title="How text looks on this colour (it switches between dark and light text to stay readable)">Aa</span>
+        <span class="cp-preview" role="img" aria-label="Preview: text on this colour" title="The colour, with text on it as it would read (dark or light, whichever is clearer)">Text</span>
         <label class="cp-field cp-hexf"><span>Hex</span><input data-hex maxlength="7" spellcheck="false"></label>
         <button class="cp-copy" data-copy="hex" title="Copy hex" aria-label="Copy hex">${ICON.copy}</button>
       </div>

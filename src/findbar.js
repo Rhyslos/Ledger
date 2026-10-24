@@ -133,6 +133,8 @@ export function openReplace(view) {
   if (!bar) return true;
   const exp = bar.querySelector(".fb-exp");
   if (exp.getAttribute("aria-expanded") !== "true") exp.click();
-  else (bar.querySelector(".fb-q").value ? bar.querySelector(".fb-r") : bar.querySelector(".fb-q")).focus();
+  // Like VS Code: the Find field, its text selected, so typing replaces the search.
+  const q = bar.querySelector(".fb-q");
+  q.focus(); q.select();
   return true;
 }

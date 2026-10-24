@@ -31,14 +31,29 @@ export function initEditCommands(app) {
       return { changes: { from: line.from, insert: ind + "\n" }, range: EditorSelection.cursor(line.from + ind.length) };
     }), { scrollIntoView: true, userEvent: "input" });
   };
-  // Replaces each selection (or the whole lines it touches, for line commands) with f(text).
+  // The blocks of whole lines the selections touch, overlapping ones merged: two cursors on the
+  // same line (or touching ranges) are one block, so nothing is changed twice.
+  const lineBlocks = (st) => {
+    const blocks = [];
+    for (const r of [...st.selection.ranges].sort((x, y) => x.from - y.from)) {
+      const a = st.doc.lineAt(r.from).number, b = st.doc.lineAt(r.empty ? r.to : Math.max(r.from, r.to - 1)).number;
+      const last = blocks[blocks.length - 1];
+      if (last && a <= last[1]) last[1] = Math.max(last[1], b); else blocks.push([a, b]);
+    }
+    return blocks;
+  };
+  // Replaces the whole lines each selection touches with f(lines).
   const onLines = (f) => (v) => {
-    const st = v.state;
-    v.dispatch(st.changeByRange((r) => {
-      const a = st.doc.lineAt(r.from), b = st.doc.lineAt(r.empty ? r.to : Math.max(r.from, r.to - 1));
-      const text = st.sliceDoc(a.from, b.to), out = f(text.split("\n")).join("\n");
-      return { changes: { from: a.from, to: b.to, insert: out }, range: EditorSelection.range(a.from, a.from + out.length) };
-    }), { userEvent: "input" });
+    const st = v.state, changes = [], ranges = [];
+    let shift = 0;
+    for (const [a, b] of lineBlocks(st)) {
+      const from = st.doc.line(a).from, to = st.doc.line(b).to;
+      const out = f(st.sliceDoc(from, to).split("\n")).join("\n");
+      changes.push({ from, to, insert: out });
+      ranges.push(EditorSelection.range(from + shift, from + shift + out.length));
+      shift += out.length - (to - from);
+    }
+    v.dispatch({ changes, selection: EditorSelection.create(ranges), userEvent: "input" });
   };
   const onText = (f) => (v) => {
     const st = v.state;
@@ -72,7 +87,7 @@ export function initEditCommands(app) {
   C("editor.reverseLines", "Reverse lines", [], onLines((l) => [...l].reverse()));
   C("editor.upper", "UPPER CASE", [], onText((t) => t.toUpperCase()), "uppercase transform");
   C("editor.lower", "lower case", [], onText((t) => t.toLowerCase()), "lowercase transform");
-  C("editor.title", "Title Case", [], onText((t) => t.replace(/\b\p{L}/gu, (c) => c.toUpperCase())), "capitalize transform");
+  C("editor.title", "Title Case", [], onText((t) => t.replace(/\p{L}[\p{L}\p{M}\p{N}'’]*/gu, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase())), "capitalize transform");
   C("editor.trimTrailing", "Trim trailing spaces", [], (v) => {
     const changes = [];
     for (let n = 1; n <= v.state.doc.lines; n++) { const l = v.state.doc.line(n), m = /\s+$/.exec(l.text); if (m) changes.push({ from: l.from + m.index, to: l.to }); }
@@ -82,16 +97,15 @@ export function initEditCommands(app) {
   C("editor.duplicate", "Duplicate line", [], copyLineDown, "copy line");
   // Joins each selection's lines (or the cursor's line and the next) with one space.
   C("editor.joinLines", "Join lines", [], (v) => {
-    const st = v.state;
-    v.dispatch(st.changeByRange((r) => {
-      const a = st.doc.lineAt(r.from), b = st.doc.lineAt(r.to), last = b.number === a.number ? Math.min(a.number + 1, st.doc.lines) : b.number;
-      const changes = [];
-      for (let n = a.number; n < last; n++) {
+    const st = v.state, changes = [];
+    for (let [a, b] of lineBlocks(st)) {
+      if (a === b) b = Math.min(a + 1, st.doc.lines);
+      for (let n = a; n < b; n++) {
         const l = st.doc.line(n), next = st.doc.line(n + 1), lead = /^\s*/.exec(next.text)[0].length, trail = /\s*$/.exec(l.text)[0].length;
         changes.push({ from: l.to - trail, to: next.from + lead, insert: l.text.trim() && next.text.trim() ? " " : "" });
       }
-      return { changes, range: r };
-    }), { userEvent: "input" });
+    }
+    if (changes.length) v.dispatch({ changes, userEvent: "input" }); // the cursors follow along
   }, "merge");
   C("editor.deleteLine", "Delete line", [], deleteLine, "remove line");
   C("editor.moveUp", "Move line up", [], moveLineUp);

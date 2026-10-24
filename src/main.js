@@ -701,12 +701,15 @@ async function applyWorkspaceEdit(we) {
       const b = S.bufs.get(path);
       // Edits made for an older version of an open file would land in the wrong places.
       const sent = version != null && Object.values(servers).map((srv) => srv.versions?.get(uri)).find((v) => v != null);
-      if (b && ((sent != null && sent !== version) || (version != null && b.sent && b.sent !== b.state.doc))) throw new Error(`${base(path)} changed since the server worked this out`);
+      // With no version (a code action run on the server), the edit is for the text the server last
+      // saw: refuse it too when the buffer has changed since.
+      if (b && ((sent != null && version != null && sent !== version) || (b.sent && b.sent !== b.state.doc))) throw new Error(`${base(path)} changed since the server worked this out`);
       if (b) {
         const doc = b.state.doc;
         const cs = ChangeSet.of(edits.map((e) => ({ from: toOffset(doc, e.range.start), to: toOffset(doc, e.range.end), insert: e.newText })), doc.length);
         plan.push({ path, b, cs });
       } else {
+        const [stamp] = await invoke("file_stats", { paths: [path] });
         let { text: raw, encoding } = await invoke("read_text", { path });
         const bom = raw.startsWith("\uFEFF");
         if (bom) raw = raw.slice(1);
@@ -714,13 +717,16 @@ async function applyWorkspaceEdit(we) {
         const cs = ChangeSet.of(edits.map((e) => ({ from: toOffset(doc, e.range.start), to: toOffset(doc, e.range.end), insert: e.newText })), doc.length);
         let out = cs.apply(doc).toString();
         if (raw.includes("\r\n")) out = out.replace(/\n/g, "\r\n");
-        plan.push({ path, old: (bom ? "\uFEFF" : "") + raw, contents: (bom ? "\uFEFF" : "") + out, encoding });
+        plan.push({ path, stamp, old: (bom ? "\uFEFF" : "") + raw, contents: (bom ? "\uFEFF" : "") + out, encoding });
       }
     } catch (e) { toast(`Nothing was changed: couldn't edit ${base(path)} (${e.message || e}).`, 6000); return 0; }
   }
   for (const p of plan) {
     if (p.b) { dispatchBuf(p.path, { changes: p.cs }); continue; }
     try {
+      // Another program changed it since it was read: leave it, rather than undo that change.
+      const [now] = await invoke("file_stats", { paths: [p.path] });
+      if (now !== p.stamp) { toast(`${base(p.path)} changed on disk meanwhile, so it was left as it is.`, 6000); continue; }
       await invoke("history_add", { path: p.path, text: p.old }).catch(() => {}); // Local history can bring it back
       await invoke("write_file", { path: p.path, contents: p.contents, encoding: p.encoding });
     } catch (e) { toast(`Couldn't edit ${base(p.path)}: ${e}`); }
@@ -818,7 +824,8 @@ function detectIndent(text) {
   // A block comment's " * " lines step by 1: not an indent.
   const best = [...deltas].filter(([d]) => d >= 2).sort((a, b) => b[1] - a[1])[0];
   // Most steps agree; a flat file (JSON, YAML) steps in only once, but then many lines sit at that depth.
-  return best && (best[1] >= 2 || ind >= 2) ? { tabs: false, size: best[0] } : null;
+  // (One indented line counts too: a small component with a single 2-space line is 2 spaces.)
+  return best ? { tabs: false, size: best[0] } : null;
 }
 const indentOf = (b) => (b?.indentSet || (settings.detectIndent !== false && b?.indent)) || { tabs: false, size: settings.tabSize };
 const cfgExt = (b) => {
@@ -1473,7 +1480,13 @@ async function closeSavedTabs() {
 }
 /** All tabs, pinned too; unsaved work is asked about first. */
 async function closeAllTabs() {
-  if (await closeAll()) { S.pinned.clear(); S.preview = null; saveSession(); renderTabs(); }
+  // Pinned tabs stay, as in VS Code (unpin them, or close them one by one, to close them).
+  if (S.pinned.size) {
+    for (const k of [...S.tabs]) if (!S.pinned.has(k) && !(await closeTab(k))) return;
+    toast(`Pinned tab${S.pinned.size === 1 ? "" : "s"} kept open.`);
+    return;
+  }
+  if (await closeAll()) { S.preview = null; saveSession(); renderTabs(); }
 }
 async function closeOthers(key) {
   for (const k of [...S.tabs]) if (k !== key && !S.pinned.has(k) && !(await closeTab(k))) return;
@@ -1702,7 +1715,7 @@ function nodeHtml(n, depth) {
     const open = S.open.has(n.path);
     const c = dirCounts(n.path);
     const gd = app.treeDecor?.(n.path, true);
-    let h = `<button class="node folder${DIMMED.has(n.name) ? " dim" : ""}${c.e ? " err" : c.w ? " warn" : ""}${cur ? " sel" : ""}${gd && !c.e && !c.w ? " " + gd.cls : ""}" ${common} style="padding-left:${pad}px" data-dir="${esc(n.path)}" aria-expanded="${open}"><span class="chev${open ? " open" : ""}">${CHEV}</span>${fileIcons() ? iconHtml(n.path, true, open) : `<span class="ico">${ICON_FOLDER}</span>`}<span class="lbl">${esc(n.name)}</span>${open ? "" : cntHtml(c)}</button>`;
+    let h = `<button class="node folder${DIMMED.has(n.name) ? " dim" : ""}${c.e ? " err" : c.w ? " warn" : ""}${cur ? " sel" : ""}${treeClip?.cut && treeClip.path === n.path ? " cut" : ""}${gd && !c.e && !c.w ? " " + gd.cls : ""}" ${common} style="padding-left:${pad}px" data-dir="${esc(n.path)}" aria-expanded="${open}"><span class="chev${open ? " open" : ""}">${CHEV}</span>${fileIcons() ? iconHtml(n.path, true, open) : `<span class="ico">${ICON_FOLDER}</span>`}<span class="lbl">${esc(n.name)}</span>${open ? "" : cntHtml(c)}</button>`;
     if (open) {
       const kids = S.kids.get(n.path);
       h += `<div role="group">` + (kids ? (kids.length ? kids.map((k) => nodeHtml(k, depth + 1)).join("") : `<div class="hint" style="padding:2px 0 4px ${pad + 32}px">Empty</div>`) : `<div class="hint" style="padding:2px 0 4px ${pad + 32}px">Loading…</div>`) + `</div>`;
@@ -1711,7 +1724,7 @@ function nodeHtml(n, depth) {
   }
   const c = counts(S.diags.get(n.path));
   const gd = app.treeDecor?.(n.path, false);
-  return `<button class="node${S.active === n.path ? " active" : ""}${c.e ? " err" : c.w ? " warn" : ""}${cur ? " sel" : ""}${gd && !c.e && !c.w ? " " + gd.cls : ""}" ${common} style="padding-left:${pad + 16}px;--tc:var(--t-${dotOf(n.path)})" data-file="${esc(n.path)}" title="${esc(rel(n.path))}">${mark(n.path)}<span class="lbl">${esc(n.name)}</span>${cntHtml(c, S.bufs.get(n.path)?.dirty)}${gd?.badge || ""}</button>`;
+  return `<button class="node${S.active === n.path ? " active" : ""}${c.e ? " err" : c.w ? " warn" : ""}${cur ? " sel" : ""}${treeClip?.cut && treeClip.path === n.path ? " cut" : ""}${gd && !c.e && !c.w ? " " + gd.cls : ""}" ${common} style="padding-left:${pad + 16}px;--tc:var(--t-${dotOf(n.path)})" data-file="${esc(n.path)}" title="${esc(rel(n.path))}">${mark(n.path)}<span class="lbl">${esc(n.name)}</span>${cntHtml(c, S.bufs.get(n.path)?.dirty)}${gd?.badge || ""}</button>`;
 }
 
 function renderTree() {
@@ -1863,7 +1876,7 @@ function treeMenu(p, isDir, x, y) {
 }
 // Cut, Copy and Paste in the explorer (files and folders, inside the open folder).
 let treeClip = null; // { path, cut }
-function clipTree(p, cut) { treeClip = { path: p, cut }; toast(`${cut ? "Cut" : "Copied"} ${base(p)}. Paste it into a folder with Ctrl V or the right-click menu.`); }
+function clipTree(p, cut) { treeClip = { path: p, cut }; renderTree(); toast(`${cut ? "Cut" : "Copied"} ${base(p)}. Paste it into a folder with Ctrl V or the right-click menu.`); }
 async function freeName(dir, name) {
   const dot = name.lastIndexOf("."), stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
   for (let i = 0; i < 100; i++) {
@@ -1889,13 +1902,15 @@ async function pasteTree(dir) {
   S.open.add(dir);
   await refreshTree();
   S.sel = to; renderTree();
+  focusTree();
 }
 async function duplicatePath(p) {
   const to = await freeName(parent(p), base(p));
   if (!to) return;
   try { await invoke("copy_path", { from: p, to }); } catch (e) { toast(String(e)); return; }
   await refreshTree();
-  S.sel = to; renderTree();
+  S.sel = to; S.selDir = false; renderTree();
+  focusTree(); // the copy, ready for F2
 }
 const copy = (s) => navigator.clipboard?.writeText(s).then(() => toast("Copied"), () => toast("Couldn't copy"));
 const folderLabel = (dir) => (dir === S.root ? base(S.root) : base(S.root) + "/" + rel(dir));
@@ -1913,7 +1928,7 @@ $("bCollapse").onclick = () => { S.open.clear(); renderTree(); saveSession(); };
 const validName = (n) => n && !/(^|\/)\.\.?(\/|$)/.test(n) && !/[<>:"|?*\\]/.test(n);
 async function newFile(dir = targetDir()) {
   if (!S.root) return openFolder();
-  const name = (await promptText(`New file in ${folderLabel(dir)}`, "", "e.g. notes.md, or a path like src/utils.js"))?.trim();
+  const name = (await promptText(`New file in ${folderLabel(dir)}`, "", "e.g. notes.md, or a path inside it like lib/utils.js"))?.trim();
   if (!name) return;
   if (!validName(name)) { toast("That isn't a usable file name."); return; }
   const path = join(dir, name);
@@ -2070,7 +2085,7 @@ $("tabs").addEventListener("click", async (ev) => {
   if (!ev.target.closest("#tabsMore")) return;
   ev.stopPropagation();
   const keys = [...S.tabs];
-  const i = await choose("Open tabs", keys.map((k) => tabLabel(k) + (S.bufs.get(k)?.dirty ? "  ●" : "")), true, { filter: true });
+  const i = await choose("Open tabs", keys.map((k) => tabLabel(k) + (S.bufs.get(k)?.dirty ? "  ●" : "")), true, { filter: true, sel: Math.max(0, keys.indexOf(S.active)) });
   if (i != null && i >= 0) activate(keys[i]);
 }, true);
 // The mouse wheel scrolls the tab bar sideways when the tabs don't fit.
@@ -2548,7 +2563,9 @@ function renderStatus() {
   const acts = !kind ? [] : kind === "lust" ? ["run", "check", "build"] : kind === "html" || kind === "nodefile" || kind === "lua" ? ["run"] : kind === "node" ? ["run", "build", "test", "check", "scripts"].filter((a) => a === "scripts" || a === "run" || taskSteps(a)) : kind === "rust" ? ["run", "debug", "check", "test", "lint"] : kind === "dotnet" ? ["run", "debug", "build", "test"] : ["run", "debug", "scene", "build"].filter((a) => a === "debug" ? S.ctx?.dotnet : taskSteps(a));
   const id = { run: "task.run", build: "task.build", check: "task.check", test: "task.test", lint: "task.lint", scene: "task.scene", debug: "debug.start" };
   const hadFocus = $("stTasks").contains(document.activeElement) ? document.activeElement.dataset.task : null;
-  $("stTasks").innerHTML = acts.map((a, i) => `<button data-task="${a}" class="${i === 0 ? "go" : ""}" title="${esc(taskLabel(a) + k(id[a]))}">${i === 0 ? '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2l7 3.8-7 3.8z" fill="currentColor"/></svg>' : ""}${esc(taskLabel(a))}</button>`).join("");
+  // In restricted mode these run the project's code, so they ask for trust first: say so.
+  const locked = (a) => !!S.root && !trusted() && !(kind === "lust" && (a === "check" || a === "run")) && kind !== "html";
+  $("stTasks").innerHTML = acts.map((a, i) => `<button data-task="${a}" class="${i === 0 ? "go" : ""}${locked(a) ? " locked" : ""}" title="${esc(taskLabel(a) + k(id[a]) + (locked(a) ? " · asks to trust this folder first" : ""))}">${i === 0 ? '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2l7 3.8-7 3.8z" fill="currentColor"/></svg>' : ""}${esc(taskLabel(a))}</button>`).join("");
   if (hadFocus) $("stTasks").querySelector(`[data-task="${hadFocus}"]`)?.focus();
   $("stStop").hidden = !S.running;
   const lv = $("stLive");
@@ -2573,13 +2590,16 @@ function renderStatus() {
   }
   $("stSearch").innerHTML = `Go to file <kbd>${esc(keymap.label("file.goto"))}</kbd>`;
   // On the welcome page, its own Go to file button and an empty problem count would just repeat it.
-  $("stSearch").hidden = !S.tabs.length;
+  $("stSearch").hidden = true; // Ctrl E is on the welcome page and in the command list; the bar has better uses for the room
   // Pages without code (Settings, an image, a table) have no problems to count, unless some file does.
-  $("stProblems").hidden = !S.bufs.has(S.active) && ![...S.diags.values()].some((l) => l?.length);
+  // …or plain text and Markdown, which no checker looks at.
+  const ab = S.bufs.get(S.active), checked = ab && (serverOf(ab) || /^lust/.test(ab.lang));
+  $("stProblems").hidden = !checked && ![...S.diags.values()].some((l) => l?.length);
   $("stSettings").title = "Settings" + k("settings.open");
   $("stToggle").title = "Toggle explorer" + k("view.explorer");
 }
 $("stIndent").addEventListener("click", pickIndent);
+$("stPos").addEventListener("click", () => { if (S.bufs.has(S.active)) openPalette("files", ":"); });
 $("stLang").addEventListener("click", (ev) => {
   if (!S.bufs.has(S.active)) return;
   const r = ev.currentTarget.getBoundingClientRect();
@@ -2940,6 +2960,7 @@ function choose(head, options, wantIndex = false, opts = {}) {
     pal.filter = opts.filter ?? options.length > 8;
     pal.create = opts.create || null; // (text) => label of a row that makes a new one from what's typed
     openPalette("choose", "", head);
+    if (opts.sel > 0) { pal.sel = opts.sel; drawPalette(); $("palRes").querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" }); }
     pal.resolve = resolve;
   });
 }
@@ -2963,7 +2984,7 @@ function hlText(text, q) {
 }
 const fdot = (path) => ({ dot: dotOf(path), path }); // a palette row for a file: its icon
 const row = (i, dot, title, meta, extra, code) =>
-  `<div class="li" role="option" id="pal-opt-${i}" tabindex="-1" data-pi="${i}" aria-selected="${i === pal.sel}" style="--tc:var(--t-${dot.dot || dot})">${dot.path ? mark(dot.path) : dot === "none" ? "" : '<span class="dot"></span>'}<span class="t">${title}</span><span class="m">${meta}</span>${extra ? `<span class="x${code ? " code" : ""}">${extra}</span>` : ""}</div>`;
+  `<div class="li${dot === "none" ? " nodot" : ""}" role="option" id="pal-opt-${i}" tabindex="-1" data-pi="${i}" aria-selected="${i === pal.sel}" style="--tc:var(--t-${dot.dot || dot})">${dot.path ? mark(dot.path) : dot === "none" ? "" : '<span class="dot"></span>'}<span class="t">${title}</span><span class="m">${meta}</span>${extra ? `<span class="x${code ? " code" : ""}">${extra}</span>` : ""}</div>`;
 
 function drawPalette() {
   const v = $("palIn").value, res = $("palRes");
@@ -3017,9 +3038,12 @@ function drawPalette() {
       const t = c.title.toLowerCase(), r = recent.indexOf(c.id);
       let n = r >= 0 ? 30 - r * 3 : 0;
       if (q) {
+        const atWord = (x) => new RegExp("(^|[^a-z])" + x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(t);
         if (t.startsWith(q)) n += 100;
-        else if (t.includes(q)) n += 50;
-        for (const w of words) if (new RegExp("(^|[^a-z])" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(t)) n += 12; else if (!t.includes(w)) n -= 15; // only in its other names
+        else if (atWord(q)) n += 60; // a word of the title starts with it ("unfold" for "fold" isn't)
+        else if (t.includes(q)) n += 10; // inside a word: "trust" for "rust"
+        for (const w of words) if (atWord(w)) n += 12; else if (!t.includes(w)) n -= 15; // only in its other names
+        n -= t.length / 40; // the shorter title, when two start the same way ("Close tab" before "Close saved tabs")
       }
       if (elsewhere(c.title)) n -= 40;
       return n;
@@ -3072,8 +3096,28 @@ $("palOv").addEventListener("keydown", (ev) => {
   const k = keyString(ev);
   if (k === "Esc") { ev.preventDefault(); finishPalette(null); return; }
   // Search in files from Go to file: close this and go there, carrying what was typed.
-  if (pal.mode === "files" && keymap.lookup(k) === "search.files") { ev.preventDefault(); finishPalette(null); keymap.cmds.get("search.files").run(); return; }
+  if (pal.mode === "files" && keymap.lookup(k) === "search.files") {
+    ev.preventDefault();
+    const typed = $("palIn").value.replace(/^[>@#%:]/, "").replace(/:\d+(:\d+)?$/, "").trim();
+    finishPalette(null);
+    if (typed && app.searchFor) app.searchFor(typed); else keymap.cmds.get("search.files").run();
+    return;
+  }
   if (pal.mode === "choose" && !pal.filter && /^[1-9]$/.test(k) && +k <= pal.list.length) { ev.preventDefault(); pick(+k - 1); return; }
+  // A short list without a search box: a letter moves to the next option starting with it, as in
+  // Windows menus (Enter still picks), so typing never picks something by surprise.
+  if (pal.mode === "choose" && !pal.filter && /^(Shift\+)?[A-Z]$/.test(k)) {
+    ev.preventDefault();
+    const ch = k.slice(-1).toLowerCase(), n = pal.list.length;
+    for (let d = 1; d <= n; d++) {
+      const j = (pal.sel + d) % n;
+      if (String(pal.list[j].choice).replace(/^[^\p{L}\p{N}]+/u, "").toLowerCase().startsWith(ch)) { pal.sel = j; break; }
+    }
+    $("palRes").querySelectorAll(".li").forEach((el, i) => el.setAttribute("aria-selected", i === pal.sel));
+    const cur = $("palRes").querySelector('[aria-selected="true"]');
+    cur?.scrollIntoView({ block: "nearest" }); cur?.focus();
+    return;
+  }
   if (k === "Down" || k === "Up" || (pal.mode === "choose" && (k === "Tab" || k === "Shift+Tab"))) {
     ev.preventDefault();
     const d = k === "Up" || k === "Shift+Tab" ? -1 : 1;
@@ -3116,6 +3160,12 @@ $("menu").addEventListener("keydown", (ev) => {
   if (k === "Down" || k === "Up") { ev.preventDefault(); bs[(i + (k === "Down" ? 1 : -1) + bs.length) % bs.length].focus(); }
   if (k === "Home" || k === "End") { ev.preventDefault(); bs[k === "Home" ? 0 : bs.length - 1].focus(); }
   if (k === "Esc" || k === "Tab" || k === "Shift+Tab") { ev.preventDefault(); hideMenu(true); }
+  // A letter moves to the next item starting with it (Enter then runs it).
+  if (/^(Shift\+)?[A-Z]$/.test(k || "")) {
+    ev.preventDefault();
+    const ch = k.slice(-1).toLowerCase();
+    for (let d = 1; d <= bs.length; d++) { const b = bs[(i + d) % bs.length]; if (b.textContent.trim().toLowerCase().startsWith(ch)) { b.focus(); break; } }
+  }
 });
 
 // ---------- commands & keys ----------
@@ -3141,7 +3191,7 @@ C("view.zen", "Toggle zen mode (just the editor, full screen)", "Ctrl+Alt+Z", to
 C("view.wrap", "Toggle word wrap (long lines wrap onto the next line)", "Alt+Z", () => { setSetting("wordWrap", !settings.wordWrap); toast(settings.wordWrap ? "Long lines wrap." : "Long lines run on; scroll sideways to see them."); });
 C("tab.pin", "Pin or unpin this tab", [], () => togglePin());
 C("tab.closeSaved", "Close saved tabs (unsaved and pinned stay)", [], () => closeSavedTabs());
-C("tab.closeAll", "Close all tabs (asks about unsaved ones)", [], () => closeAllTabs());
+C("tab.closeAll", "Close all tabs (not pinned ones; asks about unsaved ones)", [], () => closeAllTabs());
 C("trust.toggle", "Trust this folder, or go back to restricted mode", [], async () => {
   if (!S.root) return;
   const yes = !trusted();
@@ -3365,7 +3415,7 @@ async function askTrust(path, force) {
 /** Before running the project's code: asks for trust if needed. True when it may run. */
 async function ensureTrusted(what) {
   if (!S.root || trusted()) return true;
-  const c = await choose(`${what} runs this folder's code, and ${base(S.root)} isn't trusted yet. Trust it?`, ["Trust it", "Cancel"]);
+  const c = await choose(`${what} runs this folder's code, and ${base(S.root)} isn't trusted yet. Trust it?`, ["Cancel", "Trust it"]); // Enter keeps it restricted
   if (c !== "Trust it") return false;
   setTrust(S.root, true);
   return true;

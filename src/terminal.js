@@ -13,6 +13,7 @@ export function initTerminal(app) {
   let cur = null;
   let seq = 0;
 
+  const warnedRestricted = new Set();
   const early = new Map(); // output that arrives before term_open has returned the id
   on("term-data", (e) => {
     const t = terms.get(e.payload.id);
@@ -71,6 +72,8 @@ export function initTerminal(app) {
     try { fit.fit(); } catch {}
     let id;
     try {
+      // Restricted mode keeps Ledger from running the folder's code; a terminal runs whatever you type.
+      if (app.S.root && !app.trusted() && !warnedRestricted.has(app.S.root)) { warnedRestricted.add(app.S.root); app.toast("This folder is in restricted mode, but the terminal runs whatever you type in it, the folder's scripts included.", 7000); }
       id = await invoke("term_open", { cwd: app.cwd(), cols: term.cols, rows: term.rows, shell: settings.terminalShell || null });
     } catch (e) {
       term.dispose(); el.remove();

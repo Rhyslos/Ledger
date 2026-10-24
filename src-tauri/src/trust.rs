@@ -50,6 +50,12 @@ pub fn restricted_git_flags() -> Vec<String> {
     v.extend(
         [
             "core.fsmonitor=false",
+            // Leave submodules alone: their files aren't diffed, committed or fetched.
+            "diff.ignoreSubmodules=all",
+            "submodule.recurse=false",
+            "status.submoduleSummary=false",
+            "fetch.recurseSubmodules=false",
+            "push.recurseSubmodules=no",
             // A folder that is itself a repository's insides (HEAD, objects/, config at the top)
             // isn't picked up as a repository unless named with --git-dir.
             "safe.bareRepository=explicit",
@@ -103,6 +109,7 @@ pub fn risky_in_listing(listing: &str) -> Option<String> {
         let (key, value) = entry.split_once('\n').unwrap_or((entry, ""));
         let key = key.to_lowercase();
         let url = key.ends_with(".url") || key.ends_with(".pushurl");
+        let value = value.to_lowercase();
         if !allowed_key(&key) || (url && (value.starts_with("ext::") || value.starts_with("fd::"))) {
             return Some(key);
         }
@@ -127,7 +134,42 @@ pub fn git_guard(restricted: bool, git: impl Fn() -> std::process::Command) -> R
     if let Some(key) = risky_in_listing(&String::from_utf8_lossy(&out.stdout)) {
         return Err(format!("{UNTRUSTED}. This repository has settings that can start other programs ({key}), so Git stays off here until you trust the folder."));
     }
+    // Submodules keep their own settings (in <git dir>/modules/<name>/config), which the listing
+    // above doesn't show, and commit -a or a diff can run their filters. Read each one too.
+    let common = git().args(&flags).args(["rev-parse", "--path-format=absolute", "--git-common-dir"]).output().ok().filter(|o| o.status.success());
+    if let Some(dir) = common.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).filter(|d| !d.is_empty()) {
+        for cfg in module_configs(&std::path::Path::new(&dir).join("modules")) {
+            let out = git().args(&flags).args(["config", "--file"]).arg(&cfg).args(["--list", "--null", "--includes"]).output().map_err(|e| format!("Couldn't start Git: {e}"))?;
+            // Same check, as if it were the repository's own settings.
+            // (core.worktree is how every submodule points at its files.)
+            let listing: String = String::from_utf8_lossy(&out.stdout).split('\0').filter(|e| !e.is_empty() && !e.to_lowercase().starts_with("core.worktree\n")).map(|e| format!("local\0{e}\0")).collect();
+            if !out.status.success() || risky_in_listing(&listing).is_some() {
+                let key = risky_in_listing(&listing).unwrap_or_else(|| "unreadable settings".into());
+                return Err(format!("{UNTRUSTED}. A submodule of this repository has settings that can start other programs ({key}), so Git stays off here until you trust the folder."));
+            }
+        }
+    }
     Ok(flags)
+}
+
+/// Every submodule's config file under `modules` (submodules can nest).
+fn module_configs(modules: &Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![modules.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if out.len() < 500 {
+                    stack.push(p);
+                }
+            } else if e.file_name() == "config" && p.parent().is_some_and(|x| x.join("HEAD").exists()) {
+                out.push(p);
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -216,6 +258,21 @@ mod tests {
         let flags = git_guard(true, git_in(&d)).unwrap();
         let st = git_in(&d)().args(&flags).arg("status").output().unwrap();
         assert!(!st.status.success() && String::from_utf8_lossy(&st.stderr).contains("bare repository"));
+
+        // 5. A submodule whose own settings run a program.
+        let d = fresh("submodule");
+        std::fs::create_dir_all(d.join("lib")).unwrap();
+        sh(&d.join("lib"), &["init", "-q"]);
+        sh(&d.join("lib"), &["-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "--allow-empty", "-m", "x"]);
+        std::fs::create_dir_all(d.join("top")).unwrap();
+        sh(&d.join("top"), &["init", "-q"]);
+        sh(&d.join("top"), &["-c", "protocol.file.allow=always", "submodule", "add", "-q", "../lib", "lib"]);
+        assert!(git_guard(true, git_in(&d.join("top"))).is_ok());
+        let sub_cfg = d.join("top/.git/modules/lib/config");
+        let mut t = std::fs::read_to_string(&sub_cfg).unwrap();
+        t.push_str("[filter \"x\"]\n\tclean = touch PWNED\n");
+        std::fs::write(&sub_cfg, t).unwrap();
+        assert!(git_guard(true, git_in(&d.join("top"))).unwrap_err().contains("submodule"));
 
         // 4. Include files and a plain, safe repository.
         let d = fresh("include");

@@ -183,13 +183,17 @@ const copyRow = (label, value) =>
 // The search box at the top: hides the rows (and shortcut lines) that don't mention what you typed.
 let find = "";
 export function applySettingsFind(root) {
-  const q = find.trim().toLowerCase();
+  // Every word has to be there, in any order ("tab size", "size tab"; colour and color both work).
+  const norm = (t) => t.toLowerCase().replace(/colou?r/g, "colour color");
+  const words = find.trim().toLowerCase().split(/\s+/).filter(Boolean).map((w) => w.replace(/^color/, "colour"));
+  const q = words.length > 0;
+  const has = (t) => { const x = norm(t); return words.every((w) => x.includes(w)); };
   let any = false;
   for (const sec of root.querySelectorAll(".settings > section")) {
-    const head = sec.querySelector("h2")?.textContent.toLowerCase() || "";
-    const all = !q || head.includes(q);
+    const head = sec.querySelector("h2")?.textContent || "";
+    const all = !q || has(head);
     let shown = 0;
-    for (const r of sec.querySelectorAll(".srow, .krow, .copyrow")) { const on = all || r.textContent.toLowerCase().includes(q); r.hidden = !on; if (on) shown++; }
+    for (const r of sec.querySelectorAll(".srow, .krow, .copyrow")) { const on = all || has(head + " " + r.textContent); r.hidden = !on; if (on) shown++; }
     sec.hidden = !all && !shown;
     if (!sec.hidden) any = true;
   }
@@ -215,7 +219,7 @@ export function settingsHtml() {
       ${row("Editor font", text("sFamily", "fontFamily", "Default: IBM Plex Mono", "text", 'list="codeFonts"') + `<datalist id="codeFonts">${["Noto Sans Mono", "Noto Sans", "Cascadia Code", "Consolas", "JetBrains Mono", "Fira Code"].map((f) => `<option value="${f}">`).join("")}</datalist>`, "Pick one or type any installed font. Fonts made for code (Mono) keep columns lined up. Leave empty for the default.", "sFamily")}
       ${row("Interface font", text("sUiFont", "uiFont", "Default: IBM Plex Sans", "text", 'list="uiFonts"') + `<datalist id="uiFonts">${["Noto Sans", "Segoe UI", "Inter", "Arial"].map((f) => `<option value="${f}">`).join("")}</datalist>`, "The menus, tabs, side bar and settings. Pick one or type any installed font. Leave empty for the default.", "sUiFont")}
       ${row("Interface text size", text("sUi", "uiSize", "14", "number", 'min="11" max="20" step="0.5"'), "", "sUi")}
-      ${row("Code colours", select("sCode", "codeColours", [["quiet", "Quiet, like Lust"], ["colourful", "Colourful"]]), "Quiet keeps code calm: keywords in red, classes in blue, types in a soft green, values in gold and constants in teal, with the rest plain. Lust files are always quiet.", "sCode")}
+      ${row("Code colours", select("sCode", "codeColours", [["quiet", "Quiet (a few colours)"], ["colourful", "Colourful"]]), "Quiet keeps code calm: keywords in red, classes in blue, types in a soft green, values in gold and constants in teal, with the rest plain. Lust files are always quiet.", "sCode")}
       ${row("File icons", check("sFileIcons", "fileIcons", "An icon for each kind of file (JavaScript, C#, package.json…) in the explorer, tabs and lists"), "Icons from the Material Icon Theme. Off shows the coloured dots instead.")}
       ${row("Status bar", select("sStatus", "statusBar", [["bottom", "Along the bottom"], ["top", "Along the top"]]), "The bar with Run, Build, problems and the cursor position.", "sStatus")}
     </section>
@@ -449,10 +453,17 @@ export function wireSettings(root, redraw) {
     recording = null;
     if (k === "Esc") { rerender(true); refocus(`[data-rec="${CSS.escape(id)}"]`); return; }
     const keys = { ...settings.keys };
+    const km = ctx.keymap, others = k === "Backspace" || k === "Delete" ? [] : km.conflicts(k, id);
+    const done = () => { setSetting("keys", keys); rerender(true); refocus(`[data-rec="${CSS.escape(id)}"]`); };
     keys[id] = k === "Backspace" || k === "Delete" ? [] : [k];
-    setSetting("keys", keys);
-    rerender(true);
-    refocus(`[data-rec="${CSS.escape(id)}"]`);
+    if (!others.length) { done(); return; }
+    // The key belongs to another command: move it here, or keep it on both (the first one wins).
+    const names = others.map((o) => km.cmds.get(o)?.title || o).join(", ");
+    ctx.choose(`${showKey(k)} already runs “${names}”. Use it for “${km.cmds.get(id)?.title}” instead?`, ["Move it here", "Keep it on both", "Cancel"]).then((c) => {
+      if (!c || c === "Cancel") { rerender(true); refocus(`[data-rec="${CSS.escape(id)}"]`); return; }
+      if (c === "Move it here") for (const o of others) keys[o] = km.keysFor(o).filter((x) => x !== k);
+      done();
+    });
   }, true);
   root.addEventListener("focusout", (ev) => {
     if (!painting && recording && ev.target.closest?.("[data-rec]") && !root.contains(ev.relatedTarget)) { recording = null; rerender(true); }
