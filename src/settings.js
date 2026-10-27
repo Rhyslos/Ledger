@@ -5,6 +5,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { keyString, showKey } from "./keys.js";
 import { esc } from "./ansi.js";
+import { parseSdks, parseRuntimes, parseWorkloads, globalJsonProblem } from "./dotnetsdk.js";
 
 export const DEFAULTS = {
   theme: "system",
@@ -58,6 +59,8 @@ export const DEFAULTS = {
   debugRust: "",
   debugCsharp: "",
   debugBreakOn: "unhandled", // never | unhandled | all
+  dotnetRestoreOnOpen: true,
+  dotnetToolRestore: true,
   keys: {},
 };
 
@@ -144,6 +147,22 @@ export function installTool(key, done) {
 }
 
 const hasSdk = (major) => (tools.sdks || []).some((v) => parseInt(v, 10) >= major);
+const hasMajor = (major) => (tools.sdks || []).some((v) => parseInt(v, 10) === major);
+
+/** Installs the .NET SDK of one major version (8, 9, 10…) with winget, side by side with the others. */
+export function installSdk(major, done) {
+  ctx.toast(`Installing the .NET ${major} SDK. Windows may ask for permission.`, 5000);
+  const after = async () => {
+    await invoke("refresh_path").catch(() => {});
+    await refreshTools();
+    if (hasMajor(major)) ctx.toast(`The .NET ${major} SDK is ready.`);
+    done?.(hasMajor(major));
+  };
+  ctx.runTask("winget", ["install", "--id", `Microsoft.DotNet.SDK.${major}`, "-e", "--source", "winget", "--accept-source-agreements", "--accept-package-agreements"], `Installing the .NET ${major} SDK`, after, after);
+}
+// maui shows as maui-windows (and maui-android…) once installed.
+const hasWorkload = (id) => (tools.workloads || []).some((w) => w === id || w.startsWith(id + "-"));
+const WORKLOADS = [["maui", ".NET MAUI (Android, iOS, Mac and Windows apps)"], ["wasm-tools", "WebAssembly build tools (Blazor WebAssembly AOT)"], ["android", "Android"], ["ios", "iOS"]];
 
 // The browser Ledger opens web pages in (HTML files now, Live Server later).
 const BROWSERS = { chrome: "chrome.exe", edge: "msedge.exe", firefox: "firefox.exe", brave: "brave.exe" };
@@ -155,7 +174,7 @@ export function openInBrowser(url) {
 export const refreshSettingsTools = () => refreshTools();
 
 async function refreshTools() {
-  const names = { roslyn: "roslyn-language-server", cargo: "cargo", ra: settings.rustAnalyzer || "rust-analyzer", dotnet: "dotnet", cs: settings.csharpServer || "csharp-ls", godot: settings.godot, git: "git", lust: settings.lust || "lust", lua: settings.lua || "lua", node: "node", rust: "cargo", tsls: "typescript-language-server", htmlls: "vscode-html-language-server", luals: settings.luaServer || "lua-language-server" };
+  const names = { ef: "dotnet-ef", roslyn: "roslyn-language-server", cargo: "cargo", ra: settings.rustAnalyzer || "rust-analyzer", dotnet: "dotnet", cs: settings.csharpServer || "csharp-ls", godot: settings.godot, git: "git", lust: settings.lust || "lust", lua: settings.lua || "lua", node: "node", rust: "cargo", tsls: "typescript-language-server", htmlls: "vscode-html-language-server", luals: settings.luaServer || "lua-language-server" };
   const out = {};
   await Promise.all(Object.entries(names).map(async ([k, n]) => { out[k] = n ? await invoke("tool_info", { name: n }).catch(() => null) : null; }));
   out.lldb = await ctx.debuggerFor?.("rust").catch(() => null);
@@ -164,10 +183,18 @@ async function refreshTools() {
   // "Lust 2.0.0-alpha.17", shown in Settings › Lust.
   out.lustVersion = out.lust ? ((await invoke("run_capture", { cwd: ".", program: settings.lust || "lust", args: ["version"] }).catch(() => null))?.out || "").trim() : "";
   out.shellMenu = await invoke("shell_menu_state").catch(() => false);
-  out.sdks = [];
+  out.sdks = []; out.runtimes = []; out.globalJson = null;
+  out.workloads = tools.workloads || null; // listed when asked: dotnet workload list takes a few seconds
   if (out.dotnet) {
-    const r = await invoke("run_capture", { cwd: ".", program: "dotnet", args: ["--list-sdks"] }).catch(() => null);
-    out.sdks = (r?.out || "").split("\n").map((l) => l.trim().split(" ")[0]).filter(Boolean);
+    const [r, rt] = await Promise.all(["--list-sdks", "--list-runtimes"].map((a) => invoke("run_capture", { cwd: ".", program: "dotnet", args: [a] }).catch(() => null)));
+    out.sdks = parseSdks(r?.out);
+    out.runtimes = parseRuntimes(rt?.out);
+  }
+  // The open folder's global.json can pin an SDK that isn't installed.
+  const root = ctx.root?.();
+  if (root) {
+    const gj = await invoke("read_file", { path: root + "/global.json" }).catch(() => null);
+    if (gj != null) out.globalJson = globalJsonProblem(gj, out.sdks);
   }
   tools = out;
   try { exe = await invoke("exe_path"); } catch {}
@@ -300,7 +327,16 @@ export function settingsHtml() {
     </section>
 
     <section aria-labelledby="sCs"><h2 id="sCs">C# and .NET</h2>
-      ${row("dotnet", `<div class="tool">${found(tools.dotnet, 'Install the .NET SDK from <a href="https://dotnet.microsoft.com/download" target="_blank">dotnet.microsoft.com</a>.')}</div>`)}
+      ${row("dotnet", `<div class="tool">${found(tools.dotnet, 'Install a .NET SDK with a button below, or from <a href="https://dotnet.microsoft.com/download" target="_blank">dotnet.microsoft.com</a>.')}</div>
+        ${tools.sdks?.length ? `<div class="tool">SDKs: ${esc(tools.sdks.join(", "))}</div>` : ""}
+        ${(tools.runtimes || []).map((r) => `<div class="tool">${esc(r.name.replace(/^Microsoft\./, "").replace(/\.App$/, ""))} runtime: ${esc(r.versions.join(", "))}</div>`).join("")}
+        ${tools.globalJson ? `<div class="tool"><span class="bad">${esc(tools.globalJson.message)}</span></div>` : ""}
+        <div class="bar">${[...new Set([...(tools.globalJson && tools.globalJson.major >= 6 && !hasMajor(tools.globalJson.major) ? [tools.globalJson.major] : []), 10, 9, 8])].map((m) => `<button class="btn" data-act="sdk-install" data-major="${m}">${hasMajor(m) ? "Update" : "Install"} the .NET ${m} SDK</button>`).join("")}</div>`,
+        "SDKs install side by side with winget. A project uses the newest one unless its global.json pins a version.")}
+      ${row("Workloads", `<div class="tool">${tools.workloads ? (tools.workloads.length ? "Installed: " + esc(tools.workloads.join(", ")) : "None installed.") : "Not checked yet."}</div><div class="bar"><button class="btn" data-act="workloads-list">${tools.workloads ? "Check again" : "Check"}</button>${WORKLOADS.map(([id, l]) => `<button class="btn" data-act="workload-install" data-id="${id}" title="${esc(l)}">${hasWorkload(id) ? "Update" : "Install"} ${esc(id)}</button>`).join("")}</div>`,
+        "Extra parts of the SDK for some kinds of project: MAUI apps, Android, iOS, and WebAssembly ahead-of-time builds. Installing one may need Ledger to be run as administrator when .NET is in Program Files.")}
+      ${row("Entity Framework tool", `<div class="tool">${found(tools.ef, "Not installed yet.")}</div><div class="bar"><button class="btn" data-act="ef-install">${tools.ef ? "Update" : "Install"} dotnet-ef</button></div>`, "Migrations and database updates for EF Core projects (the EF Core commands in the command palette).")}
+      ${row("Opening a folder", check("sDnRestore", "dotnetRestoreOnOpen", "Restore NuGet packages (dotnet restore) when a trusted folder with .NET projects opens") + check("sDnTools", "dotnetToolRestore", "Offer to restore the project's own tools (.config/dotnet-tools.json)"), "So the language server and the first build find every package.")}
       ${row("Language server", select("sCsKind", "csharpKind", [["csharp-ls", "csharp-ls (small and quick)"], ["roslyn", "Roslyn (Microsoft's, as in VS Code)"], ["custom", "Another server…"]]) + `<div class="tool">${settings.csharpKind === "roslyn" ? found(tools.roslyn, "Not installed yet.") : settings.csharpKind === "custom" ? found(tools.cs, "") : found(tools.cs, "Not installed yet.")}</div><div class="bar">${settings.csharpKind === "custom" ? "" : `<button class="btn" data-act="cs-install">${(settings.csharpKind === "roslyn" ? tools.roslyn : tools.cs) ? "Update" : "Install"} ${settings.csharpKind === "roslyn" ? "Roslyn" : "csharp-ls"}</button>`}<button class="btn" data-act="restart-csharp">Restart</button></div>`, "Both give completions, errors, fixes, rename and the rest, and need the .NET 10 runtime (the .NET 10 SDK covers it; your projects can target older .NET). Roslyn is the server VS Code's C# extension uses: more fixes and refactors, more analyzers, and it starts slower. csharp-ls is lighter.", "sCsKind")}
       ${settings.csharpKind === "custom" ? row("Server program", text("sCs", "csharpServer", "csharp-ls"), "Any C# server that speaks LSP, for example OmniSharp with the argument -lsp.", "sCs") + row("Server arguments", text("sCsArgs", "csharpArgs", "none"), "Separated by spaces.", "sCsArgs") : ""}
     </section>
@@ -388,6 +424,27 @@ export function wireSettings(root, redraw) {
       return;
     }
     if (act === "install") { installTool(a.dataset.tool, () => rerender(true)); return; }
+    if (act === "sdk-install") { installSdk(+a.dataset.major, () => rerender(true)); return; }
+    if (act === "workloads-list") {
+      a.disabled = true; a.textContent = "Checking…";
+      const r = await invoke("run_capture", { cwd: ".", program: "dotnet", args: ["workload", "list"], timeoutMs: 120000 }).catch(() => null);
+      tools.workloads = parseWorkloads(r?.out);
+      rerender(true);
+      return;
+    }
+    if (act === "workload-install") {
+      const id = a.dataset.id, have = hasWorkload(id);
+      ctx.runTask("dotnet", ["workload", have ? "update" : "install", ...(have ? [] : [id])], `${have ? "Updating" : "Installing"} the ${id} workload`, async () => {
+        const r = await invoke("run_capture", { cwd: ".", program: "dotnet", args: ["workload", "list"], timeoutMs: 120000 }).catch(() => null);
+        tools.workloads = parseWorkloads(r?.out);
+        rerender(true);
+      });
+      return;
+    }
+    if (act === "ef-install") {
+      ctx.runTask("dotnet", ["tool", tools.ef ? "update" : "install", "--global", "dotnet-ef"], "Installing dotnet-ef", async () => { await invoke("refresh_path").catch(() => {}); await refreshTools(); rerender(true); });
+      return;
+    }
     if (act === "lust-install") {
       // cargo install builds lust.exe into ~/.cargo/bin, which Ledger already looks in.
       const go = () => {

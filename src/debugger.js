@@ -285,7 +285,7 @@ export function initDebugger(app) {
     // The launch profile dotnet run would use: its variables, arguments and addresses.
     const p = app.dotnet?.projOf(target);
     const prof = p?.profiles?.find((x) => x.name === D.profile) || p?.profiles?.[0];
-    const env = { ...(prof?.env || {}) };
+    const env = Object.fromEntries(Object.entries(prof?.env || {}).map(([k, v]) => [k, String(v ?? "")]));
     if (prof?.urls && !env.ASPNETCORE_URLS) env.ASPNETCORE_URLS = prof.urls;
     if (p && /web/i.test(p.sdk || "") && !env.ASPNETCORE_ENVIRONMENT) env.ASPNETCORE_ENVIRONMENT = "Development";
     // The .exe next to the .dll starts faster under the debugger on Windows.
@@ -296,7 +296,8 @@ export function initDebugger(app) {
   /** Arguments written as one line (commandLineArgs), with "quoted parts" kept together. */
   function splitArgs(line) {
     const out = [];
-    for (const m of String(line).matchAll(/"((?:[^"\\]|\\.)*)"|(\S+)/g)) out.push(m[1] != null ? m[1].replace(/\\"/g, '"') : m[2]);
+    // No backslash escapes: "C:\dir\" is a Windows path, not an escaped quote.
+    for (const m of String(line).matchAll(/"([^"]*)"|(\S+)/g)) out.push(m[1] ?? m[2]);
     return out;
   }
 
@@ -310,10 +311,21 @@ export function initDebugger(app) {
     if (!adapter) return;
     const P = await app.projectFor(path);
     const target = P?.csproj || P?.sln;
+    // One framework: a multi-targeted test project would start a test host per framework, and
+    // each would wait for a debugger.
+    await app.dotnet?.load();
+    const proj = app.dotnet?.projOf(P?.csproj);
+    const D = app.dotnetHooks?.opts?.(P) || {};
+    const fw = proj?.tfms?.length > 1 ? (proj.tfms.includes(D.framework) ? D.framework : proj.tfms[0]) : null;
     const label = "debug test " + name;
     testWait = { label, adapter, name };
-    app.startSteps([{ label, program: "dotnet", args: ["test", ...(target ? [target] : []), "--filter", filter, "-nologo"], cwd: P?.dir || app.cwd(), env: { VSTEST_HOST_DEBUG: "1" }, input: true }],
-      () => { testWait = null; }, () => { testWait = null; });
+    // VSTest waits for a debugger with VSTEST_HOST_DEBUG; Microsoft.Testing.Platform (xUnit v3,
+    // the MSTest runner) with TESTINGPLATFORM_WAIT_ATTACH_DEBUGGER. Both print "Process Id: N".
+    const missed = () => {
+      if (testWait?.label === label) app.toast("The test ran without waiting for the debugger, so Ledger couldn't attach. Breakpoints in tests need VSTest or Microsoft.Testing.Platform.", 8000);
+      testWait = null;
+    };
+    app.startSteps([{ label, program: "dotnet", args: ["test", ...(target ? [target] : []), "--filter", filter, "-nologo", ...(fw ? ["-f", fw] : [])], cwd: P?.dir || app.cwd(), env: { VSTEST_HOST_DEBUG: "1", TESTINGPLATFORM_WAIT_ATTACH_DEBUGGER: "1" }, input: true }], missed, missed);
   }
   app.outputHooks.push((text, label) => {
     if (!testWait || label !== testWait.label) return;
@@ -324,6 +336,7 @@ export function initDebugger(app) {
     launch({ kind: "csharp", adapter: w.adapter, pid: +m[1], args: [], cwd: app.cwd(), label: "Debug test " + w.name, skipFirst: true, kill: true });
   });
 
+  const homeDir = async () => (await invoke("home_dir").catch(() => null)) || app.cwd();
   /** Debug: attach to a program that's already running. */
   async function attach() {
     if (ses) { app.toast("Stop the current debug session first (Shift F5)."); return; }
@@ -338,8 +351,10 @@ export function initDebugger(app) {
     if (i == null || i < 0) return;
     const adapter = await ensureAdapter(kind);
     if (!adapter) return;
-    again = null;
-    launch({ kind, adapter, pid: list[i].pid, args: [], cwd: S.root || app.cwd(), label: `Attached to ${list[i].name} (${list[i].pid})` });
+    // The adapter starts outside the folder: attaching runs nothing of the folder's.
+    const cfg = { kind, adapter, pid: list[i].pid, args: [], cwd: await homeDir(), label: `Attached to ${list[i].name} (${list[i].pid})` };
+    again = () => launch({ ...cfg });
+    launch({ ...cfg });
   }
   async function debugGodot(P) {
     if (!settings.godot) { app.toast("Set the Godot program in Settings first.", 4000); return; }
@@ -406,12 +421,13 @@ export function initDebugger(app) {
     if (!ses?.dap.alive) return;
     try { await ses.dap.request("setExceptionBreakpoints", { filters: exceptionFilters() }); } catch {}
   }
+  // Changed in Settings while debugging: tell the debugger now.
+  app.settingHooks.push((key) => { if (key === "debugBreakOn") sendExceptionFilters(); });
   async function pickBreakOn() {
     const cur = settings.debugBreakOn || "unhandled";
     const i = await app.choose("Pause when an exception is thrown", BREAK_ON.map(([k, l]) => l + (k === cur ? "  (now)" : "")), true, { sel: Math.max(0, BREAK_ON.findIndex(([k]) => k === cur)) });
     if (i == null || i < 0) return;
-    app.setSetting("debugBreakOn", BREAK_ON[i][0]);
-    await sendExceptionFilters();
+    app.setSetting("debugBreakOn", BREAK_ON[i][0]); // the setting hook sends it
     app.toast("Pause on exceptions: " + BREAK_ON[i][1].toLowerCase() + ".");
     renderView();
   }
@@ -438,7 +454,8 @@ export function initDebugger(app) {
       const url = ses.cfg.browser != null && !ses.browserOpened && /Now listening on:\s*(https?:\/\/\S+)/.exec(text);
       if (url) {
         ses.browserOpened = true;
-        openUrl(url[1].replace("://[::]", "://localhost").replace("://0.0.0.0", "://localhost").replace(/\/$/, "") + (ses.cfg.browser ? "/" + ses.cfg.browser.replace(/^\//, "") : "")).catch(() => {});
+        const b = ses.cfg.browser;
+        openUrl(/^https?:\/\//i.test(b) ? b : url[1].replace("://[::]", "://localhost").replace("://0.0.0.0", "://localhost").replace(/\/$/, "") + (b ? "/" + b.replace(/^\//, "") : "")).catch(() => {});
       }
       dconsole(esc(text.replace(/\n$/, "")), cat === "stderr" ? "err" : cat === "console" || cat === "important" ? "dim" : "");
       return;

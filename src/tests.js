@@ -68,6 +68,8 @@ export function initTests(app) {
       const line = raw.replace(/\/\/.*$/, "").replace(/"(?:[^"\\]|\\.)*"/g, '""');
       const n = /^\s*namespace\s+([\w.]+)/.exec(line);
       if (n) ns = n[1];
+      // Traits belong to the next class or test; any other member in between drops them.
+      if (!pending && traits.length && !/^\s*(\[|$)/.test(line) && !/\b(?:class|record)\s+\w+/.test(line)) traits = [];
       const c = /\b(?:class|record)\s+(\w+)/.exec(line);
       if (c) { classes.push({ name: c[1], depth, traits }); traits = []; }
       if (/\[\s*(?:Fact|Theory|Test|TestCase|TestCaseSource|TestMethod|DataTestMethod)\b/.test(line)) pending = true;
@@ -233,10 +235,10 @@ export function initTests(app) {
       note = "No coverage report came back. The test project needs the coverlet.collector package (new xUnit projects have it): dotnet add package coverlet.collector.";
       return;
     }
-    const files = new Set((S.files || []).map(norm));
-    const cov = parseCobertura(xml, (p) => files.has(norm(p)));
+    const files = new Set((S.files || []).map(covKey));
+    const cov = parseCobertura(xml, (p) => files.has(covKey(p)));
     coverage ||= new Map();
-    for (const [f, v] of cov) coverage.set(norm(f), v);
+    for (const [f, v] of cov) coverage.set(covKey(f), v);
     covAll();
   }
 
@@ -431,9 +433,11 @@ export function initTests(app) {
   ]);
   // ---------- coverage: a bar beside lines that ran (green) or didn't (red) ----------
   const setCov = StateEffect.define();
+  // Windows paths differ in case between the report and the editor (c:/ vs C:/).
+  const covKey = (p) => norm(p).toLowerCase();
   const covDeco = { hit: Decoration.line({ class: "cm-cov-hit" }), miss: Decoration.line({ class: "cm-cov-miss" }) };
   const covFor = (path) => (state) => {
-    const c = coverage?.get(path);
+    const c = coverage?.get(covKey(path));
     if (!c) return Decoration.none;
     const marks = [];
     for (const [set, d] of [[c.hit, covDeco.hit], [c.miss, covDeco.miss]]) for (const n of set) if (n <= state.doc.lines) marks.push(d.range(state.doc.line(n).from));

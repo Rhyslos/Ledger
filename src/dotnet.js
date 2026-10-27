@@ -241,7 +241,7 @@ export function initDotnet(app) {
       { label: "Manage NuGet packages…", run: () => openNuget(p.path) },
       { label: "Add a project reference…", run: () => addReference(p) },
       ...(p.secrets || /web|worker/i.test(p.sdk) ? [{ label: "Edit user secrets…", run: () => app.dotnetHooks.secrets?.(p) }] : []),
-      ...(p.ef ? [{ label: "EF Core: add a migration…", run: () => app.run("ef.addMigration") }, { label: "EF Core: update the database…", run: () => app.run("ef.updateDatabase") }] : []),
+      ...(p.ef ? [{ label: "EF Core: add a migration…", run: () => app.dotnetHooks.addMigration?.(p) }, { label: "EF Core: update the database…", run: () => app.dotnetHooks.updateDatabase?.(p) }] : []),
       "-",
       { label: "Open the project file", run: () => app.openFile(p.path) },
       { label: "Publish…", run: () => app.dotnetHooks.publish?.(p) },
@@ -493,7 +493,7 @@ export function initDotnet(app) {
     const prof = p?.profiles.find((x) => x.name === o.profile) || p?.profiles[0];
     if (!prof?.launchBrowser) return;
     opened = true;
-    const url = m[1].replace("://[::]", "://localhost").replace("://0.0.0.0", "://localhost").replace(/\/$/, "") + (prof.launchUrl ? "/" + prof.launchUrl.replace(/^\//, "") : "");
+    const url = /^https?:\/\//i.test(prof.launchUrl) ? prof.launchUrl : m[1].replace("://[::]", "://localhost").replace("://0.0.0.0", "://localhost").replace(/\/$/, "") + (prof.launchUrl ? "/" + prof.launchUrl.replace(/^\//, "") : "");
     openUrl(url).catch(() => {});
   });
   app.taskDoneHooks.push(() => { opened = false; });

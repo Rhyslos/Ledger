@@ -128,7 +128,7 @@ const isPage = (k) => typeof k === "string" && k.startsWith("@");
 // File icons by type (Settings › Appearance › File icons), or the coloured dots.
 const fileIcons = () => settings.fileIcons !== false;
 const mark = (path) => (fileIcons() && path ? iconHtml(path) : '<span class="dot"></span>');
-const isVirtual = (p) => /^[a-z]+:/i.test(p) && !/^[A-Za-z]:\//.test(p); // csharp:/metadata/…
+const isVirtual = (p) => (/^[a-z]+:/i.test(p) && !/^[A-Za-z]:\//.test(p)) || /^@http:/.test(p); // csharp:/metadata/…, an HTTP response
 
 // ---------- paths ----------
 const base = (p) => norm(p).split("/").pop();
@@ -138,7 +138,10 @@ const join = (a, b) => norm(a).replace(/\/$/, "") + "/" + norm(b).replace(/^\//,
 const isUnder = (p, root) => !!root && !!p && (p === root || p.toLowerCase().startsWith(root.toLowerCase().replace(/\/$/, "") + "/"));
 const rel = (p) => (S.root && isUnder(p, S.root) ? p.slice(S.root.replace(/\/$/, "").length + 1) : p);
 const isAbs = (p) => /^(\/|[A-Za-z]:\/)/.test(norm(p));
-const TOOLCHAIN = /\/(\.rustup|\.cargo\/registry|\.cargo\/git|\.nuget|rustlib|dotnet\/packs|dotnet\/shared)\//i;
+// Code that isn't yours to edit: toolchains, package caches, and the sources the C# servers make
+// for a definition inside a NuGet package or the framework (Roslyn's MetadataAsSource, from Source
+// Link or decompiled).
+const TOOLCHAIN = /\/(\.rustup|\.cargo\/registry|\.cargo\/git|\.nuget|rustlib|dotnet\/packs|dotnet\/shared|MetadataAsSource|SourceLink|DecompiledSource)\//i;
 
 // ---------- small ui helpers ----------
 /** Calls every hook in a list; one that throws is logged and the rest still run (a broken
@@ -444,6 +447,9 @@ function serverSpec(id) {
   const kind = settings.csharpKind || (settings.csharpServer && settings.csharpServer !== "csharp-ls" ? "custom" : "csharp-ls");
   if (kind === "roslyn") return {
     exe: "roslyn-language-server", args: ["--stdio", "--autoLoadProjects", "--logLevel", "Warning"], initOptions: {},
+    // Go to definition into NuGet packages and the framework: their source from Source Link when
+    // the package publishes it, decompiled when not.
+    settings: { navigation: { dotnet_navigate_to_decompiled_sources: true, dotnet_navigate_to_source_link_and_embedded_sources: true } },
     missing: "Roslyn isn't installed. Open Settings (Ctrl+P) › C# and .NET and use the install button, or run: dotnet tool install --global roslyn-language-server --prerelease",
   };
   return {
@@ -3779,6 +3785,7 @@ const app = {
   lspHooks, dotnetHooks, outputHooks, taskDoneHooks, setBuildProblems, highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
   cwd: () => S.ctx?.dir || S.root || "",
   trusted: () => trusted(),
+  startServer: (id) => startServer(id),
   ensureTrusted, isUntrustedError, askTrust, trustHooks,
   indentOf,
   updateCtx, taskKind, projectFor, projectDirs, invoke, keyString, openFolder, closeFolder,
@@ -3849,6 +3856,7 @@ async function boot() {
     // Installing tools (winget, npm -g, cargo install) runs no project code.
     runTask: (program, args, label, done, fail) => startSteps([{ label, program, args, install: true }], done, fail),
     restartServer: (id) => (S.root ? startServer(id) : toast("Open a folder first.")),
+    root: () => S.root,
     stopServer: (id) => servers[id].stop(),
     openFile: (p) => openFile(norm(p)),
     saved: () => emit("settings-changed", { from: winLabel }).catch(() => {}),

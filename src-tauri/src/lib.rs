@@ -1595,10 +1595,10 @@ mod env_tests {
     use super::safe_env;
     #[test]
     fn task_variables() {
-        for ok in ["ASPNETCORE_ENVIRONMENT", "ASPNETCORE_URLS", "VSTEST_HOST_DEBUG", "ConnectionStrings__Db", "Logging:LogLevel:Default"] {
+        for ok in ["ASPNETCORE_ENVIRONMENT", "VSTEST_HOST_DEBUG", "TESTINGPLATFORM_WAIT_ATTACH_DEBUGGER"] {
             assert!(safe_env(ok), "{ok}");
         }
-        for bad in ["PATH", "path", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "DOTNET_STARTUP_HOOKS", "CORECLR_PROFILER", "COR_ENABLE_PROFILING", "MSBuildExtensionsPath", "NODE_OPTIONS", "", "A=B", "X Y"] {
+        for bad in ["PATH", "path", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "DOTNET_STARTUP_HOOKS", "CORECLR_PROFILER", "COR_ENABLE_PROFILING", "MSBuildExtensionsPath", "CustomBeforeMicrosoftCommonTargets", "NUGET_PLUGIN_PATHS", "DOTNET_ROOT_X64", "NODE_OPTIONS", "", "vstest_host_debug"] {
             assert!(!safe_env(bad), "{bad}");
         }
     }
@@ -2502,18 +2502,16 @@ fn debugger_layout(app: &AppHandle, kind: &str) -> Res<(PathBuf, PathBuf, &'stat
     Ok((dir.clone(), dir.join(exe), url))
 }
 
-/// A variable a task may be given: not ones that make the system load other code or find other
-/// programs (PATH, LD_PRELOAD, DOTNET_STARTUP_HOOKS and the like).
+/// A variable a task may be given. Only these: MSBuild turns every variable into a property, and
+/// others change what gets loaded into a process, so a list of what's refused can't be complete.
 fn safe_env(k: &str) -> bool {
-    let u = k.to_ascii_uppercase();
-    !k.is_empty()
-        && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == ':')
-        && !matches!(u.as_str(), "PATH" | "PATHEXT" | "COMSPEC" | "SYSTEMROOT" | "WINDIR" | "HOME" | "USERPROFILE" | "APPDATA" | "LOCALAPPDATA" | "TEMP" | "TMP" | "DOTNET_ROOT" | "DOTNET_HOST_PATH" | "DOTNET_STARTUP_HOOKS" | "DOTNET_ADDITIONAL_DEPS" | "DOTNET_SHARED_STORE" | "NODE_OPTIONS" | "RUSTC_WRAPPER" | "CARGO_HOME" | "RUSTUP_HOME")
-        && !u.starts_with("LD_")
-        && !u.starts_with("DYLD_")
-        && !u.starts_with("COR_")
-        && !u.starts_with("CORECLR_")
-        && !u.starts_with("MSBUILD")
+    matches!(k, "VSTEST_HOST_DEBUG" | "TESTINGPLATFORM_WAIT_ATTACH_DEBUGGER" | "ASPNETCORE_ENVIRONMENT" | "DOTNET_ENVIRONMENT")
+}
+
+/// Your home folder, where an attached debugger starts (outside any project).
+#[tauri::command]
+fn home_dir() -> Option<String> {
+    home().map(|h| plain_path(&h))
 }
 
 #[derive(Serialize)]
@@ -2581,7 +2579,18 @@ async fn http_request(method: String, url: String, headers: Vec<(String, String)
             .user_agent("Ledger")
             .build();
         let mut req = agent.request(&method, &url);
+        // A header given twice (two Accept lines) goes as one, its values joined, as HTTP allows.
+        let mut merged: Vec<(String, String)> = Vec::new();
         for (k, v) in &headers {
+            match merged.iter_mut().find(|(n, _)| n.eq_ignore_ascii_case(k)) {
+                Some((_, all)) => {
+                    all.push_str(if k.eq_ignore_ascii_case("cookie") { "; " } else { ", " });
+                    all.push_str(v);
+                }
+                None => merged.push((k.clone(), v.clone())),
+            }
+        }
+        for (k, v) in &merged {
             req = req.set(k, v);
         }
         let t = std::time::Instant::now();
@@ -2597,7 +2606,11 @@ async fn http_request(method: String, url: String, headers: Vec<(String, String)
         let ms = t.elapsed().as_millis() as u64;
         let status = r.status();
         let reason = r.status_text().to_string();
-        let headers = r.headers_names().into_iter().filter_map(|n| r.header(&n).map(|v| (n.clone(), v.to_string()))).collect();
+        // Every value of a repeated header (Set-Cookie), each once.
+        let mut names = r.headers_names();
+        names.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        let mut seen = std::collections::HashSet::new();
+        let headers = names.into_iter().filter(|n| seen.insert(n.to_ascii_lowercase())).flat_map(|n| r.all(&n).into_iter().map(|v| (n.clone(), v.to_string())).collect::<Vec<_>>()).collect();
         let mut buf = Vec::new();
         use std::io::Read;
         r.into_reader().take(20 << 20).read_to_end(&mut buf).map_err(err)?;
@@ -2734,6 +2747,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             refresh_path,
             list_processes,
+            home_dir,
             http_request,
             user_secrets_file,
             shell_menu,
