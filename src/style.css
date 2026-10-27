@@ -844,3 +844,17 @@ th.db-n { z-index: 2; background: var(--side); }
 .logrow .lref { font-size: 11px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 8px; padding: 0 6px; margin-left: 4px; }
 .node.cut { opacity: .5; }
 .status .tasks button.locked { opacity: .55; }
+/* Colours from the language server (lspmore.js). They sit over the grammar's colours. */
+.cm-st-type, .cm-st-type * { color: var(--syn-class) !important; }
+.cm-st-iface, .cm-st-iface * { color: var(--syn-type) !important; }
+.cm-st-tparam, .cm-st-tparam * { color: var(--syn-type) !important; font-style: italic; }
+.cm-st-ns, .cm-st-ns * { color: var(--syn-mod) !important; }
+.cm-st-fn, .cm-st-fn * { color: var(--syn-fn) !important; }
+.cm-st-const, .cm-st-const * { color: var(--syn-const) !important; }
+.cm-st-macro, .cm-st-macro * { color: var(--syn-macro) !important; }
+.cm-st-prop, .cm-st-prop *, .cm-st-field, .cm-st-field *, .cm-st-var, .cm-st-var * { color: var(--ink) !important; }
+.cm-st-param, .cm-st-param * { color: var(--ink) !important; font-style: italic; }
+.cm-st-static { font-style: italic; }
+.cm-st-deprecated { text-decoration: line-through; text-decoration-color: var(--faint); }
+.cm-dochl { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 2px; }
+.cm-dochl-w { background: color-mix(in srgb, var(--warn) 18%, transparent); }

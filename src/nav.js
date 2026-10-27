@@ -26,37 +26,43 @@ export function initNav(app) {
     app.syncDoc(path, v.state.doc);
     const res = await srv.request("textDocument/references", { ...srv.at(path, v.state.doc, pos), context: { includeDeclaration: true } });
     if (!res || !res.length) { app.toast(name ? `No references to ${name} found.` : "No references found."); return; }
+    await showLocations(`${res.length} reference${res.length === 1 ? "" : "s"} to <code>${esc(name)}</code>`, res, path);
+  }
+  /** A list of places in the References panel, each with its line of code; `heading` is HTML.
+   *  `locs`: LSP Locations ({ uri, range }) or { path, range, note }. */
+  async function showLocations(heading, locs, first = S.active) {
     const byFile = new Map();
-    for (const loc of res) {
-      const p = norm(uriToPath(loc.uri));
+    for (const loc of locs) {
+      const p = loc.path ? norm(loc.path) : norm(uriToPath(loc.uri));
       if (!byFile.has(p)) byFile.set(p, []);
-      byFile.get(p).push(loc.range);
+      byFile.get(p).push(loc);
     }
     // Show each hit's line of code.
     const texts = new Map();
     await Promise.all([...byFile.keys()].map(async (p) => {
       const ob = S.bufs.get(p);
       if (ob) { texts.set(p, ob.state.doc.toString().split("\n")); return; }
-      try { texts.set(p, (await invoke("read_file", { path: p })).replace(/^﻿/, "").split(/\r?\n/)); } catch { texts.set(p, []); }
+      try { texts.set(p, (await invoke("read_file", { path: p })).replace(/^\uFEFF/, "").split(/\r?\n/)); } catch { texts.set(p, []); }
     }));
-    const files = [...byFile.entries()].sort((a, c) => (a[0] === path ? -1 : c[0] === path ? 1 : rel(a[0]).localeCompare(rel(c[0]))));
-    let first = true;
-    $("refs").innerHTML = `<p class="empty" style="padding:6px 6px 2px">${res.length} reference${res.length === 1 ? "" : "s"} to <code>${esc(name)}</code> in ${files.length} file${files.length === 1 ? "" : "s"}</p>` +
-      files.map(([p, ranges]) => {
-        ranges.sort((a, c) => a.start.line - c.start.line || a.start.character - c.start.character);
+    const files = [...byFile.entries()].sort((a, c) => (a[0] === first ? -1 : c[0] === first ? 1 : rel(a[0]).localeCompare(rel(c[0]))));
+    let firstRow = true;
+    $("refs").innerHTML = `<p class="empty" style="padding:6px 6px 2px">${heading} in ${files.length} file${files.length === 1 ? "" : "s"}</p>` +
+      files.map(([p, list]) => {
+        list.sort((a, c) => a.range.start.line - c.range.start.line || a.range.start.character - c.range.start.character);
         const lines = texts.get(p) || [];
-        return `<h3>${esc(rel(p))} <span>${ranges.length}</span></h3>` + ranges.map((r) => {
-          const t = lines[r.start.line] || "";
+        return `<h3>${esc(app.isUnder(p, S.root) ? rel(p) : p)} <span>${list.length}</span></h3>` + list.map((loc) => {
+          const r = loc.range, t = lines[r.start.line] || "";
           const s = r.start.character, e = r.start.line === r.end.line ? r.end.character : t.length;
           const trim = t.length - t.trimStart().length;
-          const html = esc(t.slice(trim, s)) + "<mark>" + esc(t.slice(s, e)) + "</mark>" + esc(t.slice(e).trimEnd());
-          const row = `<div class="prob" role="button" tabindex="${first ? 0 : -1}" data-pp="${esc(p)}" data-l="${r.start.line}" data-c="${r.start.character}"><span class="sv" style="color:var(--t-${dotOf(p)})">●</span><span class="ms code" style="font:12.5px var(--mono)">${html}</span><span class="at">${r.start.line + 1}:${r.start.character + 1}</span></div>`;
-          first = false;
+          const html = (loc.note ? `<b>${esc(loc.note)}</b> · ` : "") + esc(t.slice(trim, s)) + "<mark>" + esc(t.slice(s, e)) + "</mark>" + esc(t.slice(e).trimEnd());
+          const row = `<div class="prob" role="button" tabindex="${firstRow ? 0 : -1}" data-pp="${esc(p)}" data-l="${r.start.line}" data-c="${r.start.character}"><span class="sv" style="color:var(--t-${dotOf(p)})">●</span><span class="ms code" style="font:12.5px var(--mono)">${html}</span><span class="at">${r.start.line + 1}:${r.start.character + 1}</span></div>`;
+          firstRow = false;
           return row;
         }).join("");
       }).join("");
     app.focusPanel("refs");
   }
+  app.showLocations = showLocations;
 
   // ---------- document symbols: outline view and @ in the palette ----------
   const sym = { path: null, doc: null, list: [], flat: [], loading: null };

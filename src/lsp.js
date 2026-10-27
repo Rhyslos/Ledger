@@ -41,7 +41,7 @@ export const severity = (n) => SEV[n] || "info";
 const CAPS = {
   general: { positionEncodings: ["utf-16"] },
   window: { workDoneProgress: true, showMessage: {} },
-  workspace: { configuration: true, applyEdit: true, workspaceFolders: true, workspaceEdit: { documentChanges: true }, inlayHint: { refreshSupport: true }, symbol: {} },
+  workspace: { configuration: true, applyEdit: true, workspaceFolders: true, workspaceEdit: { documentChanges: true }, inlayHint: { refreshSupport: true }, semanticTokens: { refreshSupport: true }, symbol: {} },
   textDocument: {
     synchronization: { didSave: true, dynamicRegistration: false },
     completion: { completionItem: { snippetSupport: true, documentationFormat: ["markdown", "plaintext"], labelDetailsSupport: true }, contextSupport: true },
@@ -53,6 +53,17 @@ const CAPS = {
     formatting: {},
     rename: { prepareSupport: false },
     inlayHint: { dynamicRegistration: false },
+    implementation: { linkSupport: true },
+    typeDefinition: { linkSupport: true },
+    documentHighlight: {},
+    callHierarchy: {},
+    typeHierarchy: {},
+    semanticTokens: {
+      requests: { full: true, range: false },
+      tokenTypes: ["namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter", "variable", "property", "enumMember", "event", "function", "method", "macro", "keyword", "modifier", "comment", "string", "number", "regexp", "operator", "decorator"],
+      tokenModifiers: ["declaration", "definition", "readonly", "static", "deprecated", "abstract", "async", "modification", "documentation", "defaultLibrary"],
+      formats: ["relative"], overlappingTokenSupport: false, multilineTokenSupport: false, augmentsSyntaxTokens: true,
+    },
     codeAction: {
       codeActionLiteralSupport: { codeActionKind: { valueSet: ["", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source", "source.organizeImports"] } },
       resolveSupport: { properties: ["edit"] },
@@ -261,6 +272,7 @@ export class Lsp {
       return Promise.resolve(this.on.applyEdit?.(m.params.edit)).then((ok) => this.send({ id: m.id, result: { applied: ok !== false } }));
     }
     if (m.method === "workspace/inlayHint/refresh") this.on.refreshHints?.(this);
+    if (m.method === "workspace/semanticTokens/refresh") this.on.semanticRefresh?.(this);
     // Settings the server asks for by section ("css", "html.format"…), from the spec's `settings`.
     const pick = (section) => (section ? section.split(".").reduce((o, k) => (o == null ? o : o[k]), this.settings) : this.settings) ?? null;
     const result = m.method === "workspace/configuration" ? (m.params?.items || []).map((it) => pick(it.section)) : null;

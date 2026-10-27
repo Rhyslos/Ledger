@@ -19,6 +19,9 @@ import { initHex } from "./hex.js";
 import { initHistory } from "./history.js";
 import { initSearch } from "./search.js";
 import { initEditCommands } from "./editcmds.js";
+import { initLspMore } from "./lspmore.js";
+import { initDotnet } from "./dotnet.js";
+import { parseEditorConfig, propsFor, settingsFrom } from "./editorconfig.js";
 import { findPanel, openReplace } from "./findbar.js";
 import { iconHtml } from "./icons.js";
 import { VITE, createSteps, withTailwindPlugin, CSS_FILES, FIRST_FILES } from "./scaffold.js";
@@ -321,6 +324,7 @@ function known(path) {
   for (const k of S.tabs) if (k.toLowerCase() === low) return k;
   return path;
 }
+const lspHooks = {}; // filled in by other modules (lspmore.js)
 const lspHandlers = {
   diagnostics(path, list) {
     path = known(path);
@@ -334,6 +338,7 @@ const lspHandlers = {
     if (srv.state.text?.startsWith("ready")) { for (const [p, b] of S.bufs) if (serverOf(b) === srv) scheduleHints(p, 50); each(readyHooks, srv); }
   },
   refreshHints: (srv) => { for (const [p, b] of S.bufs) if (serverOf(b) === srv) scheduleHints(p, 50); },
+  semanticRefresh: () => lspHooks.semanticRefresh?.(),
   message: (m) => toast(m, 5000),
   applyEdit: (we) => applyWorkspaceEdit(we).then(() => true),
 };
@@ -414,8 +419,15 @@ function serverSpec(id) {
     initOptions: { ...(!trusted() && globalTs ? { tsserver: { path: globalTs } } : {}), preferences: { includeCompletionsForModuleExports: true, includeCompletionsWithInsertText: true, includeCompletionsForImportStatements: true, includeInlayParameterNameHints: "literals", includeInlayFunctionLikeReturnTypeHints: false } },
     missing: "The JavaScript and TypeScript language server isn't installed. Open Settings (Ctrl+P) › Languages and install it.",
   };
+  // C#: csharp-ls, Microsoft's Roslyn server (loads the projects it finds under the folder by
+  // itself with --autoLoadProjects), or a server of your choice.
+  const kind = settings.csharpKind || (settings.csharpServer && settings.csharpServer !== "csharp-ls" ? "custom" : "csharp-ls");
+  if (kind === "roslyn") return {
+    exe: "roslyn-language-server", args: ["--stdio", "--autoLoadProjects", "--logLevel", "Warning"], initOptions: {},
+    missing: "Roslyn isn't installed. Open Settings (Ctrl+P) › C# and .NET and use the install button, or run: dotnet tool install --global roslyn-language-server --prerelease",
+  };
   return {
-    exe: settings.csharpServer || "csharp-ls", args: splitArgs(settings.csharpArgs), initOptions: {},
+    exe: kind === "custom" ? settings.csharpServer || "csharp-ls" : "csharp-ls", args: kind === "custom" ? splitArgs(settings.csharpArgs) : [], initOptions: {},
     missing: "The C# language server isn't installed. Open Settings (Ctrl+P) and use the install button, or run: dotnet tool install --global csharp-ls",
   };
 }
@@ -827,7 +839,38 @@ function detectIndent(text) {
   // (One indented line counts too: a small component with a single 2-space line is 2 spaces.)
   return best ? { tabs: false, size: best[0] } : null;
 }
-const indentOf = (b) => (b?.indentSet || (settings.detectIndent !== false && b?.indent)) || { tabs: false, size: settings.tabSize };
+// Your own pick for this file, then the project's .editorconfig, then what the file does, then Settings.
+const indentOf = (b) => (b?.indentSet || b?.ec?.indent || (settings.detectIndent !== false && b?.indent)) || { tabs: false, size: settings.tabSize };
+// ---------- .editorconfig ----------
+const ecCache = new Map(); // folder -> parsed .editorconfig, or null
+async function readEc(dir) {
+  if (!ecCache.has(dir)) {
+    let parsed = null;
+    try { parsed = parseEditorConfig(await invoke("read_file", { path: join(dir, ".editorconfig") })); } catch {}
+    ecCache.set(dir, parsed);
+  }
+  return ecCache.get(dir);
+}
+/** Applies the .editorconfig files above a file (nearest wins; root = true stops the search). */
+async function applyEditorConfig(path) {
+  const b = S.bufs.get(path);
+  if (!b || b.virtual || isVirtual(path)) return;
+  const found = [];
+  for (let d = parent(path), n = 0; d && n < 30; d = parent(d), n++) {
+    const c = await readEc(d);
+    if (c) { found.push([d, c]); if (c.root) break; }
+    if (parent(d) === d) break;
+  }
+  if (!found.length) return;
+  const props = {};
+  for (const [d, c] of found.reverse()) Object.assign(props, propsFor(c, path.slice(d.length + 1)));
+  const ec = settingsFrom(props);
+  const now = S.bufs.get(path);
+  if (!now) return;
+  now.ec = ec;
+  if (ec.eol && now.state.doc.length === 0) now.eol = ec.eol; // a new file takes the project's line endings
+  if (ec.indent) { dispatchBuf(path, { effects: cfg.reconfigure(cfgExt(now)) }); if (path === S.active) renderPos(); }
+}
 const cfgExt = (b) => {
   const ind = indentOf(b);
   return [EditorState.tabSize.of(ind.tabs ? settings.tabSize : ind.size), indentUnit.of(ind.tabs ? "\t" : " ".repeat(ind.size)), settings.wordWrap ? EditorView.lineWrapping : []];
@@ -984,6 +1027,7 @@ function makeBuffer(path, text, opts = {}) {
   b.indent = detectIndent(text.length > 2_000_000 ? text.slice(0, 200_000) : text);
   b.state = EditorState.create({ doc: b.saved, extensions: extensionsFor(path, b) });
   S.bufs.set(path, b);
+  if (!b.virtual) applyEditorConfig(path);
   const srv = serverOf(b);
   if (srv && !b.ro) { b.sent = b.saved; b.pend = null; ensureServer(b.lang); srv.open(path, b.saved.toString(), LANGS[b.lang].languageId); scheduleHints(path, 300); }
   if (S.diags.has(path)) applyDiags(path);
@@ -1366,6 +1410,8 @@ async function lustCheck(path) {
   for (const f of [...lustShown]) if (isUnder(f, dir) && !found.has(f)) { lspHandlers.diagnostics(f, []); lustShown.delete(f); }
   for (const [f, list] of found) { lustShown.add(f); lspHandlers.diagnostics(f, list); }
 }
+// An edited .editorconfig applies to the open files at once.
+saveHooks.push((path) => { if (base(path) === ".editorconfig") { ecCache.clear(); for (const p of S.bufs.keys()) applyEditorConfig(p); } });
 saveHooks.push((path, b) => { if (b.lang === "lust") lustCheck(path); if (/\.css$|tailwind\.config\./.test(path)) tailwindChanged(); });
 // ---------- Live Server ----------
 // Serves the open folder on localhost and reloads the page whenever a file in it is saved.
@@ -2683,7 +2729,7 @@ function applySetting(key) {
   if (key === "inlayHints") for (const p of S.bufs.keys()) refreshHints(p);
   if (key === "keys") { keymap.setOverrides(settings.keys); renderStatus(); }
   if ((key === "rustAnalyzer" || key === "rustCheck") && started(servers.rust)) startServer("rust");
-  if ((key === "csharpServer" || key === "csharpArgs") && started(servers.csharp)) startServer("csharp");
+  if ((key === "csharpServer" || key === "csharpArgs" || key === "csharpKind") && started(servers.csharp)) startServer("csharp");
   if (key === "godot") renderStatus();
   if (["bracketColors", "indentGuides", "stickyScroll", "colourSwatches", "emmet", "overviewRuler", "gitBlame", "codeLens", "gitGutter", "dependencyHints"].includes(key)) reconfigureExtras();
   if (key === "statusBar") applyStatusBar();
@@ -3684,7 +3730,7 @@ const app = {
   showPanel, focusPanel, focusZone, currentZone, showSideView, sideViews, get sideView() { return sideView; },
   openFile, activate, addTab, keepTab, save, saveAll, startSteps, appendOut, renderTabs, renderMain, renderStatus, scheduleUi,
   dispatchBuf, serverOf, needServer, syncDoc, renderMd, hl, norm, rel, base, parent, join, isUnder, isAbs, esc, splitArgs,
-  highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
+  lspHooks, highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
   cwd: () => S.ctx?.dir || S.root || "",
   trusted: () => trusted(),
   ensureTrusted, isUntrustedError, askTrust, trustHooks,
@@ -3806,6 +3852,8 @@ async function boot() {
   $("app").classList.toggle("collapsed", !!prefs.collapsed);
   initSearch(app); // before the side view shows: it may be the one that was open last time
   initEditCommands(app);
+  initLspMore(app);
+  initDotnet(app);
   showSideView(sideViews[sideView] ? sideView : "files");
   term = initTerminal(app);
   navx = initNav(app);
