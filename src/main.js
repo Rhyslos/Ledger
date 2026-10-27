@@ -324,7 +324,26 @@ function known(path) {
   for (const k of S.tabs) if (k.toLowerCase() === low) return k;
   return path;
 }
+// Errors and warnings from a build (dotnet build's file(line,col): error CS…), shown in Problems
+// and in the editor for files the language server hasn't said anything about; a newer build
+// replaces them, and the server's own (fresher) list for a file wins.
+let buildDiagPaths = new Set();
+function setBuildProblems(map) {
+  for (const p of buildDiagPaths) if ((S.diags.get(p) || []).every((d) => d.source === "build")) { S.diags.delete(p); if (S.bufs.has(p)) applyDiags(p); }
+  buildDiagPaths = new Set();
+  for (const [raw, list] of map) {
+    const p = known(raw);
+    const cur = S.diags.get(p);
+    if (cur?.length && cur.some((d) => d.source !== "build")) continue;
+    S.diags.set(p, list.map((d) => ({ ...d, source: "build" })));
+    buildDiagPaths.add(p);
+    if (S.bufs.has(p)) applyDiags(p);
+  }
+  renderProblems();
+  scheduleUi();
+}
 const lspHooks = {}; // filled in by other modules (lspmore.js)
+const dotnetHooks = {}; // dotnet.js: { opts(P) -> { startup, config, framework, profile, watch } }
 const lspHandlers = {
   diagnostics(path, list) {
     path = known(path);
@@ -2386,17 +2405,25 @@ function taskSteps(action, P = S.ctx) {
     }[action] || null;
   }
   const cwd = P.dir;
+  // .NET: the startup project, Debug or Release, the framework and the launch profile chosen in
+  // the Solution view (dotnet.js).
+  const D = dotnetHooks.opts?.(P) || {};
   const dotTarget = P.sln || P.csproj;
-  const dotBuild = { label: "dotnet build", program: "dotnet", args: ["build", ...(dotTarget ? [dotTarget] : []), "-nologo", "-clp:NoSummary"], cwd };
+  const dotOpts = [...(D.config && D.config !== "Debug" ? ["-c", D.config] : []), ...(D.framework ? ["-f", D.framework] : [])];
+  const dotBuild = { label: "dotnet build", program: "dotnet", args: ["build", ...(dotTarget ? [dotTarget] : []), "-nologo", "-clp:NoSummary", ...dotOpts], cwd };
+  const runProj = D.startup || P.csproj;
+  const dotRun = D.watch
+    ? { label: "dotnet watch", program: "dotnet", args: ["watch", ...(runProj ? ["--project", runProj] : []), "run", ...dotOpts, ...(D.profile ? ["--launch-profile", D.profile] : [])], cwd, input: true }
+    : { label: "dotnet run", program: "dotnet", args: ["run", ...(runProj ? ["--project", runProj] : []), ...dotOpts, ...(D.profile ? ["--launch-profile", D.profile] : [])], cwd, input: true };
   const cargo = (sub, input) => ({ label: "cargo " + sub, program: "cargo", args: [sub], cwd, input });
   const godotPlay = (scene) => ({ label: scene ? "Play " + base(scene) : "Play", program: settings.godot, args: ["--path", cwd, ...(scene ? [scene] : [])], cwd, godot: true });
   const scene = S.active && /\.tscn$/i.test(S.active) && isUnder(S.active, cwd) ? "res://" + norm(S.active).slice(cwd.length + 1) : null;
   const T = {
     rust: { run: [cargo("run", true)], build: [cargo("build")], check: [cargo("check")], test: [cargo("test", true)], lint: [cargo("clippy")] },
     dotnet: {
-      run: [{ label: "dotnet run", program: "dotnet", args: ["run", ...(P.csproj ? ["--project", P.csproj] : [])], cwd, input: true }],
+      run: runProj || !P.sln ? [dotRun] : null,
       build: [dotBuild], check: [dotBuild],
-      test: [{ label: "dotnet test", program: "dotnet", args: ["test", ...(dotTarget ? [dotTarget] : []), "-nologo"], cwd, input: true }],
+      test: [{ label: "dotnet test", program: "dotnet", args: ["test", ...(dotTarget ? [dotTarget] : []), "-nologo", ...dotOpts], cwd, input: true }],
     },
     godot: {
       run: [...(P.dotnet ? [dotBuild] : []), godotPlay()],
@@ -2432,6 +2459,7 @@ async function runAction(action) {
   const steps = taskSteps(action, P);
   if (!steps) {
     if (!P) toast(projectDirs().length > 1 ? "Open a file from the project you want. This folder holds several projects." : "No Cargo.toml, .csproj, .sln, project.godot or package.json here.", 5000);
+    else if (taskKind(P) === "dotnet" && action === "run" && P.sln) { toast("This solution has several projects: pick the one Run starts.", 4000); dotnetHooks.pickStartup?.().then((ok) => ok && runAction("run")); }
     else if (taskKind(P) === "node") toast(action === "run" ? "package.json has no dev, start or serve script. Pick one from Scripts." : `package.json has no script for ${taskLabel(action)}.`, 5000);
     else if (action === "scene") toast("Open a .tscn scene file to play it.");
     else if (action === "rust" && /\.lsc$/i.test(S.active || "")) toast("LustScript turns into Lua, not Rust: use Show the Lua.");
@@ -2549,7 +2577,10 @@ function onLine(line) {
   }
   const d = appendOut(ansiToHtml(text));
   if (partial) { partialOut[stream] = d; d.dataset.text = text; } else delete partialOut[stream];
+  if (!partial) for (const f of outputHooks) { try { f(text, S.runLabel, S.runDir); } catch (e) { console.error(e); } }
 }
+// Other modules watching program output (build errors, "Now listening on: http://…").
+const outputHooks = [], taskDoneHooks = [];
 listen("task-done", (e) => {
   if (e.payload.run !== S.run) return;
   const code = e.payload.run === S.stopped ? null : e.payload.code, secs = ((performance.now() - S.runStart) / 1000).toFixed(1);
@@ -2563,6 +2594,7 @@ listen("task-done", (e) => {
   renderStatus();
   if (hadInputFocus) $("out").focus();
   if (/^cargo fmt|^dotnet format/.test(S.runLabel)) reloadClean();
+  for (const f of taskDoneHooks) { try { f(S.runLabel, code); } catch (e) { console.error(e); } }
   const cb = S.onDone, fail = S.onFail;
   S.onDone = S.onFail = null;
   if (cb && code === 0) cb();
@@ -3576,9 +3608,10 @@ async function closeFolder() {
   renderMain(); renderProblems();
 }
 async function newProject() {
-  const kinds = ["Web app with Vite (React, Vue, Svelte…)", "Next.js app", "Website (plain HTML, CSS and JS)", "Node.js program", "Lua program", "Lust program", "LustScript (.lsc, turns into Lua)", "Rust program", "Rust library", "C# console app", "C# class library"];
+  const kinds = ["Web app with Vite (React, Vue, Svelte…)", "Next.js app", "Website (plain HTML, CSS and JS)", "Node.js program", "Lua program", "Lust program", "LustScript (.lsc, turns into Lua)", "Rust program", "Rust library", "C# console app", "C# class library", "Other .NET project (Web API, Blazor, MVC, WPF, tests…)"];
   const i = await choose("What kind of project?", kinds, true);
   if (i == null || i < 0) return;
+  if (i === kinds.length - 1) { dotnetHooks.newProject?.(); return; }
   let kind = ["vite", "next", "web", "node", "lua", "lust", "lustscript", "rust", "rust-lib", "console", "classlib"][i];
   if (kind === "lust") {
     // Every Lust program can have a view; this only picks the starting point.
@@ -3730,7 +3763,7 @@ const app = {
   showPanel, focusPanel, focusZone, currentZone, showSideView, sideViews, get sideView() { return sideView; },
   openFile, activate, addTab, keepTab, save, saveAll, startSteps, appendOut, renderTabs, renderMain, renderStatus, scheduleUi,
   dispatchBuf, serverOf, needServer, syncDoc, renderMd, hl, norm, rel, base, parent, join, isUnder, isAbs, esc, splitArgs,
-  lspHooks, highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
+  lspHooks, dotnetHooks, outputHooks, taskDoneHooks, setBuildProblems, highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
   cwd: () => S.ctx?.dir || S.root || "",
   trusted: () => trusted(),
   ensureTrusted, isUntrustedError, askTrust, trustHooks,
