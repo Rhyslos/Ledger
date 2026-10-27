@@ -6,15 +6,19 @@
 //   C#    [Fact], [Theory], [Test], [TestCase], [TestMethod]; runs dotnet test with a TRX report.
 //   Lust  any .lst or .lsc with a .out or .err next to it (what it should print, or the mistakes
 //         it should report); runs lust test.
-import { gutter, GutterMarker } from "@codemirror/view";
+import { gutter, GutterMarker, Decoration, EditorView } from "@codemirror/view";
 import { StateField, StateEffect, RangeSet } from "@codemirror/state";
 import { on } from "./win.js";
+import { parseCobertura, coveredPercent } from "./coverage.js";
 
 export function initTests(app) {
   const { S, invoke, esc, toast, choose, norm, join, base, parent, isUnder } = app;
   const tests = new Map(); // id -> { id, kind, root, file, line, name, label, status, message, at, ms }
   let running = false, note = "", ran = false, stopped = false;
   let log = []; // the output of the run in progress, newest last (only the tail is kept)
+  let filter = ""; // "name" or "Category=Fast": which tests show (and Run all runs)
+  const openOut = new Set(); // tests whose output is shown
+  let coverage = null; // Map(file → { hit, miss }) from the last run with coverage
   const el = document.getElementById("tests");
 
   // ---------- finding tests ----------
@@ -57,18 +61,20 @@ export function initTests(app) {
 
   function csTests(text) {
     const out = [], classes = [];
-    let ns = "", depth = 0, pending = false;
+    let ns = "", depth = 0, pending = false, traits = [];
     text.split("\n").forEach((raw, i) => {
+      // [Trait("Category", "Fast")] (xUnit), [Category("Fast")] (NUnit), [TestCategory("Fast")] (MSTest).
+      for (const t of raw.replace(/\/\/.*$/, "").matchAll(/\b(?:Trait\s*\(\s*"([^"]+)"\s*,\s*"([^"]*)"|(?:Test)?Category\s*\(\s*"([^"]+)")/g)) traits.push(t[3] ? "Category=" + t[3] : t[1] + "=" + t[2]);
       const line = raw.replace(/\/\/.*$/, "").replace(/"(?:[^"\\]|\\.)*"/g, '""');
       const n = /^\s*namespace\s+([\w.]+)/.exec(line);
       if (n) ns = n[1];
       const c = /\b(?:class|record)\s+(\w+)/.exec(line);
-      if (c) classes.push({ name: c[1], depth });
+      if (c) { classes.push({ name: c[1], depth, traits }); traits = []; }
       if (/\[\s*(?:Fact|Theory|Test|TestCase|TestCaseSource|TestMethod|DataTestMethod)\b/.test(line)) pending = true;
       const m = pending && /\b(?:void|Task|ValueTask)\s+(\w+)\s*\(/.exec(line);
       if (m && classes.length) {
-        out.push({ name: [ns, classes.map((k) => k.name).join("+"), m[1]].filter(Boolean).join("."), label: m[1], line: i });
-        pending = false;
+        out.push({ name: [ns, classes.map((k) => k.name).join("+"), m[1]].filter(Boolean).join("."), label: m[1], line: i, traits: [...new Set([...classes.flatMap((k) => k.traits), ...traits])] });
+        pending = false; traits = [];
       }
       for (const ch of line) {
         if (ch === "{") depth++;
@@ -110,7 +116,7 @@ export function initTests(app) {
         try { text = S.bufs.get(norm(f))?.state.doc.toString() ?? (await invoke("read_file", { path: f })); } catch { return; }
         if (rs ? !/#\[/.test(text) : !/\[\s*(Fact|Theory|Test|TestMethod)/.test(text)) return;
         for (const t of rs ? rustTests(f, text, norm(root)) : csTests(text)) {
-          add({ id: (rs ? "rust:" : "cs:") + norm(root) + ":" + t.name, kind: rs ? "rust" : "cs", root: norm(root), file: norm(f), line: t.line, name: t.name, label: t.label, status: t.skip ? "skip" : "idle" });
+          add({ id: (rs ? "rust:" : "cs:") + norm(root) + ":" + t.name, kind: rs ? "rust" : "cs", root: norm(root), file: norm(f), line: t.line, name: t.name, label: t.label, traits: t.traits || [], status: t.skip ? "skip" : "idle" });
         }
       }));
     }
@@ -172,12 +178,16 @@ export function initTests(app) {
     if (!/test result:/.test(text)) note = "The Rust tests didn't build:\n" + (r.err || r.out || "").split("\n").filter((l) => /error|-->|^\s*\|/.test(l)).slice(0, 14).join("\n");
   }
 
-  async function runCs(root, list) {
+  async function runCs(root, list, cover) {
     const proj = (S.files || []).find((f) => parent(f) === root && /\.csproj$/i.test(f));
     const dir = join(root, "obj/ledger-tests"); // one report, written over each run
     const all = list.length === [...tests.values()].filter((t) => t.kind === "cs" && t.root === root).length;
-    const filter = all ? [] : ["--filter", list.map((t) => "FullyQualifiedName=" + t.name).join("|")];
-    const r = await capture(root, "dotnet", ["test", proj || root, "--nologo", "--logger", "trx;LogFileName=ledger.trx", "--results-directory", dir, ...filter]);
+    const only = all ? [] : ["--filter", list.map((t) => "FullyQualifiedName=" + t.name).join("|")];
+    // Coverage: coverlet writes coverage.cobertura.xml into a new folder (a GUID) next to the report each run.
+    const covDir = dir;
+    const before = cover ? new Set(await subdirs(covDir)) : null;
+    const r = await capture(root, "dotnet", ["test", proj || root, "--nologo", "--logger", "trx;LogFileName=ledger.trx", "--results-directory", dir, ...only, ...(cover ? ["--collect", "XPlat Code Coverage"] : [])]);
+    if (cover) await readCoverage(covDir, before, root);
     let trx = null;
     try {
       const entries = await invoke("list_dir", { path: dir });
@@ -199,6 +209,8 @@ export function initTests(app) {
       const d = /(\d+):(\d+):([\d.]+)/.exec(res.getAttribute("duration") || "");
       const wasFail = t.status === "fail" && t.ranNow; // a theory's cases: one failing case fails the test
       set(t, outcome === "Passed" ? (wasFail ? "fail" : "pass") : outcome === "Failed" ? "fail" : "skip", { ms: d ? Math.round(((+d[1] * 60 + +d[2]) * 60 + +d[3]) * 1000) : null, ranNow: true });
+      const so = res.getElementsByTagName("StdOut")[0]?.textContent?.trim();
+      t.output = so ? (wasFail && t.output ? t.output + "\n" : "") + so : wasFail ? t.output : "";
       const info = res.getElementsByTagName("ErrorInfo")[0];
       if (info) {
         t.message = (info.getElementsByTagName("Message")[0]?.textContent || "").trim();
@@ -207,6 +219,25 @@ export function initTests(app) {
       }
     }
     for (const t of list) delete t.ranNow;
+  }
+
+  const subdirs = async (d) => (await invoke("list_dir", { path: d }).catch(() => [])).filter((e) => e.is_dir).map((e) => e.path);
+  async function readCoverage(covDir, before, root) {
+    const fresh = (await subdirs(covDir)).filter((d) => !before.has(d));
+    let xml = null;
+    for (const d of fresh) {
+      const f = (await invoke("list_dir", { path: d }).catch(() => [])).find((e) => /cobertura\.xml$/i.test(e.name));
+      if (f) { xml = await invoke("read_file", { path: f.path }).catch(() => null); break; }
+    }
+    if (!xml) {
+      note = "No coverage report came back. The test project needs the coverlet.collector package (new xUnit projects have it): dotnet add package coverlet.collector.";
+      return;
+    }
+    const files = new Set((S.files || []).map(norm));
+    const cov = parseCobertura(xml, (p) => files.has(norm(p)));
+    coverage ||= new Map();
+    for (const [f, v] of cov) coverage.set(norm(f), v);
+    covAll();
   }
 
   async function runLust(list) {
@@ -234,7 +265,7 @@ export function initTests(app) {
     }
   }
 
-  async function run(list) {
+  async function run(list, cover = false) {
     if (running) { toast("Tests are already running."); return; }
     if (!list.length) { toast(tests.size ? "No tests to run there." : "No Rust, C# or Lust tests found in this folder."); return; }
     if (!(await app.ensureTrusted("Running tests"))) return;
@@ -250,7 +281,7 @@ export function initTests(app) {
         const kind = k.split("|")[0];
         try {
           if (kind === "rust") await runRust(g[0].root, g);
-          else if (kind === "cs") await runCs(g[0].root, g);
+          else if (kind === "cs") await runCs(g[0].root, g, cover);
           else await runLust(g);
         } catch (e) {
           if (stopped) break;
@@ -267,7 +298,22 @@ export function initTests(app) {
   }
 
   const all = () => [...tests.values()];
-  const runAll = async () => { if (!tests.size) await discover(); return run(all().filter((t) => t.status !== "skip")); };
+  // The filter: words match the test's name, Key=Value its traits ([Trait], [Category]).
+  const matches = (t) => filter.trim().split(/\s+/).filter(Boolean).every((w) => {
+    const lw = w.toLowerCase();
+    if (lw.includes("=")) return (t.traits || []).some((x) => x.toLowerCase() === lw || x.toLowerCase().startsWith(lw));
+    return t.name.toLowerCase().includes(lw) || (t.traits || []).some((x) => x.toLowerCase().split("=")[1] === lw);
+  });
+  const shown = () => all().filter(matches);
+  const runAll = async () => { if (!tests.size) await discover(); return run(shown().filter((t) => t.status !== "skip")); };
+  const runCoverage = async () => {
+    if (!tests.size) await discover();
+    const list = shown().filter((t) => t.kind === "cs" && t.status !== "skip");
+    if (!list.length) { toast("Coverage works for C# tests. None found here."); return; }
+    coverage = null; covAll();
+    return run(list, true);
+  };
+  const clearCoverage = () => { coverage = null; covAll(); render(); };
   const runFailed = () => run(all().filter((t) => t.status === "fail"));
   const runFile = async (path = S.active) => { if (!tests.size) await discover(); return run(all().filter((t) => t.file === norm(path || ""))); };
 
@@ -275,31 +321,55 @@ export function initTests(app) {
   const ICON = { pass: "✓", fail: "✗", skip: "⊘", running: "◌", idle: "○" };
   function render() {
     if (!el) return;
-    const list = all();
+    const list = shown(), everything = all();
     const n = (s) => list.filter((t) => t.status === s).length;
+    const hasCs = everything.some((t) => t.kind === "cs");
+    const traits = [...new Set(everything.flatMap((t) => t.traits || []))].sort();
+    const focused = document.activeElement?.classList.contains("tfilter") ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
     const groups = new Map();
     for (const t of list.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line)) {
       if (!groups.has(t.file)) groups.set(t.file, []);
       groups.get(t.file).push(t);
     }
     el.innerHTML = `<div class="tbar">
-        <button class="btn" data-ta="all" ${running ? "disabled" : ""}>Run all</button>
+        <button class="btn" data-ta="all" ${running ? "disabled" : ""}>${filter.trim() ? "Run shown" : "Run all"}</button>
         <button class="btn" data-ta="failed" ${running || !n("fail") ? "disabled" : ""}>Run failed</button>
         <button class="btn" data-ta="file" ${running ? "disabled" : ""}>Run this file</button>
         <button class="btn" data-ta="find" ${running ? "disabled" : ""}>Find tests</button>
+        ${hasCs ? `<button class="btn" data-ta="cover" ${running ? "disabled" : ""} title="Run the C# tests and mark which lines ran (coverlet)">Coverage</button>` : ""}
+        ${coverage ? `<button class="btn" data-ta="uncover" title="Take the coverage marks away">Hide coverage</button>` : ""}
+        <input class="tfilter" type="search" placeholder="Filter: name or Category=Fast" value="${esc(filter)}" aria-label="Filter tests" list="tTraits" spellcheck="false">
+        <datalist id="tTraits">${traits.map((t) => `<option value="${esc(t)}">`).join("")}</datalist>
         ${running ? `<button class="btn" data-ta="stop" title="End the run and everything it started">Stop</button>` : ""}
         <span class="sp"></span>
-        <span class="tsum">${running ? "Running…" : ran ? `<span class="t-pass">${n("pass")} passed</span> · <span class="t-fail">${n("fail")} failed</span>${n("skip") ? ` · ${n("skip")} skipped` : ""}` : `${list.length} test${list.length === 1 ? "" : "s"}`}</span>
+        <span class="tsum">${coverage && !running ? `<span title="Lines that ran during the tests">${coveredPercent(coverage)}% covered</span> · ` : ""}${running ? "Running…" : ran ? `<span class="t-pass">${n("pass")} passed</span> · <span class="t-fail">${n("fail")} failed</span>${n("skip") ? ` · ${n("skip")} skipped` : ""}` : `${list.length} test${list.length === 1 ? "" : "s"}`}</span>
       </div>
       ${note ? `<pre class="tnote">${esc(note)}</pre>` : ""}
       ${running ? `<pre class="tlog">${esc(log.join("\n"))}</pre>` : ""}
       ${list.length ? [...groups].map(([file, ts]) => `<div class="tfile" title="${esc(file)}">${app.fileIcon(file)}<span>${esc(app.rel(file))}</span></div>
-        ${ts.map((t) => `<div class="trow t-${t.status}" data-tid="${esc(t.id)}" tabindex="-1" title="${esc(t.name)}"><span class="tico">${ICON[t.status]}</span><span class="tname">${esc(t.label)}</span>${t.ms != null ? `<span class="tms">${t.ms} ms</span>` : ""}<button class="ibtn" data-trun="${esc(t.id)}" title="Run this test" aria-label="Run ${esc(t.label)}">▶</button></div>
+        ${ts.map((t) => `<div class="trow t-${t.status}" data-tid="${esc(t.id)}" tabindex="-1" title="${esc(t.name)}"><span class="tico">${ICON[t.status]}</span><span class="tname">${esc(t.label)}</span>${(t.traits || []).map((x) => `<span class="ttrait">${esc(x.replace(/^Category=/, ""))}</span>`).join("")}${t.ms != null ? `<span class="tms">${t.ms} ms</span>` : ""}${t.output ? `<button class="ibtn tob${openOut.has(t.id) ? " on" : ""}" data-tout="${esc(t.id)}" title="What the test printed" aria-label="Output of ${esc(t.label)}">≡</button>` : ""}${t.kind === "cs" ? `<button class="ibtn" data-tdbg="${esc(t.id)}" title="Debug this test" aria-label="Debug ${esc(t.label)}">${BUG}</button>` : ""}<button class="ibtn" data-trun="${esc(t.id)}" title="Run this test" aria-label="Run ${esc(t.label)}">▶</button></div>
+          ${t.output && openOut.has(t.id) ? `<pre class="tmsg tout">${esc(t.output)}</pre>` : ""}
           ${t.status === "fail" && t.message ? `<pre class="tmsg" data-tid="${esc(t.id)}">${esc(t.message)}${t.at ? `\n<a data-at="${esc(t.id)}">${esc(app.rel(t.at.file))}:${t.at.line + 1}</a>` : ""}</pre>` : ""}`).join("")}`).join("")
-        : `<p class="hint" style="padding:10px">No tests found yet. Rust: #[test] functions. C#: [Fact], [Test] or [TestMethod] in a test project. Lust: a program with a .out file next to it (what it should print), or a .err with the mistakes it should report. “Tests: create a test for this file” makes one.</p>`}`;
+        : everything.length ? `<p class="hint" style="padding:10px">No test matches the filter.</p>` : `<p class="hint" style="padding:10px">No tests found yet. Rust: #[test] functions. C#: [Fact], [Test] or [TestMethod] in a test project. Lust: a program with a .out file next to it (what it should print), or a .err with the mistakes it should report. “Tests: create a test for this file” makes one.</p>`}`;
+    if (focused) { const f = el.querySelector(".tfilter"); f.focus(); f.setSelectionRange(...focused); }
   }
+  const BUG = `<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="9.2" rx="3.6" ry="4.3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v8.5M4.4 8H1.8M14.2 8h-2.6M5.6 5.4L4 3.6M10.4 5.4L12 3.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+  el?.addEventListener("input", (ev) => {
+    if (!ev.target.classList.contains("tfilter")) return;
+    filter = ev.target.value;
+    render();
+  });
+  el?.addEventListener("keydown", (ev) => {
+    if (ev.target.classList?.contains("tfilter") && ev.key === "Escape" && filter) { ev.preventDefault(); ev.stopPropagation(); filter = ""; render(); el.querySelector(".tfilter")?.focus(); }
+  });
   el?.addEventListener("click", (ev) => {
     const a = ev.target.closest("[data-ta]")?.dataset.ta;
+    if (a === "cover") return runCoverage();
+    if (a === "uncover") return clearCoverage();
+    const ob = ev.target.closest("[data-tout]");
+    if (ob) { const id = ob.dataset.tout; openOut.has(id) ? openOut.delete(id) : openOut.add(id); render(); return; }
+    const db = ev.target.closest("[data-tdbg]");
+    if (db) { const t = tests.get(db.dataset.tdbg); if (t) app.debug?.debugDotnetTest(t.file, "FullyQualifiedName=" + t.name, t.label); return; }
     if (a === "all") return runAll();
     if (a === "failed") return runFailed();
     if (a === "file") return runFile(S.active);
@@ -359,10 +429,32 @@ export function initTests(app) {
       },
     }),
   ]);
+  // ---------- coverage: a bar beside lines that ran (green) or didn't (red) ----------
+  const setCov = StateEffect.define();
+  const covDeco = { hit: Decoration.line({ class: "cm-cov-hit" }), miss: Decoration.line({ class: "cm-cov-miss" }) };
+  const covFor = (path) => (state) => {
+    const c = coverage?.get(path);
+    if (!c) return Decoration.none;
+    const marks = [];
+    for (const [set, d] of [[c.hit, covDeco.hit], [c.miss, covDeco.miss]]) for (const n of set) if (n <= state.doc.lines) marks.push(d.range(state.doc.line(n).from));
+    return Decoration.set(marks, true);
+  };
+  const covField = StateField.define({
+    create: () => Decoration.none,
+    update(v, tr) {
+      v = v.map(tr.changes);
+      for (const e of tr.effects) if (e.is(setCov)) v = e.value(tr.state);
+      return v;
+    },
+    provide: (f) => EditorView.decorations.from(f),
+  });
+  function covAll() { for (const [path] of S.bufs) app.dispatchBuf(path, { effects: setCov.of(covFor(path)) }); }
+  app.extraExt.push((path) => [covField.init((state) => covFor(norm(path))(state))]);
+
   // Saving a file finds its tests again (new ones, renamed ones, moved lines).
   let findT = null;
   app.saveHooks.push((path) => { if (/\.(rs|cs|lst|lsc|out|err)$/i.test(path) && tests.size) { clearTimeout(findT); findT = setTimeout(discover, 300); } });
-  app.folderHooks.push(() => { tests.clear(); ran = false; note = ""; render(); });
+  app.folderHooks.push(() => { tests.clear(); ran = false; note = ""; filter = ""; openOut.clear(); coverage = null; covAll(); render(); });
 
   // ---------- making tests ----------
   async function createTest(path = S.active) {
@@ -451,5 +543,8 @@ export function initTests(app) {
   app.command("tests.file", "Tests: run the tests in this file", [], () => runFile());
   app.command("tests.create", "Tests: create a test for this file", [], () => createTest());
   app.command("tests.show", "Tests: show the Tests panel", [], () => app.showPanel("tests"));
+  app.command("tests.coverage", "Tests: run the C# tests with code coverage", [], runCoverage, { alias: "coverlet cobertura covered" });
+  app.command("tests.hideCoverage", "Tests: hide the coverage marks", [], clearCoverage);
+  app.command("tests.filter", "Tests: filter by name or category", [], () => { app.showPanel("tests"); setTimeout(() => el?.querySelector(".tfilter")?.focus(), 50); }, { alias: "trait category" });
   return { tests, discover, run, runAll, stop, createTest }; // for scripts that check it
 }

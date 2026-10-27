@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { StateField, StateEffect, Facet, RangeSet, Prec } from "@codemirror/state";
 import { EditorView, Decoration, gutter, GutterMarker, hoverTooltip } from "@codemirror/view";
 import { on } from "./win.js";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { Dap } from "./dap.js";
 import { norm } from "./lsp.js";
 import { dotOf } from "./langs.js";
@@ -256,25 +257,89 @@ export function initDebugger(app) {
       label: r.label.replace(/^test(-mod)? /, "Debug "),
     });
   }
-  async function dotnetProgram(P) {
-    const target = P.sln || P.csproj;
-    const run = await buildThen([{ label: "dotnet build", program: "dotnet", args: ["build", ...(target ? [target] : []), "-nologo", "-clp:NoSummary"], cwd: P.dir }]);
+  /** Builds the startup project (or the project/solution of the open file) as Run would. */
+  async function dotnetProgram(P, proj) {
+    const D = app.dotnetHooks?.opts?.(P) || {};
+    const target = proj || D.startup || P.csproj || P.sln;
+    const extra = [...(D.config && D.config !== "Debug" ? ["-c", D.config] : []), ...(D.framework ? ["-f", D.framework] : [])];
+    const run = await buildThen([{ label: "dotnet build", program: "dotnet", args: ["build", ...(target ? [target] : []), "-nologo", "-clp:NoSummary", ...extra], cwd: P.dir }]);
     if (!run) return { failed: true };
     const lines = dllLines.filter((l) => l.run === run);
-    const want = P.csproj ? app.base(P.csproj).replace(/\.csproj$/i, "") : null;
+    const want = target && /proj$/i.test(target) ? app.base(target).replace(/\.\w+proj$/i, "") : null;
     const hit = lines.find((l) => l.name === want) || lines[lines.length - 1];
-    return { dll: hit ? norm(hit.path) : null };
+    return { dll: hit ? norm(hit.path) : null, target };
   }
   async function debugDotnet(P) {
+    await app.dotnet?.load();
+    const D = app.dotnetHooks?.opts?.(P) || {};
+    if (!D.startup && !P.csproj && P.sln) {
+      app.toast("This solution has several projects: pick the one Debug starts.", 4000);
+      if (await app.dotnetHooks.pickStartup?.()) start();
+      return;
+    }
     const adapter = await ensureAdapter("csharp");
     if (!adapter) return;
-    const { dll, failed } = await dotnetProgram(P);
+    const { dll, failed, target } = await dotnetProgram(P);
     if (failed) return;
     if (!dll) { app.toast("Couldn't find the program dotnet built.", 5000); return; }
+    // The launch profile dotnet run would use: its variables, arguments and addresses.
+    const p = app.dotnet?.projOf(target);
+    const prof = p?.profiles?.find((x) => x.name === D.profile) || p?.profiles?.[0];
+    const env = { ...(prof?.env || {}) };
+    if (prof?.urls && !env.ASPNETCORE_URLS) env.ASPNETCORE_URLS = prof.urls;
+    if (p && /web/i.test(p.sdk || "") && !env.ASPNETCORE_ENVIRONMENT) env.ASPNETCORE_ENVIRONMENT = "Development";
     // The .exe next to the .dll starts faster under the debugger on Windows.
     const exe = dll.replace(/\.dll$/i, isWin ? ".exe" : "");
     const hasExe = exe !== dll && (await invoke("resolve_path", { path: exe, cwd: P.dir }).catch(() => null));
-    launch({ kind: "csharp", adapter, program: hasExe ? exe : dll, args: [], cwd: P.dir, label: "Debug " + app.base(dll).replace(/\.dll$/i, "") });
+    launch({ kind: "csharp", adapter, program: hasExe ? exe : dll, args: splitArgs(prof?.args || ""), env, cwd: p?.dir || P.dir, label: "Debug " + app.base(dll).replace(/\.dll$/i, "") + (prof ? ` (${prof.name})` : ""), browser: prof?.launchBrowser ? prof.launchUrl || "" : null });
+  }
+  /** Arguments written as one line (commandLineArgs), with "quoted parts" kept together. */
+  function splitArgs(line) {
+    const out = [];
+    for (const m of String(line).matchAll(/"((?:[^"\\]|\\.)*)"|(\S+)/g)) out.push(m[1] != null ? m[1].replace(/\\"/g, '"') : m[2]);
+    return out;
+  }
+
+  /** Debug one C# test: dotnet test waits for a debugger (VSTEST_HOST_DEBUG), then Ledger attaches. */
+  let testWait = null; // { label, adapter, name }
+  async function debugDotnetTest(path, filter, name) {
+    if (ses) { app.toast("Stop the current debug session first (Shift F5)."); return; }
+    if (!(await app.ensureTrusted("Debugging"))) return;
+    again = () => debugDotnetTest(path, filter, name);
+    const adapter = await ensureAdapter("csharp");
+    if (!adapter) return;
+    const P = await app.projectFor(path);
+    const target = P?.csproj || P?.sln;
+    const label = "debug test " + name;
+    testWait = { label, adapter, name };
+    app.startSteps([{ label, program: "dotnet", args: ["test", ...(target ? [target] : []), "--filter", filter, "-nologo"], cwd: P?.dir || app.cwd(), env: { VSTEST_HOST_DEBUG: "1" }, input: true }],
+      () => { testWait = null; }, () => { testWait = null; });
+  }
+  app.outputHooks.push((text, label) => {
+    if (!testWait || label !== testWait.label) return;
+    const m = /Process Id:\s*(\d+)/i.exec(text);
+    if (!m) return;
+    const w = testWait;
+    testWait = null;
+    launch({ kind: "csharp", adapter: w.adapter, pid: +m[1], args: [], cwd: app.cwd(), label: "Debug test " + w.name, skipFirst: true, kill: true });
+  });
+
+  /** Debug: attach to a program that's already running. */
+  async function attach() {
+    if (ses) { app.toast("Stop the current debug session first (Shift F5)."); return; }
+    let list;
+    try { list = await invoke("list_processes"); } catch (e) { app.toast("Couldn't list the running programs: " + e, 6000); return; }
+    const P = S.root ? await app.updateCtx() : null;
+    const kind = app.taskKind(P) === "rust" ? "rust" : "csharp";
+    const names = new Set((app.dotnet?.model?.projects || []).map((p) => p.name.toLowerCase()));
+    const score = (p) => (names.has(p.name.replace(/\.exe$/i, "").toLowerCase()) ? 0 : /^(dotnet|testhost)(\.exe)?$/i.test(p.name) || /\.dll\b/i.test(p.cmd) ? 1 : 2);
+    list.sort((a, b) => score(a) - score(b) || a.name.localeCompare(b.name) || a.pid - b.pid);
+    const i = await app.choose("Attach the debugger to…", list.map((p) => `${p.name}  ·  ${p.pid}${p.cmd ? "  ·  " + p.cmd.slice(0, 90) : ""}`), true);
+    if (i == null || i < 0) return;
+    const adapter = await ensureAdapter(kind);
+    if (!adapter) return;
+    again = null;
+    launch({ kind, adapter, pid: list[i].pid, args: [], cwd: S.root || app.cwd(), label: `Attached to ${list[i].name} (${list[i].pid})` });
   }
   async function debugGodot(P) {
     if (!settings.godot) { app.toast("Set the Godot program in Settings first.", 4000); return; }
@@ -291,7 +356,7 @@ export function initDebugger(app) {
     ses = { dap, cfg, state: "starting", threadId: null, frames: [], frame: 0, scopes: [], vars: new Map(), open: new Set(), configured: false };
     $("dconOut").innerHTML = "";
     dconFollow().reset();
-    dconsole(`<span class="dim">${esc(cfg.label)} · ${esc(app.base(cfg.program))}${cfg.args.length ? " " + esc(cfg.args.join(" ")) : ""}</span>`);
+    dconsole(`<span class="dim">${esc(cfg.label)}${cfg.program ? " · " + esc(app.base(cfg.program)) : ""}${cfg.args.length ? " " + esc(cfg.args.join(" ")) : ""}</span>`);
     app.showPanel("dconsole");
     app.showSideView("debug");
     render();
@@ -301,10 +366,12 @@ export function initDebugger(app) {
         clientID: "ledger", clientName: "Ledger", adapterID: cfg.kind === "rust" ? "lldb" : "coreclr", pathFormat: "path",
         linesStartAt1: true, columnsStartAt1: true, supportsVariableType: true, supportsRunInTerminalRequest: false, locale: "en",
       }, 20000);
-      const args = cfg.kind === "rust"
+      const args = cfg.pid
+        ? (cfg.kind === "rust" ? { type: "lldb", request: "attach", name: cfg.label, pid: cfg.pid } : { type: "coreclr", request: "attach", name: cfg.label, processId: cfg.pid, justMyCode: true })
+        : cfg.kind === "rust"
         ? { type: "lldb", request: "launch", name: cfg.label, program: native(cfg.program), args: cfg.args, cwd: native(cfg.cwd), stopOnEntry: false, terminal: "console", sourceLanguages: ["rust"], _adapterSettings: { consoleMode: "evaluate", displayFormat: "auto", dereferencePointers: true } }
-        : { type: "coreclr", request: "launch", name: cfg.label, program: native(cfg.program), args: cfg.args, cwd: native(cfg.cwd), stopAtEntry: false, console: "internalConsole", justMyCode: true };
-      const launched = dap.request("launch", args);
+        : { type: "coreclr", request: "launch", name: cfg.label, program: native(cfg.program), args: cfg.args, cwd: native(cfg.cwd), stopAtEntry: false, console: "internalConsole", justMyCode: true, ...(cfg.env && Object.keys(cfg.env).length ? { env: cfg.env } : {}) };
+      const launched = dap.request(cfg.pid ? "attach" : "launch", args);
       // Adapters ask for breakpoints with the "initialized" event; some send it before
       // launch is answered, some after. Wait for it, but not forever.
       await Promise.race([new Promise((r) => (ses.onInitialized = r)), sleep(5000)]);
@@ -322,8 +389,31 @@ export function initDebugger(app) {
     if (!ses || ses.configured) return;
     ses.configured = true;
     for (const p of model.keys()) await sendBreakpoints(p);
-    try { await ses.dap.request("setExceptionBreakpoints", { filters: [] }); } catch {}
+    await sendExceptionFilters();
     try { await ses.dap.request("configurationDone", {}); } catch {}
+  }
+  // Break on exceptions: never, unhandled ones (the default) or every thrown one. The filter
+  // names come from the debugger (netcoredbg: all, user-unhandled; codelldb: rust_panic, cpp_throw).
+  const BREAK_ON = [["never", "Never"], ["unhandled", "Unhandled exceptions (and Rust panics)"], ["all", "Every thrown exception"]];
+  function exceptionFilters() {
+    const want = settings.debugBreakOn || "unhandled";
+    const ids = (ses?.caps?.exceptionBreakpointFilters || []).map((f) => f.filter);
+    if (want === "never") return [];
+    if (want === "all") return ids.filter((id) => /^all$|throw|panic|unhandled/i.test(id));
+    return ids.filter((id) => /unhandled|panic/i.test(id));
+  }
+  async function sendExceptionFilters() {
+    if (!ses?.dap.alive) return;
+    try { await ses.dap.request("setExceptionBreakpoints", { filters: exceptionFilters() }); } catch {}
+  }
+  async function pickBreakOn() {
+    const cur = settings.debugBreakOn || "unhandled";
+    const i = await app.choose("Pause when an exception is thrown", BREAK_ON.map(([k, l]) => l + (k === cur ? "  (now)" : "")), true, { sel: Math.max(0, BREAK_ON.findIndex(([k]) => k === cur)) });
+    if (i == null || i < 0) return;
+    app.setSetting("debugBreakOn", BREAK_ON[i][0]);
+    await sendExceptionFilters();
+    app.toast("Pause on exceptions: " + BREAK_ON[i][1].toLowerCase() + ".");
+    renderView();
   }
   async function sendBreakpoints(path) {
     if (!ses?.dap.alive || !ses.configured && ses.state !== "starting") return;
@@ -344,6 +434,12 @@ export function initDebugger(app) {
       const cat = b.category || "console";
       if (cat === "telemetry") return;
       const text = String(b.output || "");
+      // A web app's launch profile can ask for the browser once it's listening.
+      const url = ses.cfg.browser != null && !ses.browserOpened && /Now listening on:\s*(https?:\/\/\S+)/.exec(text);
+      if (url) {
+        ses.browserOpened = true;
+        openUrl(url[1].replace("://[::]", "://localhost").replace("://0.0.0.0", "://localhost").replace(/\/$/, "") + (ses.cfg.browser ? "/" + ses.cfg.browser.replace(/^\//, "") : "")).catch(() => {});
+      }
       dconsole(esc(text.replace(/\n$/, "")), cat === "stderr" ? "err" : cat === "console" || cat === "important" ? "dim" : "");
       return;
     }
@@ -370,6 +466,16 @@ export function initDebugger(app) {
     if (ses !== s) return;
     s.frames = (st.stackFrames || []).map((f) => ({ ...f, path: f.source?.path ? fromNative(f.source.path) : null }));
     const first = s.frames.findIndex((f) => f.path && app.isUnder(f.path, S.root));
+    // Debugging a test: the test host stops itself once the debugger is in (Debugger.Break).
+    // Go straight on to the test.
+    if (s.cfg.skipFirst) {
+      s.cfg.skipFirst = false;
+      if (first < 0) { s.state = "running"; await s.dap.request("continue", { threadId: s.threadId }).catch(() => {}); render(); return; }
+    }
+    if (b.reason === "exception" && s.caps?.supportsExceptionInfoRequest) {
+      const x = await s.dap.request("exceptionInfo", { threadId: s.threadId }, 3000).catch(() => null);
+      if (x) s.description = [x.exceptionId, x.description || x.details?.message].filter(Boolean).join(": ");
+    }
     await selectFrame(first >= 0 ? first : Math.max(0, s.frames.findIndex((f) => f.path)), true);
     getCurrentWindowFocus();
   }
@@ -440,7 +546,8 @@ export function initDebugger(app) {
     ses = null;
     if (s.execPath) app.dispatchBuf(s.execPath, { effects: setExec.of(null) });
     if (!already && s.dap.alive) {
-      try { await s.dap.request("disconnect", { terminateDebuggee: true, restart: false }, 2500); } catch {}
+      // An attached program keeps running when you stop debugging; one Ledger started doesn't.
+      try { await s.dap.request("disconnect", { terminateDebuggee: !s.cfg.pid || !!s.cfg.kill, restart: false }, 2500); } catch {}
     }
     await s.dap.stop();
     dconsole(`<span class="dim">Debugging ended${s.exitCode != null ? ` · the program exited with code ${s.exitCode}` : ""}.</span>`);
@@ -657,10 +764,12 @@ export function initDebugger(app) {
   C("debug.view", "Debug view", "Ctrl+Shift+D", () => app.showSideView("debug", true));
   C("debug.console", "Debug console", [], () => app.focusPanel("dconsole"));
   C("debug.removeBreakpoints", "Remove all breakpoints", [], removeAll);
+  C("debug.attach", "Debug: attach to a running program", [], attach, { alias: "process pid attach" });
+  C("debug.exceptions", "Debug: pause on exceptions…", [], pickBreakOn, { alias: "exception breakpoints thrown unhandled first chance" });
 
   loadModel();
   return {
-    start, runnable, install, adapterPath, stop,
+    start, runnable, install, adapterPath, stop, debugDotnetTest, attach,
     get active() { return !!ses; },
     get paused() { return can("paused"); },
     cont,

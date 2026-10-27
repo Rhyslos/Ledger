@@ -6,6 +6,7 @@ import { StateField, StateEffect, RangeSetBuilder, Prec } from "@codemirror/stat
 import { EditorView, Decoration, WidgetType, showTooltip, keymap } from "@codemirror/view";
 import { norm, uriToPath, pathToUri, toOffset, toPos } from "./lsp.js";
 import { dotOf } from "./langs.js";
+import { parseHttpFile } from "./httpfile.js";
 
 const KINDS = { 1: "file", 2: "mod", 3: "ns", 4: "pkg", 5: "class", 6: "fn", 7: "prop", 8: "field", 9: "new", 10: "enum", 11: "trait", 12: "fn", 13: "let", 14: "const", 15: "str", 16: "num", 17: "bool", 18: "arr", 19: "obj", 20: "key", 21: "null", 22: "case", 23: "struct", 24: "event", 25: "op", 26: "T", 101: "h1", 102: "h2", 103: "h3", 104: "h4", 105: "h5", 106: "h6" }; // 10x: Markdown headings
 const kindLabel = (k) => KINDS[k] || "";
@@ -371,6 +372,9 @@ export function initNav(app) {
   }
   async function computeLenses(path, b) {
     const doc = b.state.doc;
+    if (/\.(http|rest)$/i.test(path)) {
+      return parseHttpFile(doc.toString()).requests.map((r, i) => ({ pos: doc.line(r.line + 1).from, items: [{ title: "▶ Send request", hint: `${r.method} ${r.url}`, run: () => app.dotnetHooks.sendHttp?.(path, i) }] }));
+    }
     if (b.lang === "rust") {
       const srv = app.serverOf(b);
       if (!srv?.alive) return null;
@@ -404,7 +408,7 @@ export function initNav(app) {
         for (let k = n; k <= Math.min(doc.lines, n + 6) && !m; k++) m = /\b(?:void|Task)\s+(\w+)\s*\(/.exec(doc.line(k).text);
         if (!m) continue;
         const filter = `FullyQualifiedName~${cls ? cls + "." : ""}${m[1]}`;
-        out.push({ pos: doc.line(n).from, items: [{ title: "▶ Run test", hint: "dotnet test --filter " + filter, run: () => runDotnetTest(path, filter, m[1]) }] });
+        out.push({ pos: doc.line(n).from, items: [{ title: "▶ Run test", hint: "dotnet test --filter " + filter, run: () => runDotnetTest(path, filter, m[1]) }, { title: "Debug", hint: "Debug " + m[1], run: () => app.debug?.debugDotnetTest(path, filter, m[1]) }] });
         while (out.length > 1 && out[out.length - 2].pos === out[out.length - 1].pos) out.splice(out.length - 2, 1);
       }
       return out;
@@ -471,7 +475,7 @@ export function initNav(app) {
     return [
       hasServer ? sigExt(path) : [],
       hasServer || b.lang === "markdown" ? outlineCursor : [], // Markdown: its headings
-      (b.lang === "rust" || b.lang === "csharp") && app.settings.codeLens ? lensField : [],
+      (b.lang === "rust" || b.lang === "csharp" || b.lang === "http" && !b.virtual) && app.settings.codeLens ? lensField : [],
     ];
   });
 

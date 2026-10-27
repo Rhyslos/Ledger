@@ -1490,8 +1490,11 @@ fn push_line(app: &AppHandle, label: &str, run: u64, name: &'static str, cargo: 
 /// Anything already running in this window is stopped first.
 /// `run` is chosen by the frontend, so it knows the id before any event arrives.
 #[tauri::command]
-async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_, Procs>, run: u64, root: String, program: String, args: Vec<String>, install: Option<bool>) -> Res<u64> {
+async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_, Procs>, run: u64, root: String, program: String, args: Vec<String>, install: Option<bool>, env: Option<Vec<(String, String)>>) -> Res<u64> {
     let label = window.label().to_string();
+    // Extra variables for the program (a launch profile's, or VSTEST_HOST_DEBUG to debug a test).
+    // Never for installs, and never ones that change what gets loaded into a process.
+    let env: Vec<(String, String)> = if install.unwrap_or(false) { Vec::new() } else { env.unwrap_or_default().into_iter().filter(|(k, _)| safe_env(k)).collect() };
     // Installing a tool (Settings: npm -g, dotnet tool, cargo install, winget, rustup) runs in your
     // home folder, never a project's: npm, NuGet and cargo read settings from the folder they run in
     // (.npmrc, NuGet.Config, .cargo/config), and a project could point them at its own packages.
@@ -1517,6 +1520,7 @@ async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_,
         .env("DOTNET_CLI_UI_LANGUAGE", "en")
         .env("DOTNET_NOLOGO", "1")
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+        .envs(env)
         .stdin(Stdio::piped()) // the Input box under the output writes here
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -1584,6 +1588,20 @@ fn kill_tree(child: &mut Child) {
         let _ = Command::new("kill").args(["-s", "KILL", "--", &format!("-{pid}")]).status();
     }
     let _ = child.kill();
+}
+
+#[cfg(test)]
+mod env_tests {
+    use super::safe_env;
+    #[test]
+    fn task_variables() {
+        for ok in ["ASPNETCORE_ENVIRONMENT", "ASPNETCORE_URLS", "VSTEST_HOST_DEBUG", "ConnectionStrings__Db", "Logging:LogLevel:Default"] {
+            assert!(safe_env(ok), "{ok}");
+        }
+        for bad in ["PATH", "path", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "DOTNET_STARTUP_HOOKS", "CORECLR_PROFILER", "COR_ENABLE_PROFILING", "MSBuildExtensionsPath", "NODE_OPTIONS", "", "A=B", "X Y"] {
+            assert!(!safe_env(bad), "{bad}");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2484,6 +2502,130 @@ fn debugger_layout(app: &AppHandle, kind: &str) -> Res<(PathBuf, PathBuf, &'stat
     Ok((dir.clone(), dir.join(exe), url))
 }
 
+/// A variable a task may be given: not ones that make the system load other code or find other
+/// programs (PATH, LD_PRELOAD, DOTNET_STARTUP_HOOKS and the like).
+fn safe_env(k: &str) -> bool {
+    let u = k.to_ascii_uppercase();
+    !k.is_empty()
+        && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == ':')
+        && !matches!(u.as_str(), "PATH" | "PATHEXT" | "COMSPEC" | "SYSTEMROOT" | "WINDIR" | "HOME" | "USERPROFILE" | "APPDATA" | "LOCALAPPDATA" | "TEMP" | "TMP" | "DOTNET_ROOT" | "DOTNET_HOST_PATH" | "DOTNET_STARTUP_HOOKS" | "DOTNET_ADDITIONAL_DEPS" | "DOTNET_SHARED_STORE" | "NODE_OPTIONS" | "RUSTC_WRAPPER" | "CARGO_HOME" | "RUSTUP_HOME")
+        && !u.starts_with("LD_")
+        && !u.starts_with("DYLD_")
+        && !u.starts_with("COR_")
+        && !u.starts_with("CORECLR_")
+        && !u.starts_with("MSBUILD")
+}
+
+#[derive(Serialize)]
+struct Proc {
+    pid: u32,
+    name: String,
+    cmd: String,
+}
+
+/// Running programs, for Debug: attach to a process.
+#[tauri::command(async)]
+fn list_processes() -> Res<Vec<Proc>> {
+    let mut out = Vec::new();
+    #[cfg(windows)]
+    {
+        let exe = find_tool("tasklist");
+        let o = command_at(&exe).args(["/fo", "csv", "/nh"]).output().map_err(err)?;
+        for line in String::from_utf8_lossy(&o.stdout).lines() {
+            let f: Vec<&str> = line.split("\",\"").map(|x| x.trim_matches('"')).collect();
+            if f.len() >= 2 {
+                if let Ok(pid) = f[1].parse() {
+                    out.push(Proc { pid, name: f[0].to_string(), cmd: String::new() });
+                }
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        for e in std::fs::read_dir("/proc").map_err(err)?.flatten() {
+            let Ok(pid) = e.file_name().to_string_lossy().parse::<u32>() else { continue };
+            let name = std::fs::read_to_string(e.path().join("comm")).unwrap_or_default().trim().to_string();
+            let cmd = std::fs::read(e.path().join("cmdline")).map(|b| String::from_utf8_lossy(&b).replace('\0', " ").trim().to_string()).unwrap_or_default();
+            if !name.is_empty() {
+                out.push(Proc { pid, name, cmd });
+            }
+        }
+    }
+    out.retain(|p| p.pid != std::process::id());
+    Ok(out)
+}
+
+#[derive(Serialize)]
+struct HttpReply {
+    status: u16,
+    reason: String,
+    headers: Vec<(String, String)>,
+    body: String,
+    ms: u64,
+}
+
+/// One request from a .http file, sent when you press Send request above it.
+#[tauri::command]
+async fn http_request(method: String, url: String, headers: Vec<(String, String)>, body: Option<String>) -> Res<HttpReply> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("Only http:// and https:// addresses can be sent.".into());
+    }
+    if !method.chars().all(|c| c.is_ascii_uppercase()) || method.is_empty() {
+        return Err(format!("{method} isn't a request method."));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(10))
+            .timeout_read(Duration::from_secs(100))
+            .redirects(0)
+            .user_agent("Ledger")
+            .build();
+        let mut req = agent.request(&method, &url);
+        for (k, v) in &headers {
+            req = req.set(k, v);
+        }
+        let t = std::time::Instant::now();
+        let res = match body {
+            Some(b) if !b.is_empty() => req.send_string(&b),
+            _ => req.call(),
+        };
+        let r = match res {
+            Ok(r) => r,
+            Err(ureq::Error::Status(_, r)) => r,
+            Err(e) => return Err(e.to_string()),
+        };
+        let ms = t.elapsed().as_millis() as u64;
+        let status = r.status();
+        let reason = r.status_text().to_string();
+        let headers = r.headers_names().into_iter().filter_map(|n| r.header(&n).map(|v| (n.clone(), v.to_string()))).collect();
+        let mut buf = Vec::new();
+        use std::io::Read;
+        r.into_reader().take(20 << 20).read_to_end(&mut buf).map_err(err)?;
+        Ok(HttpReply { status, reason, headers, body: String::from_utf8_lossy(&buf).into_owned(), ms })
+    })
+    .await
+    .map_err(err)?
+}
+
+/// The secrets.json `dotnet user-secrets` keeps for a project (made empty if it isn't there yet).
+#[tauri::command(async)]
+fn user_secrets_file(id: String) -> Res<String> {
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') || id.starts_with('.') {
+        return Err("That UserSecretsId can't be used as a folder name.".into());
+    }
+    let dir = if cfg!(windows) {
+        PathBuf::from(std::env::var_os("APPDATA").ok_or("APPDATA isn't set.")?).join("Microsoft").join("UserSecrets").join(&id)
+    } else {
+        home().ok_or("No home folder.")?.join(".microsoft").join("usersecrets").join(&id)
+    };
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    let f = dir.join("secrets.json");
+    if !f.exists() {
+        std::fs::write(&f, "{\n}\n").map_err(err)?;
+    }
+    Ok(plain_path(&f))
+}
+
 /// The downloaded debugger, if there is one.
 #[tauri::command(async)]
 fn debugger_path(app: AppHandle, kind: String) -> Option<String> {
@@ -2591,6 +2733,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             refresh_path,
+            list_processes,
+            http_request,
+            user_secrets_file,
             shell_menu,
             shell_menu_state,
             read_bytes,

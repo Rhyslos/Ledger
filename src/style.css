@@ -879,3 +879,11 @@ th.db-n { z-index: 2; background: var(--side); }
 .ndetail h3 { margin: 0 0 6px; font-size: 15px; }
 .ndetail select { background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 5px 8px; }
 @media (max-width: 900px) { .nbody { grid-template-columns: 1fr; } .nlist { border-right: 0; } }
+
+/* Tests: traits, the filter, output and coverage */
+.tbar .tfilter { flex: 0 1 220px; min-width: 120px; height: 26px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); color: var(--ink); font: inherit; font-size: 12.5px; }
+.trow .ttrait { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 9px; padding: 0 6px; white-space: nowrap; }
+.trow .ibtn.tob.on { opacity: 1; color: var(--accent); }
+.tmsg.tout { color: var(--ink); }
+.cm-line.cm-cov-hit { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--good) 75%, transparent); }
+.cm-line.cm-cov-miss { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--seal) 75%, transparent); background: color-mix(in srgb, var(--seal) 6%, transparent); }

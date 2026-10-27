@@ -21,6 +21,7 @@ import { initSearch } from "./search.js";
 import { initEditCommands } from "./editcmds.js";
 import { initLspMore } from "./lspmore.js";
 import { initDotnet } from "./dotnet.js";
+import { initDotnetTools } from "./dotnettools.js";
 import { parseEditorConfig, propsFor, settingsFrom } from "./editorconfig.js";
 import { findPanel, openReplace } from "./findbar.js";
 import { iconHtml } from "./icons.js";
@@ -1110,6 +1111,18 @@ async function openFile(path, at, opts = {}) {
   }
   else renderTabs();
   return true;
+}
+
+/** A read-only tab of text Ledger made (an HTTP response, say). Showing it again replaces the text. */
+async function openVirtual(key, text, opts = {}) {
+  const b = S.bufs.get(key);
+  if (b) {
+    dispatchBuf(key, { changes: { from: 0, to: b.state.doc.length, insert: text } });
+    b.saved = b.state.doc; b.dirty = false;
+  } else makeBuffer(key, text, { virtual: true, ...opts });
+  addTab(key, { preview: opts.preview });
+  await activate(key);
+  renderTabs();
 }
 
 // csharp-ls serves decompiled framework sources under csharp:/metadata/… URIs.
@@ -2525,7 +2538,7 @@ async function startStep(step) {
   renderStatus();
   const run = ++S.runSeq;
   S.run = run; // set before starting, so events from an older run are ignored
-  try { await invoke("run_task", { run, root: cwd, program: step.program, args: step.args, install: !!step.install }); }
+  try { await invoke("run_task", { run, root: cwd, program: step.program, args: step.args, install: !!step.install, env: step.env ? Object.entries(step.env).map(([k, v]) => [k, String(v)]) : null }); }
   catch (e) {
     S.running = false; S.runInput = false;
     // A restricted folder: ask, and go on from this step if the answer is yes.
@@ -3761,7 +3774,7 @@ const app = {
   get view() { return view; }, get split() { return split; }, panes,
   command: (...a) => C(...a), setSetting, toast, choose, promptText, copy,
   showPanel, focusPanel, focusZone, currentZone, showSideView, sideViews, get sideView() { return sideView; },
-  openFile, activate, addTab, keepTab, save, saveAll, startSteps, appendOut, renderTabs, renderMain, renderStatus, scheduleUi,
+  openFile, openVirtual, activate, addTab, keepTab, save, saveAll, startSteps, appendOut, renderTabs, renderMain, renderStatus, scheduleUi,
   dispatchBuf, serverOf, needServer, syncDoc, renderMd, hl, norm, rel, base, parent, join, isUnder, isAbs, esc, splitArgs,
   lspHooks, dotnetHooks, outputHooks, taskDoneHooks, setBuildProblems, highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
   cwd: () => S.ctx?.dir || S.root || "",
@@ -3887,6 +3900,7 @@ async function boot() {
   initEditCommands(app);
   initLspMore(app);
   initDotnet(app);
+  initDotnetTools(app);
   showSideView(sideViews[sideView] ? sideView : "files");
   term = initTerminal(app);
   navx = initNav(app);

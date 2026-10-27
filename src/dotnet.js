@@ -93,7 +93,7 @@ export function initDotnet(app) {
         for (const pk of p.packages) if (!pk.version) pk.version = central.get(pk.id.toLowerCase()) || "";
         let profiles = [];
         const ls = await readText(dir + "/Properties/launchSettings.json");
-        if (ls) { try { profiles = Object.entries(looseJson(ls).profiles || {}).filter(([, v]) => !v.commandName || v.commandName === "Project").map(([name, v]) => ({ name, url: (v.applicationUrl || "").split(";")[0], launchBrowser: !!v.launchBrowser, launchUrl: v.launchUrl || "", args: v.commandLineArgs || "", env: v.environmentVariables || {} })); } catch {} }
+        if (ls) { try { profiles = Object.entries(looseJson(ls).profiles || {}).filter(([, v]) => !v.commandName || v.commandName === "Project").map(([name, v]) => ({ name, url: (v.applicationUrl || "").split(";")[0], urls: v.applicationUrl || "", launchBrowser: !!v.launchBrowser, launchUrl: v.launchUrl || "", args: v.commandLineArgs || "", env: v.environmentVariables || {} })); } catch {} }
         return { path, name: app.base(path).replace(/\.\w+proj$/i, ""), dir, ...p, refs: p.refs.map((r) => resolve(dir, r)), profiles };
       }))).sort((a, b) => a.name.localeCompare(b.name));
       model = { sln, projects, central: !!props, centralFile: props };
@@ -240,7 +240,8 @@ export function initDotnet(app) {
       "-",
       { label: "Manage NuGet packages…", run: () => openNuget(p.path) },
       { label: "Add a project reference…", run: () => addReference(p) },
-      ...(p.secrets || /web|worker/i.test(p.sdk) ? [{ label: "Edit user secrets…", run: () => app.run("dotnet.secrets") }] : []),
+      ...(p.secrets || /web|worker/i.test(p.sdk) ? [{ label: "Edit user secrets…", run: () => app.dotnetHooks.secrets?.(p) }] : []),
+      ...(p.ef ? [{ label: "EF Core: add a migration…", run: () => app.run("ef.addMigration") }, { label: "EF Core: update the database…", run: () => app.run("ef.updateDatabase") }] : []),
       "-",
       { label: "Open the project file", run: () => app.openFile(p.path) },
       { label: "Publish…", run: () => app.dotnetHooks.publish?.(p) },
