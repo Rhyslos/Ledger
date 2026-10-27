@@ -18,7 +18,8 @@ import { lustStyleSource, lustViewHelp } from "./lustview.js";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { clike } from "@codemirror/legacy-modes/mode/clike";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
-import { xml } from "@codemirror/legacy-modes/mode/xml";
+import { xml, html as htmlLegacy } from "@codemirror/legacy-modes/mode/xml";
+import { msbuildComplete } from "./msbuild.js";
 import { python } from "@codemirror/legacy-modes/mode/python";
 import { yaml } from "@codemirror/legacy-modes/mode/yaml";
 import { lua } from "@codemirror/legacy-modes/mode/lua";
@@ -434,6 +435,50 @@ const csMode = {
   },
 };
 
+// ----- Razor (.razor, .cshtml) -----
+// HTML with C# after @: @Model.Name, @(a + b), @{ … } and @code { … } blocks, @if (…) and the
+// other statements, directives (@page, @inject, @using…), and @* comments *@.
+const RAZOR_DIRECTIVE = /^@(page|model|inject|using|namespace|attribute|layout|inherits|implements|rendermode|typeparam|preservewhitespace|addTagHelper|removeTagHelper|tagHelperPrefix|section)\b/;
+const RAZOR_STATEMENT = /^@(if|else|foreach|for|while|do|switch|try|catch|finally|lock|await)\b/;
+const razorMode = {
+  name: "razor",
+  startState: () => ({ html: htmlLegacy.startState(2), cs: csMode.startState(), mode: "html", depth: 0, comment: false }),
+  copyState: (s) => ({ ...s, html: htmlLegacy.copyState ? htmlLegacy.copyState(s.html) : { ...s.html }, cs: { ...s.cs } }),
+  tokenTable: csTable,
+  token(stream, st) {
+    if (st.comment) { if (stream.skipTo("*@")) { stream.pos += 2; st.comment = false; } else stream.skipToEnd(); return "csComment"; }
+    // C# blocks: until the brace (or paren) that opened them closes.
+    if (st.mode === "block" || st.mode === "paren") {
+      const open = st.mode === "block" ? "{" : "(", close = st.mode === "block" ? "}" : ")";
+      const ch = stream.peek();
+      if (ch === open && st.cs.in == null) st.depth++;
+      if (ch === close && st.cs.in == null && --st.depth === 0) { stream.next(); st.mode = "html"; return "csMeta"; }
+      return csMode.token(stream, st.cs);
+    }
+    if (stream.match("@@")) return null;
+    if (stream.match("@*")) { st.comment = true; if (stream.skipTo("*@")) { stream.pos += 2; st.comment = false; } else stream.skipToEnd(); return "csComment"; }
+    if (stream.match(/^@(code|functions)\s*\{/) || stream.match("@{")) { st.mode = "block"; st.depth = 1; st.cs = csMode.startState(); return "csMeta"; }
+    if (stream.match("@(")) { st.mode = "paren"; st.depth = 1; st.cs = csMode.startState(); return "csMeta"; }
+    if (stream.match(RAZOR_DIRECTIVE)) { st.mode = "line"; st.cs = csMode.startState(); return "csMeta"; }
+    if (stream.match(RAZOR_STATEMENT)) { st.mode = "line"; st.cs = csMode.startState(); return "csFlow"; }
+    if (stream.match(/^@[A-Za-z_]\w*(?:(?:\??\.)[A-Za-z_]\w*|\([^()]*\)|\[[^\]]*\])*/)) return "csFn";
+    // The rest of a directive or statement line is C#, up to a { that starts markup.
+    if (st.mode === "line") {
+      if (stream.peek() === "{" || stream.peek() === "<") { st.mode = "html"; }
+      else { const t = csMode.token(stream, st.cs); if (stream.eol()) st.mode = "html"; return t; }
+    }
+    // HTML, but stopping at the next @ so it gets its turn.
+    const at = stream.string.indexOf("@", stream.pos + 1), full = stream.string;
+    if (at > 0 && stream.peek() !== "@") stream.string = full.slice(0, at);
+    let t;
+    try { t = htmlLegacy.token(stream, st.html); } finally { stream.string = full; }
+    if (stream.pos === stream.start) stream.next();
+    return t;
+  },
+  indent: (st, after, cx) => (st.mode === "html" && htmlLegacy.indent ? htmlLegacy.indent(st.html, after, cx) : null),
+  languageData: { commentTokens: { block: { open: "@*", close: "*@" } }, closeBrackets: { brackets: ["(", "[", "{", '"', "'"] } },
+};
+
 // ----- the table -----
 const legacy = (mode, data) => {
   const lang = StreamLanguage.define(mode);
@@ -462,6 +507,8 @@ export const LANGS = {
   jsonc: { name: "JSON with comments", dot: "json", server: "json", languageId: "jsonc", ext: () => json() },
   markdown: { name: "Markdown", dot: "md", ext: () => markdown() },
   xml: { name: "XML", dot: "xml", ext: () => legacy(xml, { commentTokens: { block: { open: "<!--", close: "-->" } } }) },
+  msbuild: { name: "MSBuild", dot: "proj", ext: () => legacy(xml, { commentTokens: { block: { open: "<!--", close: "-->" } }, autocomplete: msbuildComplete }) },
+  razor: { name: "Razor", dot: "html", ext: () => new LanguageSupport(StreamLanguage.define(razorMode)) },
   yaml: { name: "YAML", dot: "cfg", ext: () => legacy(yaml) },
   ini: { name: "INI", dot: "cfg", ext: () => legacy(properties) },
   powershell: { name: "PowerShell", dot: "cfg", ext: () => legacy(powerShell) },
@@ -475,7 +522,8 @@ const BY_EXT = {
   lua: "lua", luau: "luau", rockspec: "lua", toml: "toml", json: "json", jsonc: "jsonc", md: "markdown",
   js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx", ts: "typescript", mts: "typescript", cts: "typescript", tsx: "tsx",
   html: "html", htm: "html", vue: "html", svelte: "html", astro: "html", css: "css", scss: "scss", sass: "scss", less: "less",
-  csproj: "xml", fsproj: "xml", props: "xml", targets: "xml", slnx: "xml", xml: "xml", resx: "xml", xaml: "xml", config: "xml", svg: "xml",
+  csproj: "msbuild", fsproj: "msbuild", vbproj: "msbuild", props: "msbuild", targets: "msbuild", slnx: "xml", xml: "xml", resx: "xml", xaml: "xml", axaml: "xml", config: "xml", svg: "xml",
+  nuspec: "xml", runsettings: "xml", manifest: "xml", razor: "razor", cshtml: "razor",
   yml: "yaml", yaml: "yaml", ps1: "powershell", psm1: "powershell", csv: "csv", tsv: "csv", tab: "csv", psv: "csv",
 };
 

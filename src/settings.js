@@ -34,12 +34,15 @@ export const DEFAULTS = {
   tabSize: 4,
   detectIndent: true,
   followActive: true,
+  semanticColours: "csharp",
+  symbolHighlight: true,
   formatOnSave: false,
   webFormatter: "prettier",
   emmet: true,
   autoSave: "off",
   rustAnalyzer: "rust-analyzer",
   rustCheck: "check",
+  csharpKind: "csharp-ls", // csharp-ls, roslyn (Microsoft's), or custom (csharpServer + csharpArgs)
   csharpServer: "csharp-ls",
   csharpArgs: "",
   godot: "",
@@ -151,7 +154,7 @@ export function openInBrowser(url) {
 export const refreshSettingsTools = () => refreshTools();
 
 async function refreshTools() {
-  const names = { cargo: "cargo", ra: settings.rustAnalyzer || "rust-analyzer", dotnet: "dotnet", cs: settings.csharpServer || "csharp-ls", godot: settings.godot, git: "git", lust: settings.lust || "lust", lua: settings.lua || "lua", node: "node", rust: "cargo", tsls: "typescript-language-server", htmlls: "vscode-html-language-server", luals: settings.luaServer || "lua-language-server" };
+  const names = { roslyn: "roslyn-language-server", cargo: "cargo", ra: settings.rustAnalyzer || "rust-analyzer", dotnet: "dotnet", cs: settings.csharpServer || "csharp-ls", godot: settings.godot, git: "git", lust: settings.lust || "lust", lua: settings.lua || "lua", node: "node", rust: "cargo", tsls: "typescript-language-server", htmlls: "vscode-html-language-server", luals: settings.luaServer || "lua-language-server" };
   const out = {};
   await Promise.all(Object.entries(names).map(async ([k, n]) => { out[k] = n ? await invoke("tool_info", { name: n }).catch(() => null) : null; }));
   out.lldb = await ctx.debuggerFor?.("rust").catch(() => null);
@@ -235,6 +238,8 @@ export function settingsHtml() {
       ${row("Preview tabs", check("sPreview", "previewTabs", "Clicking through files in the explorer reuses one tab"), "The file shows in a tab in italics, and the next file you click takes its place. Editing, saving, double-clicking or pinning it (right-click the tab) keeps it open.")}
       ${row("Explorer", check("sFollow", "followActive", "Show the open file in the explorer, opening the folders it's in"), "Ctrl Shift R does it once when this is off.")}
       ${row("Auto save", select("sAuto", "autoSave", [["off", "Off"], ["delay", "A second after typing stops"], ["focus", "When switching tabs or apps"]]), "", "sAuto")}
+      ${row("Colours from the language server", select("sSem", "semanticColours", [["csharp", "C# files"], ["all", "Every language that has them"], ["off", "Off"]]), "The language server knows what each name is: a type, a method, a property, a constant. With this on, they're coloured by what they are, not just by how they look.", "sSem")}
+      ${row("Same symbol", check("sSymHl", "symbolHighlight", "Mark the other uses of the name under the cursor"), "Where the language server can tell what the name is: the same variable or method, not just the same word.")}
       ${row("Brackets", check("sBr", "bracketColors", "Colour matching bracket pairs by depth"))}
       ${row("Indentation", check("sIg", "indentGuides", "Show indent guides"))}
       ${row("Sticky scroll", check("sSticky", "stickyScroll", "Keep the lines that open the current block (fn, impl, class…) pinned at the top while scrolling"))}
@@ -294,8 +299,8 @@ export function settingsHtml() {
 
     <section aria-labelledby="sCs"><h2 id="sCs">C# and .NET</h2>
       ${row("dotnet", `<div class="tool">${found(tools.dotnet, 'Install the .NET SDK from <a href="https://dotnet.microsoft.com/download" target="_blank">dotnet.microsoft.com</a>.')}</div>`)}
-      ${row("Language server", text("sCs", "csharpServer", "csharp-ls") + `<div class="tool">${found(tools.cs, "")}</div><div class="bar"><button class="btn" data-act="cs-install">Install or update csharp-ls</button><button class="btn" data-act="restart-csharp">Restart</button></div>`, "csharp-ls needs the .NET 10 runtime (installing the .NET 10 SDK covers it). Any C# server that speaks LSP works here, for example OmniSharp with the argument -lsp.", "sCs")}
-      ${row("Server arguments", text("sCsArgs", "csharpArgs", "none"), "Separated by spaces.", "sCsArgs")}
+      ${row("Language server", select("sCsKind", "csharpKind", [["csharp-ls", "csharp-ls (small and quick)"], ["roslyn", "Roslyn (Microsoft's, as in VS Code)"], ["custom", "Another server…"]]) + `<div class="tool">${settings.csharpKind === "roslyn" ? found(tools.roslyn, "Not installed yet.") : settings.csharpKind === "custom" ? found(tools.cs, "") : found(tools.cs, "Not installed yet.")}</div><div class="bar">${settings.csharpKind === "custom" ? "" : `<button class="btn" data-act="cs-install">${(settings.csharpKind === "roslyn" ? tools.roslyn : tools.cs) ? "Update" : "Install"} ${settings.csharpKind === "roslyn" ? "Roslyn" : "csharp-ls"}</button>`}<button class="btn" data-act="restart-csharp">Restart</button></div>`, "Both give completions, errors, fixes, rename and the rest, and need the .NET 10 runtime (the .NET 10 SDK covers it; your projects can target older .NET). Roslyn is the server VS Code's C# extension uses: more fixes and refactors, more analyzers, and it starts slower. csharp-ls is lighter.", "sCsKind")}
+      ${settings.csharpKind === "custom" ? row("Server program", text("sCs", "csharpServer", "csharp-ls"), "Any C# server that speaks LSP, for example OmniSharp with the argument -lsp.", "sCs") + row("Server arguments", text("sCsArgs", "csharpArgs", "none"), "Separated by spaces.", "sCsArgs") : ""}
     </section>
 
     <section aria-labelledby="sLust"><h2 id="sLust">Lust</h2>
@@ -357,6 +362,7 @@ export function wireSettings(root, redraw) {
     if (key === "tabSize") v = +v;
     setSetting(key, v);
     if (["rustAnalyzer", "csharpServer", "godot", "debugRust", "debugCsharp", "lust"].includes(key)) refreshTools().then(() => rerender(true));
+    if (key === "csharpKind") rerender(true);
   };
   root.oninput = (ev) => {
     if (ev.target.id === "sFind") { find = ev.target.value; applySettingsFind(root); return; }
@@ -411,10 +417,13 @@ export function wireSettings(root, redraw) {
       const go = async () => {
         await ctx.stopServer("csharp"); // Windows can't replace a running .exe
         const after = () => { refreshTools().then(() => rerender(true)); ctx.restartServer("csharp"); };
-        ctx.runTask("dotnet", ["tool", tools.cs ? "update" : "install", "--global", "csharp-ls"], "Installing csharp-ls", after, after);
+        const roslyn = settings.csharpKind === "roslyn";
+        const have = roslyn ? tools.roslyn : tools.cs, pkg = roslyn ? "roslyn-language-server" : "csharp-ls";
+        // Roslyn's server only comes as a prerelease.
+        ctx.runTask("dotnet", ["tool", have ? "update" : "install", "--global", pkg, ...(roslyn ? ["--prerelease"] : [])], "Installing " + (roslyn ? "Roslyn" : "csharp-ls"), after, after);
       };
       if (hasSdk(10)) go();
-      else { ctx.toast("csharp-ls needs the .NET 10 SDK, so that's installed first.", 6000); installTool("dotnet", (ok) => (ok ? go() : ctx.toast("The .NET 10 SDK didn't install. Check the Output panel.", 7000))); }
+      else { ctx.toast("The C# language server needs the .NET 10 SDK, so that's installed first.", 6000); installTool("dotnet", (ok) => (ok ? go() : ctx.toast("The .NET 10 SDK didn't install. Check the Output panel.", 7000))); }
       return;
     }
     if (act === "ra-install") await ctx.stopServer("rust");
