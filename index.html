@@ -12,6 +12,7 @@
       <button role="tab" data-view="files" id="vbFiles" aria-label="Files" title="Files (Ctrl Shift E)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.8h5l3.2 3.2v9.2H4z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M9 1.8V5h3.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><span>Files</span></button>
       <button role="tab" data-view="search" id="vbSearch" aria-label="Search" title="Search in files (Ctrl Shift F)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M10.2 10.2 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
       <button role="tab" data-view="outline" id="vbOutline" aria-label="Outline" title="Outline (Ctrl Shift O)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11M5 8h8.5M5 12.5h8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="2.6" cy="8" r=".9" fill="currentColor"/><circle cx="2.6" cy="12.5" r=".9" fill="currentColor"/></svg><span>Outline</span></button>
+      <button role="tab" data-view="solution" id="vbSolution" aria-label="Solution" title="Solution: .NET projects, packages and references" hidden><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="2.2" width="5.2" height="5.2" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="2.2" width="5.2" height="5.2" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="5.4" y="9" width="5.2" height="5.2" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/></svg><span>Solution</span></button>
       <button role="tab" data-view="git" id="vbGit" aria-label="Source control" title="Source control (Ctrl Shift G)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4.5" cy="3.5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="4.5" cy="12.5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="11.5" cy="5.5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 5.2v5.6M11.5 7.2c0 2.6-2.5 2.8-5.4 4.4" fill="none" stroke="currentColor" stroke-width="1.3"/></svg><span>Git</span><i class="badge" id="gitBadge" hidden></i></button>
       <button role="tab" data-view="debug" id="vbDebug" aria-label="Debug" title="Debug (Ctrl Shift D)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="9.2" rx="3.6" ry="4.3" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 5v8.5M4.4 8H1.8M14.2 8h-2.6M4.6 11.6l-2 1.4M11.4 11.6l2 1.4M5.6 5.4L4 3.6M10.4 5.4L12 3.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>Debug</span><i class="badge live" id="dbgBadge" hidden></i></button>
     </div>
@@ -31,6 +32,7 @@
       <nav class="tree" id="outline" role="tree" aria-label="Symbols in this file"></nav>
     </div>
     <div class="sview" id="vSearch" hidden><div class="scroll" id="search"></div></div>
+    <div class="sview" id="vSolution" hidden><div class="scroll" id="solution"></div></div>
     <div class="sview" id="vGit" hidden><div class="scroll" id="git"></div></div>
     <div class="sview" id="vDebug" hidden><div class="scroll" id="debug"></div></div>
     <div class="vsplit" id="sideSplit" aria-hidden="true"></div>
@@ -52,6 +54,7 @@
         <div class="page imgpage" id="csvpage" hidden></div>
         <div class="page imgpage" id="hexpage" hidden></div>
         <div class="page logpage" id="logpage" hidden></div>
+        <div class="page nugetpage" id="nugetpage" hidden></div>
       </div>
       <div class="psplit" id="paneSplit" hidden aria-hidden="true"></div>
       <div class="pane" id="pane1" hidden>

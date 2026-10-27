@@ -858,3 +858,24 @@ th.db-n { z-index: 2; background: var(--side); }
 .cm-st-deprecated { text-decoration: line-through; text-decoration-color: var(--faint); }
 .cm-dochl { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 2px; }
 .cm-dochl-w { background: color-mix(in srgb, var(--warn) 18%, transparent); }
+
+/* Solution view and the NuGet page (dotnet.js) */
+.sol-opts { padding: 0 14px 6px; font-size: 12px; color: var(--muted); }
+#solution .node .startup { margin-left: auto; color: var(--good); font-size: 10px; padding-left: 6px; }
+#solution .node.on .lbl { font-weight: 600; }
+.nugetpage { overflow: hidden; }
+.nuget { display: flex; flex-direction: column; height: 100%; }
+.nuget .ntabs { display: flex; gap: 4px; }
+.nsearch { display: flex; gap: 10px; align-items: center; padding: 8px 18px; }
+.nsearch input[type=search] { flex: 1; max-width: 520px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 9px; }
+.nbody { flex: 1; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(240px, 1fr); min-height: 0; border-top: 1px solid var(--line); }
+.nlist { overflow: auto; border-right: 1px solid var(--line); }
+.nrow { padding: 8px 18px; border-bottom: 1px solid var(--line-hl); cursor: pointer; font-size: 13px; }
+.nrow:hover { background: var(--hover); }
+.nrow.on { background: var(--select); }
+.nrow .ndesc { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.nrow .nhave { font-size: 11px; color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 40%, transparent); border-radius: 8px; padding: 0 6px; }
+.ndetail { overflow: auto; padding: 12px 18px; font-size: 13px; }
+.ndetail h3 { margin: 0 0 6px; font-size: 15px; }
+.ndetail select { background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 5px 8px; }
+@media (max-width: 900px) { .nbody { grid-template-columns: 1fr; } .nlist { border-right: 0; } }
