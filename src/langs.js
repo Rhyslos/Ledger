@@ -435,6 +435,32 @@ const csMode = {
   },
 };
 
+// ----- .http request files -----
+const httpMode = {
+  name: "http",
+  startState: () => ({ part: "start" }),
+  token(stream, st) {
+    if (stream.sol()) {
+      if (stream.match(/^###.*/)) { st.part = "start"; return "comment"; }
+      if (st.part !== "body" && stream.match(/^\s*(#|\/\/).*/)) return "comment";
+      if (st.part === "headers" && stream.match(/^\s*$/)) { st.part = "body"; return null; }
+      if (st.part === "start" && stream.match(/^@[\w.-]+/)) return "variableName.definition";
+      if (st.part === "start" && stream.match(/^HTTP\/[\d.]+\s+\d+/)) { st.part = "headers"; return "keyword"; }
+      if (st.part === "start" && stream.match(/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE|CONNECT)\b/)) { st.part = "headers"; return "keyword"; }
+      if (st.part === "headers" && stream.match(/^[\w-]+(?=\s*:)/)) return "propertyName";
+    }
+    if (stream.match(/^\{\{[^}]*\}\}/)) return "variableName.special";
+    if (st.part !== "body" && stream.match(/^https?:\/\/[^\s{]+/)) return "link";
+    if (st.part === "body" && stream.match(/^"(?:[^"\\]|\\.)*"/)) return "string";
+    if (st.part === "body" && stream.match(/^-?\d+(\.\d+)?/)) return "number";
+    if (st.part === "body" && stream.match(/^(true|false|null)\b/)) return "atom";
+    stream.next();
+    return null;
+  },
+  blankLine(st) { if (st.part === "headers") st.part = "body"; },
+  languageData: { commentTokens: { line: "#" } },
+};
+
 // ----- Razor (.razor, .cshtml) -----
 // HTML with C# after @: @Model.Name, @(a + b), @{ … } and @code { … } blocks, @if (…) and the
 // other statements, directives (@page, @inject, @using…), and @* comments *@.
@@ -509,6 +535,7 @@ export const LANGS = {
   xml: { name: "XML", dot: "xml", ext: () => legacy(xml, { commentTokens: { block: { open: "<!--", close: "-->" } } }) },
   msbuild: { name: "MSBuild", dot: "proj", ext: () => legacy(xml, { commentTokens: { block: { open: "<!--", close: "-->" } }, autocomplete: msbuildComplete }) },
   razor: { name: "Razor", dot: "html", ext: () => new LanguageSupport(StreamLanguage.define(razorMode)) },
+  http: { name: "HTTP requests", dot: "cfg", ext: () => new LanguageSupport(StreamLanguage.define(httpMode)) },
   yaml: { name: "YAML", dot: "cfg", ext: () => legacy(yaml) },
   ini: { name: "INI", dot: "cfg", ext: () => legacy(properties) },
   powershell: { name: "PowerShell", dot: "cfg", ext: () => legacy(powerShell) },
@@ -523,7 +550,7 @@ const BY_EXT = {
   js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx", ts: "typescript", mts: "typescript", cts: "typescript", tsx: "tsx",
   html: "html", htm: "html", vue: "html", svelte: "html", astro: "html", css: "css", scss: "scss", sass: "scss", less: "less",
   csproj: "msbuild", fsproj: "msbuild", vbproj: "msbuild", props: "msbuild", targets: "msbuild", slnx: "xml", xml: "xml", resx: "xml", xaml: "xml", axaml: "xml", config: "xml", svg: "xml",
-  nuspec: "xml", runsettings: "xml", manifest: "xml", razor: "razor", cshtml: "razor",
+  nuspec: "xml", runsettings: "xml", manifest: "xml", razor: "razor", cshtml: "razor", http: "http", rest: "http",
   yml: "yaml", yaml: "yaml", ps1: "powershell", psm1: "powershell", csv: "csv", tsv: "csv", tab: "csv", psv: "csv",
 };
 

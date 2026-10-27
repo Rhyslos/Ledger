@@ -57,6 +57,7 @@ export const DEFAULTS = {
   autoUpdate: true,
   debugRust: "",
   debugCsharp: "",
+  debugBreakOn: "unhandled", // never | unhandled | all
   keys: {},
 };
 
@@ -289,6 +290,7 @@ export function settingsHtml() {
     <section aria-labelledby="sDbg"><h2 id="sDbg">Debugging</h2>
       ${row("Rust debugger", text("sDbgRs", "debugRust", "Downloaded codelldb") + `<div class="tool">${found(tools.lldb, "Not installed yet.")}</div><div class="bar"><button class="btn" data-act="dbg-install-rust">Download codelldb</button></div>`, "Leave empty to use the one Ledger downloads (about 40 MB, from github.com/vadimcn/codelldb).", "sDbgRs")}
       ${row("C# and Godot debugger", text("sDbgCs", "debugCsharp", "Downloaded netcoredbg") + `<div class="tool">${found(tools.netcoredbg, "Not installed yet.")}</div><div class="bar"><button class="btn" data-act="dbg-install-csharp">Download netcoredbg</button></div>`, "Leave empty to use the one Ledger downloads (about 10 MB, from github.com/Samsung/netcoredbg).", "sDbgCs")}
+      ${row("Pause on exceptions", select("sDbgBreak", "debugBreakOn", [["unhandled", "When nothing catches them (and on Rust panics)"], ["all", "Whenever one is thrown"], ["never", "Never"]]), "While debugging. Also in the command palette: Debug: pause on exceptions.", "sDbgBreak")}
     </section>
 
     <section aria-labelledby="sRust"><h2 id="sRust">Rust</h2>
