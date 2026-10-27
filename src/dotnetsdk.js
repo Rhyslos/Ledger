@@ -44,7 +44,7 @@ const pre = (v) => /-/.test(v);
  * Whether an installed SDK meets global.json's sdk.version with its rollForward rule (the SDK's
  * own rules: latestPatch by default when a version is given).
  */
-export function sdkMeets(pinned, rollForward, installed, allowPrerelease = false) {
+export function sdkMeets(pinned, rollForward, installed, allowPrerelease = true) {
   const want = parts(pinned);
   if (!want) return true;
   const rule = (rollForward || "latestPatch").replace(/^latest/, "").toLowerCase();
@@ -69,7 +69,7 @@ export function globalJsonProblem(text, installed) {
   try { j = JSON.parse(String(text).replace(/^﻿/, "").replace(/("(?:[^"\\]|\\.)*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (m, s) => s || "").replace(/,(\s*[}\]])/g, "$1")); } catch { return null; }
   const sdk = j?.sdk;
   if (!sdk?.version) return null;
-  if (sdkMeets(sdk.version, sdk.rollForward, installed, !!sdk.allowPrerelease)) return null;
+  if (sdkMeets(sdk.version, sdk.rollForward, installed, sdk.allowPrerelease !== false)) return null; // previews count unless turned off, as outside Visual Studio
   const major = parseInt(sdk.version, 10);
   return {
     version: sdk.version, major,

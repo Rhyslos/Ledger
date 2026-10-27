@@ -160,6 +160,8 @@ export function installSdk(major, done) {
   };
   ctx.runTask("winget", ["install", "--id", `Microsoft.DotNet.SDK.${major}`, "-e", "--source", "winget", "--accept-source-agreements", "--accept-package-agreements"], `Installing the .NET ${major} SDK`, after, after);
 }
+// maui shows as maui-windows (and maui-android…) once installed.
+const hasWorkload = (id) => (tools.workloads || []).some((w) => w === id || w.startsWith(id + "-"));
 const WORKLOADS = [["maui", ".NET MAUI (Android, iOS, Mac and Windows apps)"], ["wasm-tools", "WebAssembly build tools (Blazor WebAssembly AOT)"], ["android", "Android"], ["ios", "iOS"]];
 
 // The browser Ledger opens web pages in (HTML files now, Live Server later).
@@ -331,7 +333,7 @@ export function settingsHtml() {
         ${tools.globalJson ? `<div class="tool"><span class="bad">${esc(tools.globalJson.message)}</span></div>` : ""}
         <div class="bar">${[...new Set([...(tools.globalJson && tools.globalJson.major >= 6 && !hasMajor(tools.globalJson.major) ? [tools.globalJson.major] : []), 10, 9, 8])].map((m) => `<button class="btn" data-act="sdk-install" data-major="${m}">${hasMajor(m) ? "Update" : "Install"} the .NET ${m} SDK</button>`).join("")}</div>`,
         "SDKs install side by side with winget. A project uses the newest one unless its global.json pins a version.")}
-      ${row("Workloads", `<div class="tool">${tools.workloads ? (tools.workloads.length ? "Installed: " + esc(tools.workloads.join(", ")) : "None installed.") : "Not checked yet."}</div><div class="bar"><button class="btn" data-act="workloads-list">${tools.workloads ? "Check again" : "Check"}</button>${WORKLOADS.map(([id, l]) => `<button class="btn" data-act="workload-install" data-id="${id}" title="${esc(l)}">${tools.workloads?.includes(id) ? "Update" : "Install"} ${esc(id)}</button>`).join("")}</div>`,
+      ${row("Workloads", `<div class="tool">${tools.workloads ? (tools.workloads.length ? "Installed: " + esc(tools.workloads.join(", ")) : "None installed.") : "Not checked yet."}</div><div class="bar"><button class="btn" data-act="workloads-list">${tools.workloads ? "Check again" : "Check"}</button>${WORKLOADS.map(([id, l]) => `<button class="btn" data-act="workload-install" data-id="${id}" title="${esc(l)}">${hasWorkload(id) ? "Update" : "Install"} ${esc(id)}</button>`).join("")}</div>`,
         "Extra parts of the SDK for some kinds of project: MAUI apps, Android, iOS, and WebAssembly ahead-of-time builds. Installing one may need Ledger to be run as administrator when .NET is in Program Files.")}
       ${row("Entity Framework tool", `<div class="tool">${found(tools.ef, "Not installed yet.")}</div><div class="bar"><button class="btn" data-act="ef-install">${tools.ef ? "Update" : "Install"} dotnet-ef</button></div>`, "Migrations and database updates for EF Core projects (the EF Core commands in the command palette).")}
       ${row("Opening a folder", check("sDnRestore", "dotnetRestoreOnOpen", "Restore NuGet packages (dotnet restore) when a trusted folder with .NET projects opens") + check("sDnTools", "dotnetToolRestore", "Offer to restore the project's own tools (.config/dotnet-tools.json)"), "So the language server and the first build find every package.")}
@@ -431,7 +433,7 @@ export function wireSettings(root, redraw) {
       return;
     }
     if (act === "workload-install") {
-      const id = a.dataset.id, have = tools.workloads?.includes(id);
+      const id = a.dataset.id, have = hasWorkload(id);
       ctx.runTask("dotnet", ["workload", have ? "update" : "install", ...(have ? [] : [id])], `${have ? "Updating" : "Installing"} the ${id} workload`, async () => {
         const r = await invoke("run_capture", { cwd: ".", program: "dotnet", args: ["workload", "list"], timeoutMs: 120000 }).catch(() => null);
         tools.workloads = parseWorkloads(r?.out);

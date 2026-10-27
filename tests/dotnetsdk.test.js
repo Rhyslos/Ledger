@@ -26,7 +26,8 @@ test("global.json roll-forward rules", () => {
   assert.equal(sdkMeets("8.0.100", "latestMajor", ["9.0.100"]), true);
   assert.equal(sdkMeets("8.0.404", "disable", have), true);
   assert.equal(sdkMeets("8.0.403", "disable", have), false);
-  assert.equal(sdkMeets("10.0.100", "latestFeature", ["10.0.100-rc.1"]), false); // previews only when allowed
+  assert.equal(sdkMeets("10.0.100", "latestMajor", ["11.0.100-preview.1"]), true); // previews count by default
+  assert.equal(sdkMeets("10.0.100", "latestMajor", ["11.0.100-preview.1"], false), false);
 });
 
 test("global.json problems", () => {

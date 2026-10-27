@@ -4,7 +4,7 @@
 // Everything that builds or runs the project goes through startSteps, so restricted mode asks
 // first. Installing a tool (dotnet-ef) and trusting the certificate run in your home folder.
 import { invoke } from "@tauri-apps/api/core";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
 import { parseHttpFile, expand, readEnvFile } from "./httpfile.js";
 import { parseSdks, globalJsonProblem } from "./dotnetsdk.js";
 import { installSdk } from "./settings.js";
@@ -103,13 +103,25 @@ export function initDotnetTools(app) {
     const env = await envFor(path);
     const ev = env ? env.vars(envName(env)) : {};
     const url = expand(r.url, vars, ev);
-    const missing = /\{\{\s*([^}$][^}]*?)\s*\}\}/.exec(url + r.headers.flat().join(" "));
+    const headers = r.headers.map(([k, v]) => [k, expand(v, vars, ev)]);
+    const missing = /\{\{\s*([^}$][^}]*?)\s*\}\}/.exec(url + " " + headers.flat().join(" "));
     if (missing) { app.toast(`{{${missing[1]}}} isn't set: add @${missing[1]} = … above the request${env ? "" : " or an http-client.env.json"}.`, 6000); return; }
     let body = r.body ? expand(r.body, vars, ev) : "";
-    // < ./file.json sends that file as the body.
+    // < ./file.json sends that file as the body: only a file inside the open folder, so a .http
+    // file can't send your other files (a key from your profile, say) anywhere.
     const from = /^<\s+(.+)$/.exec(body.trim());
-    if (from) { body = await readText(app.isAbs(from[1]) ? from[1] : app.parent(path) + "/" + from[1].replace(/^\.\//, "")); if (body == null) { app.toast("Couldn't read " + from[1]); return; } }
-    const headers = r.headers.map(([k, v]) => [k, expand(v, vars, ev)]);
+    if (from) {
+      const file = app.norm(app.isAbs(from[1]) ? from[1] : app.parent(path) + "/" + from[1]).split("/").reduce((a, x) => (x === ".." ? a.slice(0, -1) : x === "." ? a : [...a, x]), []).join("/");
+      if (!S.root || !app.isUnder(file, S.root)) { app.toast(`${from[1]} is outside the open folder, so it isn't sent.`, 6000); return; }
+      body = await readText(file);
+      if (body == null) { app.toast("Couldn't read " + from[1]); return; }
+    }
+    // A restricted folder chose this address and body: show where it goes before sending.
+    const local = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(url);
+    if (!app.trusted() && !local) {
+      const c = await app.choose(`Send ${r.method} ${url}${from ? ` with ${from[1]}` : ""}? ${app.base(S.root || "")} is in restricted mode, and the .http file chose this address.`, ["Cancel", "Send it"]);
+      if (c !== "Send it") return;
+    }
     const n = ++sending;
     app.toast(`${r.method} ${url}…`, 100000);
     let res;
@@ -141,16 +153,16 @@ export function initDotnetTools(app) {
     });
   }
   /** --project (where the DbContext and Migrations live) and --startup-project (what runs it). */
-  async function efTarget() {
-    const p = await pick(null, (x) => x.ef, "uses Entity Framework Core (a Microsoft.EntityFrameworkCore package)");
+  async function efTarget(given) {
+    const p = await pick(given?.ef ? given : null, (x) => x.ef, "uses Entity Framework Core (a Microsoft.EntityFrameworkCore package)");
     if (!p) return null;
     const o = D().opts(project());
     const start = o.startup && o.startup !== p.path ? ["--startup-project", o.startup] : [];
     return { p, args: ["--project", p.path, ...start, ...(o.config !== "Debug" ? ["--configuration", o.config] : []), ...(o.framework ? ["--framework", o.framework] : [])] };
   }
-  async function ef(label, sub, after) {
+  async function ef(label, sub, after, given) {
     if (!(await haveEf())) return;
-    const t = await efTarget();
+    const t = await efTarget(given);
     if (!t) return;
     const extra = typeof sub === "function" ? await sub(t.p) : sub;
     if (!extra) return;
@@ -162,17 +174,17 @@ export function initDotnetTools(app) {
     if (!/^[A-Za-z_]\w*$/.test(name)) { app.toast("A migration name is a C# name: letters, digits and _."); return null; }
     return ["migrations", "add", name];
   };
-  async function updateDatabase() {
+  async function updateDatabase(given) {
     const choice = await app.choose("Update the database", ["To the newest migration", "To a migration I name…", "Undo every migration (to 0)"], true);
     if (choice == null || choice < 0) return;
-    if (choice === 0) return ef("database update", ["database", "update"]);
+    if (choice === 0) return ef("database update", ["database", "update"], null, given);
     if (choice === 2) {
       const c = await app.choose("Undo every migration? This drops the tables the migrations made, with their data.", ["Undo them all", "Cancel"]);
-      if (c === "Undo them all") ef("database update 0", ["database", "update", "0"]);
+      if (c === "Undo them all") ef("database update 0", ["database", "update", "0"], null, given);
       return;
     }
     const name = (await app.promptText("Update the database to which migration?", "", "AddCustomerEmail"))?.trim();
-    if (name) ef("database update " + name, ["database", "update", name]);
+    if (name) ef("database update " + name, ["database", "update", name], null, given);
   }
   async function sqlScript() {
     ef("migrations script", (p) => ["migrations", "script", "--idempotent", "--output", p.dir + "/obj/ledger-migrations.sql"], (p) => app.openFile(p.dir + "/obj/ledger-migrations.sql"));
@@ -224,12 +236,18 @@ export function initDotnetTools(app) {
     const gj = await readText(root + "/global.json");
     if (gj != null && S.root === root) {
       const r = await invoke("run_capture", { cwd: ".", program: "dotnet", args: ["--list-sdks"] }).catch(() => null);
-      const problem = r && globalJsonProblem(gj, parseSdks(r.out));
+      const sdks = r ? parseSdks(r.out) : [];
+      const problem = r && globalJsonProblem(gj, sdks);
       if (problem && asked[root + "|sdk"] !== problem.version) {
         asked[root + "|sdk"] = problem.version; app.savePrefs();
         const install = `Install the .NET ${problem.major} SDK`;
-        const c = await app.choose(problem.message, problem.major >= 6 ? [install, "Not now"] : ["OK"]);
+        // winget has one package per major version (its newest); a pin to an older feature band of
+        // a major that's installed needs that exact SDK from the download page.
+        const canWinget = problem.major >= 6 && problem.major <= 10 && !sdks.some((v) => parseInt(v, 10) === problem.major);
+        const page = `Open the download page for ${problem.version}`;
+        const c = await app.choose(problem.message, canWinget ? [install, "Not now"] : [page, "Not now"]);
         if (c === install) installSdk(problem.major);
+        if (c === page) openUrl(`https://dotnet.microsoft.com/download/dotnet/${problem.major}.0`).catch(() => {});
         return; // nothing else works until that SDK is here
       }
     }
@@ -248,7 +266,7 @@ export function initDotnetTools(app) {
     const sln = files().find((f) => /\.slnx?$/i.test(f) && app.parent(f) === root);
     const target = sln || (files().filter((f) => /\.csproj$/i.test(f)).length === 1 ? files().find((f) => /\.csproj$/i.test(f)) : null);
     if (!target) return;
-    const r = await invoke("run_capture", { cwd: app.parent(target), program: "dotnet", args: ["restore", target, "-nologo", "-v", "q"], timeoutMs: 300000 }).catch((e) => ({ code: -1, out: "", err: String(e) }));
+    const r = await invoke("run_capture", { cwd: app.parent(target), program: "dotnet", args: ["restore", target, "-nologo", "-v", "m"], timeoutMs: 300000 }).catch((e) => ({ code: -1, out: "", err: String(e) }));
     if (S.root !== root) return;
     if (r.code !== 0) {
       const first = (r.out + "\n" + r.err).split("\n").find((l) => /error/i.test(l)) || r.err.split("\n")[0] || "";
@@ -263,6 +281,8 @@ export function initDotnetTools(app) {
   app.trustHooks.push((yes) => { if (yes) { openedFor = null; setTimeout(() => onOpen().catch(() => {}), 300); } });
 
   app.dotnetHooks.secrets = editSecrets;
+  app.dotnetHooks.addMigration = (p) => ef("migrations add", migrationName, null, p);
+  app.dotnetHooks.updateDatabase = (p) => updateDatabase(p);
   app.dotnetHooks.publish = publish;
   app.dotnetHooks.sendHttp = sendHttp;
 
@@ -276,7 +296,7 @@ export function initDotnetTools(app) {
   C("ef.addMigration", "EF Core: add a migration", () => ef("migrations add", migrationName), "entity framework migration");
   C("ef.listMigrations", "EF Core: list migrations", () => ef("migrations list", ["migrations", "list"]), "entity framework");
   C("ef.removeMigration", "EF Core: remove the last migration", () => ef("migrations remove", ["migrations", "remove"]), "entity framework undo migration");
-  C("ef.updateDatabase", "EF Core: update the database", updateDatabase, "entity framework migrate apply");
+  C("ef.updateDatabase", "EF Core: update the database", () => updateDatabase(), "entity framework migrate apply");
   C("ef.script", "EF Core: SQL script of the migrations", sqlScript, "entity framework sql");
 
   return { sendHttp, publish, editSecrets };

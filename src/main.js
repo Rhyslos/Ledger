@@ -128,7 +128,7 @@ const isPage = (k) => typeof k === "string" && k.startsWith("@");
 // File icons by type (Settings › Appearance › File icons), or the coloured dots.
 const fileIcons = () => settings.fileIcons !== false;
 const mark = (path) => (fileIcons() && path ? iconHtml(path) : '<span class="dot"></span>');
-const isVirtual = (p) => /^[a-z]+:/i.test(p) && !/^[A-Za-z]:\//.test(p); // csharp:/metadata/…
+const isVirtual = (p) => (/^[a-z]+:/i.test(p) && !/^[A-Za-z]:\//.test(p)) || /^@http:/.test(p); // csharp:/metadata/…, an HTTP response
 
 // ---------- paths ----------
 const base = (p) => norm(p).split("/").pop();
