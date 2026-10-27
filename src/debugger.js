@@ -406,12 +406,13 @@ export function initDebugger(app) {
     if (!ses?.dap.alive) return;
     try { await ses.dap.request("setExceptionBreakpoints", { filters: exceptionFilters() }); } catch {}
   }
+  // Changed in Settings while debugging: tell the debugger now.
+  app.settingHooks.push((key) => { if (key === "debugBreakOn") sendExceptionFilters(); });
   async function pickBreakOn() {
     const cur = settings.debugBreakOn || "unhandled";
     const i = await app.choose("Pause when an exception is thrown", BREAK_ON.map(([k, l]) => l + (k === cur ? "  (now)" : "")), true, { sel: Math.max(0, BREAK_ON.findIndex(([k]) => k === cur)) });
     if (i == null || i < 0) return;
-    app.setSetting("debugBreakOn", BREAK_ON[i][0]);
-    await sendExceptionFilters();
+    app.setSetting("debugBreakOn", BREAK_ON[i][0]); // the setting hook sends it
     app.toast("Pause on exceptions: " + BREAK_ON[i][1].toLowerCase() + ".");
     renderView();
   }
