@@ -6,6 +6,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { parseHttpFile, expand, readEnvFile } from "./httpfile.js";
+import { parseSdks, globalJsonProblem } from "./dotnetsdk.js";
+import { installSdk } from "./settings.js";
 
 export function initDotnetTools(app) {
   const { S, esc, prefs } = app;
@@ -205,6 +207,60 @@ export function initDotnetTools(app) {
       revealItemInDir(has ? exe : out).catch(() => {});
     });
   }
+
+  // ---------- when a folder with .NET projects opens ----------
+  // global.json pinning an SDK that isn't here, the project's own tools (dotnet tool restore),
+  // and NuGet packages (dotnet restore) so the language server and the first build find them.
+  let openedFor = null;
+  async function onOpen() {
+    const root = S.root;
+    if (!root || openedFor === root) return;
+    openedFor = root;
+    await app.loadFiles?.();
+    if (S.root !== root) return;
+    const files = S.files || [];
+    if (!files.some((f) => /\.(csproj|fsproj|slnx?)$/i.test(f))) return;
+    const asked = (prefs.dotnetAsked ||= {});
+    const gj = await readText(root + "/global.json");
+    if (gj != null && S.root === root) {
+      const r = await invoke("run_capture", { cwd: ".", program: "dotnet", args: ["--list-sdks"] }).catch(() => null);
+      const problem = r && globalJsonProblem(gj, parseSdks(r.out));
+      if (problem && asked[root + "|sdk"] !== problem.version) {
+        asked[root + "|sdk"] = problem.version; app.savePrefs();
+        const install = `Install the .NET ${problem.major} SDK`;
+        const c = await app.choose(problem.message, problem.major >= 6 ? [install, "Not now"] : ["OK"]);
+        if (c === install) installSdk(problem.major);
+        return; // nothing else works until that SDK is here
+      }
+    }
+    if (!app.trusted() || S.root !== root) return;
+    const manifest = files.find((f) => /(^|\/)\.config\/dotnet-tools\.json$/i.test(f) && app.parent(app.parent(f)) === root);
+    if (manifest && app.settings.dotnetToolRestore && !asked[root + "|tools"]) {
+      let names = [];
+      try { names = Object.keys(JSON.parse((await readText(manifest)) || "{}").tools || {}); } catch {}
+      asked[root + "|tools"] = true; app.savePrefs();
+      const c = await app.choose(`This project uses its own .NET tools${names.length ? ` (${names.slice(0, 5).join(", ")})` : ""}. Restore them? (dotnet tool restore)`, ["Restore them", "Not now"]);
+      if (c === "Restore them") app.startSteps([{ label: "dotnet tool restore", program: "dotnet", args: ["tool", "restore"], cwd: root }]);
+    }
+    if (app.settings.dotnetRestoreOnOpen) restoreQuietly(root);
+  }
+  async function restoreQuietly(root) {
+    const sln = files().find((f) => /\.slnx?$/i.test(f) && app.parent(f) === root);
+    const target = sln || (files().filter((f) => /\.csproj$/i.test(f)).length === 1 ? files().find((f) => /\.csproj$/i.test(f)) : null);
+    if (!target) return;
+    const r = await invoke("run_capture", { cwd: app.parent(target), program: "dotnet", args: ["restore", target, "-nologo", "-v", "q"], timeoutMs: 300000 }).catch((e) => ({ code: -1, out: "", err: String(e) }));
+    if (S.root !== root) return;
+    if (r.code !== 0) {
+      const first = (r.out + "\n" + r.err).split("\n").find((l) => /error/i.test(l)) || r.err.split("\n")[0] || "";
+      app.toast("dotnet restore didn't finish: " + first.trim().slice(0, 220), 9000);
+      return;
+    }
+    // Packages arrived after the language server loaded the projects: load them again.
+    if (/Restored /.test(r.out)) app.startServer("csharp");
+  }
+  const files = () => S.files || [];
+  app.folderHooks.push(() => setTimeout(() => onOpen().catch(() => {}), 1500));
+  app.trustHooks.push((yes) => { if (yes) { openedFor = null; setTimeout(() => onOpen().catch(() => {}), 300); } });
 
   app.dotnetHooks.secrets = editSecrets;
   app.dotnetHooks.publish = publish;

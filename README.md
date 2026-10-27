@@ -51,6 +51,7 @@ To change the name, see [Renaming](#renaming).
 - **Tabs**: clicking through files in the explorer reuses one preview tab (in italics) until you edit, save or pin it. Diffs, the CSV table and the hex view open the same way. When there are more tabs than fit, the edges fade and a list of every open tab sits at the right end. Right-click a tab to pin it, copy its path, show it in the explorer, open it to the side, or close the tabs to its right, the saved ones or all of them.
 - **File icons** for every kind of file and common folders (Material Icon Theme; Settings › Appearance turns them off).
 - **Installing languages**: Settings › Languages installs Node.js, Lua, Rust, the .NET SDK, Git, Lust and the language servers with one click.
+- **.NET tools**: Settings › C# and .NET lists the installed SDKs and runtimes, installs the .NET 8, 9 or 10 SDK side by side, lists and installs workloads (MAUI, Android, iOS, WebAssembly tools), and installs `dotnet-ef`. When a folder opens, Ledger warns if its `global.json` pins an SDK that isn't installed (and offers it), offers `dotnet tool restore` for a project's own tools, and runs `dotnet restore` in a trusted folder so the language server and the first build find every package. Go to definition reaches into NuGet packages and the framework: their source through Source Link when the package has it, decompiled when not, opened read-only.
 - **Explorer menu**: "Open with Ledger" when you right-click a file or folder in Windows (Settings › Windows turns it off).
 - **Updates**: Ledger checks for a new version on start, downloads it in the background and shows **Restart to update**.
 - **Settings** on Ctrl P: theme, fonts, status bar position, tab size, wrapping, format on save, auto save, editor extras, tool paths, terminal shell, debuggers, Godot setup, and every Ledger command's shortcut can be changed.
@@ -86,7 +87,7 @@ You can also start it by hand from the Actions tab (**Run workflow**).
 Building and running only need what you already use (Rust for Rust projects, the .NET SDK for C#, Godot for Godot). For live errors, completions and the rest:
 
 - **Rust**: `rustup component add rust-analyzer rust-src`
-- **C#**: install the [.NET 10 SDK](https://dotnet.microsoft.com/download) (csharp-ls runs on it; your projects can still target .NET 8), then `dotnet tool install --global csharp-ls`
+- **C#**: install the [.NET 10 SDK](https://dotnet.microsoft.com/download) (csharp-ls runs on it; your projects can still target .NET 8), then `dotnet tool install --global csharp-ls`. Settings › C# and .NET does both with buttons.
 
 Settings › Languages has install buttons for these and the rest (web servers, Lua, Lust), and shows which tools it found.
 
@@ -230,6 +231,7 @@ src/dotnet.js         .NET commands beyond Run, Build and Test
 src/dotnettools.js    user secrets, the dev certificate, .http requests, EF Core and Publish
 src/httpfile.js       reading .http files and http-client.env.json
 src/coverage.js       reading coverage reports (Cobertura)
+src/dotnetsdk.js      installed SDKs, runtimes and workloads; global.json's SDK rules
 src/msbuild.js        completion in .csproj, .props and .targets
 src/editorconfig.js   .editorconfig sections and what they set
 src/search.js         the Search view: search and replace in files
