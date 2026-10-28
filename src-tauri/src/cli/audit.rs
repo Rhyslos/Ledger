@@ -243,8 +243,38 @@ pub fn to_json(r: &Report) -> Value {
     })
 }
 
+/// Every line of Cargo.toml that lists a crate, in the dependency tables only ([dependencies],
+/// [dev-dependencies], [target.….dependencies], [workspace.dependencies], or [dependencies.name]).
+pub fn cargo_lines(text: &str, name: &str) -> Vec<usize> {
+    let esc = regex::escape(name);
+    let key = regex::Regex::new(&format!(r#"^\s*(?:{esc}|"{esc}")\s*(?:=|\.)"#)).unwrap();
+    let pkg = regex::Regex::new(&format!(r#"\bpackage\s*=\s*"{esc}""#)).unwrap();
+    let header = regex::Regex::new(r#"^\s*\[([^\]]+)\]"#).unwrap();
+    let mut deps = false;
+    let mut out = vec![];
+    for (i, l) in text.lines().enumerate() {
+        if let Some(h) = header.captures(l) {
+            let h = h[1].trim();
+            // [dependencies.name] (or dev-, build-, target.….) is the crate's own table.
+            let own = h.rsplit_once('.').is_some_and(|(sect, n)| sect.ends_with("dependencies") && n.trim_matches(['"', '\'']) == name);
+            deps = h.ends_with("dependencies");
+            if own {
+                out.push(i);
+            }
+            continue;
+        }
+        if deps && (key.is_match(l) || pkg.is_match(l)) {
+            out.push(i);
+        }
+    }
+    out
+}
+
 /// The line in a manifest that names a package (0-based), if there is one.
 pub fn line_of(text: &str, eco: Eco, name: &str) -> Option<usize> {
+    if eco == Eco::Cargo {
+        return cargo_lines(text, name).first().copied();
+    }
     let esc = regex::escape(name);
     let pat = match eco {
         Eco::Cargo => format!(r#"^\s*(?:{esc}\s*(?:=|\.)|\[(?:[\w.'"-]*\.)?dependencies\.{esc}\]|.*\bpackage\s*=\s*"{esc}")"#),
@@ -322,11 +352,13 @@ mod tests {
     use super::*;
     #[test]
     fn lines() {
-        let cargo = "[dependencies]\nserde = \"1\"\nrand.workspace = true\n[dependencies.tokio]\nversion = \"1\"\nalias = { package = \"real\", version = \"2\" }\n";
+        assert_eq!(line_of("[features]\nserde = []\n[dependencies]\nserde = \"1\"\n", Eco::Cargo, "serde"), Some(3));
+        assert_eq!(cargo_lines("[dependencies]\nx = \"1\"\n[dev-dependencies]\nx = \"1\"\n", "x"), [1, 3]);
+        let cargo = "[dependencies]\nserde = \"1\"\nrand.workspace = true\n[dependencies.tokio]\nversion = \"1\"\n[dependencies]\nalias = { package = \"real\", version = \"2\" }\n";
         assert_eq!(line_of(cargo, Eco::Cargo, "serde"), Some(1));
         assert_eq!(line_of(cargo, Eco::Cargo, "rand"), Some(2));
         assert_eq!(line_of(cargo, Eco::Cargo, "tokio"), Some(3));
-        assert_eq!(line_of(cargo, Eco::Cargo, "real"), Some(5));
+        assert_eq!(line_of(cargo, Eco::Cargo, "real"), Some(6));
         assert_eq!(line_of("{\n  \"dependencies\": {\n    \"react\": \"^18\"\n  }\n}", Eco::Npm, "react"), Some(2));
         assert_eq!(line_of("<ItemGroup>\n  <PackageReference Include=\"newtonsoft.json\" Version=\"12\" />", Eco::NuGet, "Newtonsoft.Json"), Some(1));
     }

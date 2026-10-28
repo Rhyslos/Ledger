@@ -72,10 +72,19 @@ fn has(args: &[String], f: &str) -> bool {
 }
 
 /// The folder given (the first argument that isn't a --flag), or where you are.
+/// --open-folder: the folder open in the Ledger window (what the command list passes, so no
+/// path is ever typed into a shell).
 fn folder(args: &[String]) -> PathBuf {
+    if has(args, "--open-folder") {
+        if let Ok(v) = link::call("root", serde_json::json!({}), 10) {
+            if let Some(r) = v.as_str() {
+                return cmds::abs(std::path::Path::new(r));
+            }
+        }
+    }
     let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let p = args.iter().find(|a| !a.starts_with('-')).map(|a| here.join(a)).unwrap_or(here);
-    std::fs::canonicalize(&p).map(cmds::plain).unwrap_or(p)
+    cmds::abs(&p)
 }
 
 fn run(args: Vec<String>) -> i32 {

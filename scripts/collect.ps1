@@ -19,6 +19,20 @@ $exe = @("$name.exe", "ledger.exe") | ForEach-Object { "src-tauri/target/release
 if (-not $exe) { throw "Couldn't find the built .exe in src-tauri/target/release." }
 Copy-Item $exe "release/$name-portable.exe"
 
+# The `ledger` terminal command. The installer puts it next to Ledger; for the portable exe, keep
+# ledger-cli.exe in the same folder as it.
+$cli = "src-tauri/target/release/ledger-cli.exe"
+if (-not (Test-Path $cli)) { throw "Couldn't find $cli. Did the build finish?" }
+Copy-Item $cli "release/ledger-cli.exe"
+# The installer must carry it too (Tauri bundles every program the Cargo package builds).
+$seven = Get-Command 7z -ErrorAction SilentlyContinue
+if ($seven) {
+  foreach ($i in $installers) {
+    $list = & 7z l $i.FullName
+    if (-not ($list | Select-String -SimpleMatch "ledger-cli.exe")) { throw "$($i.Name) doesn't contain ledger-cli.exe." }
+  }
+}
+
 Write-Host ""
 Write-Host "Done. In the release folder:"
 Get-ChildItem "release" | ForEach-Object { Write-Host ("  {0}  ({1:N1} MB)" -f $_.Name, ($_.Length / 1MB)) }

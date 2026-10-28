@@ -320,8 +320,13 @@ pub fn npm_lock(text: &str) -> Vec<(String, String, bool)> {
         fn walk(o: &serde_json::Map<String, Value>, out: &mut Vec<(String, String, bool)>) {
             for (n, p) in o {
                 if let Some(v) = p["version"].as_str() {
-                    if !v.contains(':') || v.starts_with("npm:") {
-                        out.push((n.clone(), v.trim_start_matches("npm:").rsplit('@').next().unwrap_or(v).to_string(), p["dev"].as_bool().unwrap_or(false)));
+                    if let Some(real) = v.strip_prefix("npm:") {
+                        // An alias: "npm:bar@1.2.3" is bar 1.2.3.
+                        if let Some(at) = real.char_indices().skip(1).find(|(_, c)| *c == '@').map(|(i, _)| i) {
+                            out.push((real[..at].to_string(), real[at + 1..].to_string(), p["dev"].as_bool().unwrap_or(false)));
+                        }
+                    } else if !v.contains(':') {
+                        out.push((n.clone(), v.to_string(), p["dev"].as_bool().unwrap_or(false)));
                     }
                 }
                 if let Some(d) = p["dependencies"].as_object() {
@@ -343,12 +348,17 @@ pub fn yarn_lock(text: &str) -> Vec<(String, String)> {
     for line in text.lines() {
         if !line.starts_with(' ') && line.ends_with(':') && !line.starts_with('#') {
             // "@babel/core@^7.0.0", "@babel/core@npm:^7.1.0":
+            // An alias ("foo@npm:bar@^1") is really bar.
             names = line
                 .trim_end_matches(':')
                 .split(", ")
                 .map(|s| s.trim_matches('"'))
                 .filter_map(|s| {
-                    let at = s[1..].find('@')? + 1;
+                    let s = match s.find("@npm:") {
+                        Some(i) if !s[i + 5..].starts_with(|c: char| c.is_ascii_digit() || c == '^' || c == '~') => &s[i + 5..],
+                        _ => s,
+                    };
+                    let at = s.char_indices().skip(1).find(|(_, c)| *c == '@')?.0;
                     Some(s[..at].to_string())
                 })
                 .collect();
@@ -370,6 +380,9 @@ pub fn pnpm_lock(text: &str) -> Vec<(String, String)> {
     let mut out = vec![];
     let mut in_packages = false;
     for line in text.lines() {
+        if line.trim().is_empty() {
+            continue; // real lock files have a blank line between entries
+        }
         if !line.starts_with(' ') {
             in_packages = line.trim_end() == "packages:";
             continue;
@@ -608,6 +621,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
         let berry = "\"lodash@npm:^4.17.0\":\n  version: 4.17.21\n  resolution: \"lodash@npm:4.17.21\"\n";
         assert_eq!(yarn_lock(berry), [("lodash".into(), "4.17.21".into())]);
         let pnpm = "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\npackages:\n  '@babel/core@7.2.0':\n    resolution: {}\n  lodash@4.17.21:\n    resolution: {}\n  /old/1.0.0:\n    x\n  /react-dom@18.2.0(react@18.2.0):\n    x\nsnapshots:\n  lodash@4.17.21: {}\n";
+        let real9 = "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n\nimporters:\n\n  .:\n    dependencies:\n      lodash:\n        specifier: ^4.17.15\n        version: 4.17.15\n\npackages:\n\n  lodash@4.17.15:\n    resolution: {integrity: sha512-x}\n\n  '@types/node@20.1.0':\n    resolution: {integrity: sha512-y}\n\nsnapshots:\n\n  lodash@4.17.15: {}\n";
+        assert_eq!(pnpm_lock(real9), [("@types/node".into(), "20.1.0".into()), ("lodash".into(), "4.17.15".into())]);
+        assert_eq!(yarn_lock("\"foo@npm:bar@^1\":\n  version \"1.2.3\"\n\"\":\n  version \"1\"\n\"é@1\":\n  version \"2.0.0\"\n"), [("bar".into(), "1.2.3".into()), ("é".into(), "2.0.0".into())]);
+        assert_eq!(npm_lock(r#"{ "lockfileVersion": 1, "dependencies": { "foo": { "version": "npm:bar@1.2.3" } } }"#), [("bar".into(), "1.2.3".into(), false)]);
         assert_eq!(pnpm_lock(pnpm), [("@babel/core".into(), "7.2.0".into()), ("lodash".into(), "4.17.21".into()), ("old".into(), "1.0.0".into()), ("react-dom".into(), "18.2.0".into())]);
     }
 

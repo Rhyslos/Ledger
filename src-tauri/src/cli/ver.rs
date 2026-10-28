@@ -85,11 +85,12 @@ pub fn is_pre(s: &str) -> bool {
 /// The part that marks breaking changes: the major number, or for 0.x the minor (0.3 → 0.4
 /// breaks, as Cargo and npm's ^ treat it). [major, minor] for 0.x, [major] otherwise.
 fn breaking(v: &Ver) -> Vec<u64> {
-    let m = v.nums.first().copied().unwrap_or(0);
-    if m == 0 {
-        vec![0, v.nums.get(1).copied().unwrap_or(0)]
-    } else {
-        vec![m]
+    let n = |i: usize| v.nums.get(i).copied().unwrap_or(0);
+    // 0.0.x: every release can break (Cargo's and npm's ^ pin all three numbers).
+    match (n(0), n(1)) {
+        (0, 0) => vec![0, 0, n(2)],
+        (0, m) => vec![0, m],
+        (m, _) => vec![m],
     }
 }
 
@@ -128,6 +129,7 @@ mod tests {
         assert!(!compatible("1.2.3", "2.0.0"));
         assert!(compatible("0.3.1", "0.3.9"));
         assert!(!compatible("0.3.1", "0.4.0"));
+        assert!(!compatible("0.0.3", "0.0.9"));
         let all: Vec<String> = ["1.0.0", "1.4.0", "2.0.0", "2.1.0-beta"].iter().map(|s| s.to_string()).collect();
         let (best, compat) = newest(&all, "1.0.0", false);
         assert_eq!((best.map(|s| s.as_str()), compat.map(|s| s.as_str())), (Some("2.0.0"), Some("1.4.0")));

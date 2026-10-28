@@ -334,13 +334,17 @@ function known(path) {
 // replaces them, and the server's own (fresher) list for a file wins.
 let buildDiagPaths = new Set();
 function setBuildProblems(map) {
-  for (const p of buildDiagPaths) if ((S.diags.get(p) || []).every((d) => d.source === "build")) { S.diags.delete(p); if (S.bufs.has(p)) applyDiags(p); }
+  // Problems from `ledger audit` (source "audit") stay alongside build problems.
+  for (const p of buildDiagPaths) {
+    const left = (S.diags.get(p) || []).filter((d) => d.source !== "build");
+    if (left.every((d) => d.source === "audit")) { if (left.length) S.diags.set(p, left); else S.diags.delete(p); if (S.bufs.has(p)) applyDiags(p); }
+  }
   buildDiagPaths = new Set();
   for (const [raw, list] of map) {
     const p = known(raw);
     const cur = S.diags.get(p);
-    if (cur?.length && cur.some((d) => d.source !== "build")) continue;
-    S.diags.set(p, list.map((d) => ({ ...d, source: "build" })));
+    if (cur?.length && cur.some((d) => d.source !== "build" && d.source !== "audit")) continue;
+    S.diags.set(p, [...list.map((d) => ({ ...d, source: "build" })), ...(cur || []).filter((d) => d.source === "audit")]);
     buildDiagPaths.add(p);
     if (S.bufs.has(p)) applyDiags(p);
   }

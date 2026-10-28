@@ -41,6 +41,6 @@ export function initUpdate({ $, toast, settings, beforeInstall, isMain, aborted 
   }
 
   // Only one window checks, and not in development builds.
-  if (isMain && settings.autoUpdate && !import.meta.env.DEV) setTimeout(() => run(false), 5000);
+  if (isMain && settings.autoUpdate && !import.meta.env.DEV) setTimeout(() => run(false).catch(() => {}), 5000);
   return { check: () => run(true) };
 }

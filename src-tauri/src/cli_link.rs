@@ -12,7 +12,7 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::hash::{BuildHasher, Hasher};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -27,6 +27,7 @@ struct Link {
 static LINK: OnceLock<Link> = OnceLock::new();
 static WAITING: OnceLock<Mutex<HashMap<u64, mpsc::Sender<Result<Value, String>>>>> = OnceLock::new();
 static NEXT: AtomicU64 = AtomicU64::new(1);
+static OPEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static CLI_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 static VERSION: OnceLock<String> = OnceLock::new();
@@ -35,7 +36,7 @@ fn waiting() -> &'static Mutex<HashMap<u64, mpsc::Sender<Result<Value, String>>>
     WAITING.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// 256 random bits as hex. RandomState's keys come from the system's random source.
+/// A random token as hex: RandomState's 128-bit keys come from the system's random source.
 fn new_token() -> String {
     let mut out = String::new();
     for i in 0..4u64 {
@@ -64,15 +65,24 @@ pub fn start(app: AppHandle) {
     if let Ok(d) = app.path().app_local_data_dir() {
         let _ = DATA_DIR.set(d);
     }
+    // Before any terminal opens, so the first one already has `ledger` (an unchanged copy is
+    // only a size and date check).
+    let _ = CLI_DIR.set(install_cli(&app));
     let a2 = app.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
+            // A few at a time: anything can connect to the port (without the token it gets nowhere,
+            // but it could hold connections open).
+            if OPEN.load(Ordering::Relaxed) >= 16 {
+                continue;
+            }
+            OPEN.fetch_add(1, Ordering::Relaxed);
             let app = a2.clone();
-            std::thread::spawn(move || handle(app, stream));
+            std::thread::spawn(move || {
+                handle(app, stream);
+                OPEN.fetch_sub(1, Ordering::Relaxed);
+            });
         }
-    });
-    std::thread::spawn(move || {
-        let _ = CLI_DIR.set(install_cli(&app));
     });
 }
 
@@ -124,11 +134,27 @@ fn same_token(a: &str, b: &str) -> bool {
 }
 
 fn handle(app: AppHandle, mut stream: TcpStream) {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
-    let mut line = String::new();
-    if BufReader::new((&stream).take(4 << 20)).read_line(&mut line).is_err() {
-        return;
+    // The whole request within 10 seconds, however slowly it trickles in.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() || buf.len() > (4 << 20) {
+            return;
+        }
+        let _ = stream.set_read_timeout(Some(left));
+        match (&stream).read(&mut chunk) {
+            Ok(0) | Err(_) => return,
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                if buf.contains(&b'\n') {
+                    break;
+                }
+            }
+        }
     }
+    let line = String::from_utf8_lossy(&buf).into_owned();
     let reply = match serde_json::from_str::<Value>(&line) {
         Ok(req) => answer(&app, &req),
         Err(_) => Err("Not a request.".into()),

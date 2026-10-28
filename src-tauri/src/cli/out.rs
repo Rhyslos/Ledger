@@ -5,7 +5,25 @@ use std::sync::OnceLock;
 
 pub fn on() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal())
+    *ON.get_or_init(|| std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal() && vt())
+}
+
+/// Windows consoles show colour codes only once asked to (cmd.exe as Ledger's shell, say).
+#[cfg(windows)]
+fn vt() -> bool {
+    use windows_sys::Win32::System::Console::{GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE};
+    unsafe {
+        let h = GetStdHandle(STD_OUTPUT_HANDLE);
+        let mut mode = 0;
+        if GetConsoleMode(h, &mut mode) == 0 {
+            return false;
+        }
+        mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0 || SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0
+    }
+}
+#[cfg(not(windows))]
+fn vt() -> bool {
+    true
 }
 
 fn paint(code: &str, s: &str) -> String {

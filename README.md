@@ -64,10 +64,11 @@ Each window has one folder open. Ctrl Shift N opens another window (or Ctrl Ente
 
 ## Building the .exe
 
-Two ways. Both put the same two files in a `release` folder:
+Two ways. Both put the same files in a `release` folder:
 
 - `Ledger_0.1.<n>_x64-setup.exe`, an installer (adds a Start menu entry, installs for your user only, no admin needed).
 - `Ledger-portable.exe`, the program itself. It runs from anywhere and needs nothing else on Windows 11.
+- `ledger-cli.exe`, the `ledger` terminal command. The installer includes it; with the portable exe, keep it in the same folder for `ledger` to work in Ledger's terminal.
 
 ### On your PC
 

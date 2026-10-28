@@ -97,27 +97,41 @@ pub fn plan(r: &Report, mode: Mode, major: bool) -> (BTreeMap<usize, Vec<Change>
     (plan, skips)
 }
 
-/// Sets a package's version in Cargo.toml text, keeping a leading = or ~ (or ^) if there was one.
+/// Sets a crate's version everywhere Cargo.toml lists it (dependencies, dev-dependencies, …),
+/// keeping a leading = or ~ (or ^) if there was one. None if it's listed some other way.
 pub fn set_cargo_version(text: &str, name: &str, to: &str) -> Option<String> {
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
-    let i = audit::line_of(text, Eco::Cargo, name)?;
-    let quoted = regex::Regex::new(r#"^(\s*[\w-]+\s*=\s*")([=~^<>]*)\s*[^"]*(")"#).unwrap();
+    let found = audit::cargo_lines(text, name);
+    if found.is_empty() {
+        return None;
+    }
+    let quoted = regex::Regex::new(r#"^(\s*[\w"-]+\s*=\s*")([=~^<>]*)\s*[^"]*(")"#).unwrap();
     let inline = regex::Regex::new(r#"(\bversion\s*=\s*")([=~^<>]*)\s*[^"]*(")"#).unwrap();
     let rep = |re: &regex::Regex, s: &str| re.replace(s, |c: &regex::Captures| format!("{}{}{}{}", &c[1], &c[2], to, &c[3])).into_owned();
-    if lines[i].trim_start().starts_with('[') {
-        // [dependencies.name] … version = "x" on a line below.
-        let j = (i + 1..lines.len()).take_while(|&j| !lines[j].trim_start().starts_with('[')).find(|&j| inline.is_match(&lines[j]))?;
-        lines[j] = rep(&inline, &lines[j]);
-    } else if inline.is_match(&lines[i]) {
-        lines[i] = rep(&inline, &lines[i]);
-    } else if quoted.is_match(&lines[i]) {
-        lines[i] = rep(&quoted, &lines[i]);
-    } else {
-        return None; // workspace = true, or written some other way: change it where it's defined
+    let mut changed = false;
+    for i in found {
+        if lines[i].trim_start().starts_with('[') {
+            // [dependencies.name] … version = "x" on a line below.
+            if let Some(j) = (i + 1..lines.len()).take_while(|&j| !lines[j].trim_start().starts_with('[')).find(|&j| inline.is_match(&lines[j])) {
+                lines[j] = rep(&inline, &lines[j]);
+                changed = true;
+            }
+        } else if inline.is_match(&lines[i]) {
+            lines[i] = rep(&inline, &lines[i]);
+            changed = true;
+        } else if quoted.is_match(&lines[i]) {
+            lines[i] = rep(&quoted, &lines[i]);
+            changed = true;
+        }
+        // workspace = true: changed where the workspace defines it.
     }
-    let mut out = lines.join(if text.contains("\r\n") { "\r\n" } else { "\n" });
+    if !changed {
+        return None;
+    }
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out = lines.join(eol);
     if text.ends_with('\n') {
-        out.push_str(if text.contains("\r\n") { "\r\n" } else { "\n" });
+        out.push_str(eol);
     }
     Some(out)
 }
@@ -139,6 +153,11 @@ fn exec(prog: &str, args: &[String], dir: &Path) -> bool {
 
 fn s(v: &[&str]) -> Vec<String> {
     v.iter().map(|x| x.to_string()).collect()
+}
+
+/// Yarn 2 and later (Berry) have a .yarnrc.yml; classic yarn doesn't.
+fn yarn_berry(dir: &Path) -> bool {
+    dir.join(".yarnrc.yml").is_file()
 }
 
 /// Which npm-family tool a project uses.
@@ -188,7 +207,7 @@ fn apply(root: &Path, p: &Project, list: &[Change], mode: Mode) -> bool {
                             eprintln!("{} {}: {} → {}", cyan("edit"), audit::rel(root, m), c.name, c.to);
                         }
                     }
-                    if !exec("cargo", &s(&["update", "-p", &c.name]), &dir) {
+                    if !exec("cargo", &s(&["update", "-p", &format!("{}@{}", c.name, c.from)]), &dir) {
                         return false;
                     }
                 } else if !exec("cargo", &s(&["update", "-p", &format!("{}@{}", c.name, c.from), "--precise", &c.to]), &dir) {
@@ -199,26 +218,37 @@ fn apply(root: &Path, p: &Project, list: &[Change], mode: Mode) -> bool {
         }
         Eco::Npm => {
             let tool = npm_tool(p);
-            if mode == Mode::Update && !list.iter().any(|c| c.breaking) {
-                return exec(tool, &s(&["update"]), &dir);
-            }
-            // Packages you listed: install the version wanted (package.json's range moves with it).
-            for dev in [false, true] {
-                let specs: Vec<String> = list.iter().filter(|c| c.direct && c.dev == dev).map(|c| format!("{}@{}", c.name, if mode == Mode::Update && !c.breaking { format!("^{}", c.to) } else { c.to.clone() })).collect();
-                if specs.is_empty() {
-                    continue;
+            // Packages you listed: install the wanted version where that package.json is (its
+            // range moves with it). One package at a time, so trying changes one by one is exact.
+            for c in list.iter().filter(|c| c.direct) {
+                let Some(m) = p.manifests.iter().find(|m| std::fs::read_to_string(m).map(|t| crate::scan::npm_direct(&t).contains_key(&c.name)).unwrap_or(false)) else { continue };
+                let here = m.parent().unwrap_or(&dir).to_path_buf();
+                let spec = format!("{}@{}", c.name, if mode == Mode::Update && !c.breaking { format!("^{}", c.to) } else { c.to.clone() });
+                let root_pj: serde_json::Value = std::fs::read_to_string(dir.join("package.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+                let workspaces = !root_pj["workspaces"].is_null() || dir.join("pnpm-workspace.yaml").is_file();
+                let (run_in, mut args) = match tool {
+                    // npm installs into a workspace member from the root.
+                    "npm" if here != dir => (dir.clone(), vec!["install".to_string(), spec, "--workspace".into(), here.strip_prefix(&dir).unwrap_or(&here).to_string_lossy().replace('\\', "/")]),
+                    "npm" => (dir.clone(), vec!["install".to_string(), spec]),
+                    _ => (here.clone(), vec!["add".to_string(), spec]),
+                };
+                if c.dev {
+                    args.push((if tool == "yarn" { "--dev" } else { "--save-dev" }).into());
                 }
-                let mut args = vec![(if tool == "npm" { "install" } else { "add" }).to_string()];
-                args.extend(specs);
-                if dev {
-                    args.push((if tool == "yarn" { "--dev" } else { "--save-dev" }).to_string());
+                // At the root of a workspace, yarn classic and pnpm want to be told it's meant.
+                if here == dir && workspaces {
+                    match tool {
+                        "pnpm" => args.push("-w".into()),
+                        "yarn" if !yarn_berry(&dir) => args.push("-W".into()),
+                        _ => {}
+                    }
                 }
-                if !exec(tool, &args, &dir) {
+                if !exec(tool, &args, &run_in) {
                     return false;
                 }
             }
             // Packages that come in through others: the tool's own fixer, which knows who needs what.
-            if list.iter().any(|c| !c.direct) {
+            if mode == Mode::Security && list.iter().any(|c| !c.direct) {
                 let force = list.iter().any(|c| !c.direct && c.breaking);
                 match tool {
                     // npm audit fix exits with an error while anything is left unfixed; what moved is
@@ -227,7 +257,7 @@ fn apply(root: &Path, p: &Project, list: &[Change], mode: Mode) -> bool {
                         exec("npm", &s(if force { &["audit", "fix", "--force"] } else { &["audit", "fix"] }), &dir);
                     }
                     "pnpm" => {
-                        // Adds overrides for the fixed versions to package.json, then installs.
+                        // Adds overrides for the fixed versions, then installs.
                         if !(exec("pnpm", &s(&["audit", "--fix"]), &dir) && exec("pnpm", &s(&["install"]), &dir)) {
                             return false;
                         }
@@ -280,9 +310,12 @@ fn snapshot(root: &Path, p: &Project) -> Snapshot {
     let mut files: Vec<PathBuf> = p.manifests.clone();
     files.extend(p.lock.clone());
     files.push(p.dir.join("package.json"));
-    for l in ["package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml"] {
-        files.push(p.lock.as_ref().and_then(|x| x.parent()).unwrap_or(&p.dir).join(l));
+    let top = p.lock.as_ref().and_then(|x| x.parent()).unwrap_or(&p.dir).to_path_buf();
+    for l in ["package.json", "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".pnpmfile.cjs"] {
+        files.push(top.join(l));
     }
+    // NuGet's own lock file (RestorePackagesWithLockFile).
+    files.push(p.dir.join("packages.lock.json"));
     if let Some(sln) = solution_for(root, p) {
         if let Some(d) = sln.parent() {
             files.push(d.join("Directory.Packages.props"));
@@ -319,12 +352,20 @@ fn still_there(root: &Path, p: &Project, list: &[Change]) -> Vec<Change> {
     list.iter().filter(|c| now.deps.iter().any(|d| p.eco.same_name(&d.name, &c.name) && d.version == c.from)).cloned().collect()
 }
 
-/// After putting files back, make installed packages match them again.
-fn reinstall(p: &Project) {
+/// After putting files back, make installed packages match them again, without letting the
+/// tool rewrite the lock file just restored (and put the files back once more if it did anyway).
+fn reinstall(p: &Project, snap: &Snapshot) {
     if p.eco == Eco::Npm {
         let tool = npm_tool(p);
         let dir = p.lock.as_ref().and_then(|l| l.parent()).unwrap_or(&p.dir).to_path_buf();
-        exec(tool, &s(&["install"]), &dir);
+        let args: &[&str] = match tool {
+            "yarn" if yarn_berry(&dir) => &["install", "--immutable"],
+            "yarn" => &["install", "--frozen-lockfile"],
+            "pnpm" => &["install", "--frozen-lockfile"],
+            _ => &["ci"],
+        };
+        exec(tool, &s(args), &dir);
+        snap.restore();
     }
 }
 
@@ -381,7 +422,7 @@ pub fn run(root: &Path, mode: Mode, args: &[String]) -> i32 {
         let snap = snapshot(root, p);
         if !apply(root, p, list, mode) {
             snap.restore();
-            reinstall(p);
+            reinstall(p, &snap);
             println!("{} The package tool couldn't make the change (see above), so {} is back as it was.", red("✗"), p.name);
             failed += list.len();
             continue;
@@ -399,7 +440,7 @@ pub fn run(root: &Path, mode: Mode, args: &[String]) -> i32 {
             continue;
         }
         snap.restore();
-        reinstall(p);
+        reinstall(p, &snap);
         println!("{} The build or tests failed after the change, so {} is back as it was.", red("✗"), p.name);
         if list.len() == 1 || no_check {
             failed += list.len();
@@ -408,7 +449,12 @@ pub fn run(root: &Path, mode: Mode, args: &[String]) -> i32 {
         // Find which ones broke it: each on its own.
         println!("{}", dim("Trying each change on its own to find the one that breaks it…"));
         let mut good: Vec<Change> = vec![];
-        for c in list.iter().take(8) {
+        if list.len() > 8 {
+            failed += list.len();
+            println!("{} Too many changes to try one by one ({}). Try fewer at a time, or with --dry-run to see them.", yellow("!"), list.len());
+            continue;
+        }
+        for c in list.iter() {
             let one = vec![c.clone()];
             let ok = apply(root, p, &one, mode) && check(root, p);
             snap.restore();
@@ -419,14 +465,18 @@ pub fn run(root: &Path, mode: Mode, args: &[String]) -> i32 {
                 failed += 1;
             }
         }
-        reinstall(p);
-        if !good.is_empty() && good.len() < list.len() {
+        reinstall(p, &snap);
+        if good.len() == list.len() {
+            // Each works alone but not together.
+            failed += list.len();
+            println!("{} Each change works on its own, but not all together; {} is back as it was. Take them a few at a time.", red("✗"), p.name);
+        } else if !good.is_empty() {
             if apply(root, p, &good, mode) && check(root, p) {
                 done += good.len();
                 println!("{} Kept the {} that work.", green("✓"), good.len());
             } else {
                 snap.restore();
-                reinstall(p);
+                reinstall(p, &snap);
                 failed += good.len();
                 println!("{} They don't work together either; {} is back as it was.", red("✗"), p.name);
             }
@@ -467,5 +517,7 @@ mod tests {
         assert!(c.contains("version = \"^0.8.5\""));
         assert!(set_cargo_version("[dependencies]\nx.workspace = true\n", "x", "2").is_none());
         assert!(c.ends_with('\n'));
+        let both = set_cargo_version("[features]\nx = []\n[dependencies]\nx = \"1\"\n[dev-dependencies]\nx = { version = \"1\" }\n", "x", "2.0.0").unwrap();
+        assert!(both.contains("x = \"2.0.0\"") && both.contains("version = \"2.0.0\"") && both.contains("x = []"));
     }
 }

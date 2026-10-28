@@ -17,17 +17,15 @@ export function initCli(app) {
   const { S, norm, isUnder } = app;
   const reply = (id, ok, value) => invoke("cli_reply", { id, ok, value: value ?? null }).catch(() => {});
 
-  /** Whether a folder is trusted (it, or a folder above it, was trusted or restricted in Ledger),
-   *  or null for a folder Ledger was never asked about. */
+  /** Whether a folder is trusted, the way Ledger decides it: inside the open folder, that folder's
+   *  answer; elsewhere, only a folder trusted in its own right (no inheriting from folders above),
+   *  and null for one Ledger was never asked about. */
   const trustedPath = (p) => {
+    const at = norm(p);
+    if (S.root && isUnder(at, S.root)) return app.trusted();
     const t = app.prefs.trust || {};
-    const start = norm(p);
-    for (let d = start; d; d = app.parent(d)) {
-      if (t[d] === true) return true;
-      if (t[d] === false) return false;
-      if (!app.parent(d) || app.parent(d) === d) break;
-    }
-    return S.root && isUnder(start, S.root) ? app.trusted() : null;
+    const key = Object.keys(t).find((k) => k.toLowerCase() === at.toLowerCase());
+    return key == null ? null : t[key] === true;
   };
 
   const handlers = {
@@ -53,10 +51,20 @@ export function initCli(app) {
     trusted({ path }) {
       return trustedPath(path);
     },
-    trust({ path, yes }) {
+    async trust({ path, yes }) {
       if (!S.root) throw "Open a folder in Ledger first.";
       if (!isUnder(norm(path), S.root)) throw `This terminal is in ${norm(path)}, outside the folder open in Ledger (${S.root}).`;
+      // Trusting is asked in the window, as everywhere else (anything run in a terminal could
+      // send this). Going back to restricted mode needs no asking.
+      if (yes && !app.trusted()) {
+        const c = await app.choose(`The terminal asks to trust ${app.base(S.root)}, so Ledger runs its code (builds, tests, package managers). Trust it?`, ["Cancel", "Trust it"]);
+        if (c !== "Trust it") throw "Not trusted: the question in the Ledger window was answered no.";
+      }
       app.setTrust(S.root, !!yes);
+      return S.root;
+    },
+    root() {
+      if (!S.root) throw "Open a folder in Ledger first.";
       return S.root;
     },
     audit({ files }) {
@@ -97,9 +105,9 @@ export function initCli(app) {
   app.folderHooks.push(() => app.setProblems("audit", new Map()));
 
   // ---------- the same commands from the palette ----------
-  // The open folder is passed along, whichever folder the terminal is in.
-  const quoted = () => (S.root ? ` "${navigator.userAgent.includes("Windows") ? S.root.replace(/\//g, "\\") : S.root}"` : "");
-  const C = (id, title, line, alias) => app.command(id, title, [], () => app.runInTerminal?.(line === "ledger help" ? line : line + quoted()), alias ? { alias } : undefined);
+  // --open-folder: the command asks the window which folder is open, whichever folder the terminal
+  // is in. (Never the path itself typed into the shell: a folder name with $(…) in it would run.)
+  const C = (id, title, line, alias) => app.command(id, title, [], () => { if (!S.root && line !== "ledger help") { app.toast("Open a folder first."); return; } app.runInTerminal?.(line === "ledger help" ? line : line + " --open-folder"); }, alias ? { alias } : undefined);
   C("ledger.audit", "Ledger: audit packages (security and updates)", "ledger audit", "vulnerabilities cve security outdated dependencies npm audit cargo audit");
   C("ledger.auditFix", "Ledger: fix security problems in packages", "ledger audit fix", "vulnerabilities upgrade");
   C("ledger.update", "Ledger: take safe package updates", "ledger update", "outdated upgrade dependencies");

@@ -9,17 +9,25 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// A path without Windows' \\?\ prefix (from canonicalize), which other programs don't take.
-pub fn plain(p: PathBuf) -> PathBuf {
-    let s = p.to_string_lossy();
-    match s.strip_prefix(r"\\?\") {
-        Some(rest) if !rest.starts_with("UNC\\") => PathBuf::from(rest),
-        _ => p,
+/// A full path with . and .. worked out, written the way the window writes it: mapped drives,
+/// subst drives and junctions stay as they are (canonicalize would turn them into \\?\UNC\…).
+pub fn abs(p: &Path) -> PathBuf {
+    let a = std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
+    let mut out = PathBuf::new();
+    for c in a.components() {
+        match c {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            c => out.push(c.as_os_str()),
+        }
     }
+    out
 }
 
 fn cwd() -> PathBuf {
-    std::env::current_dir().map(plain).unwrap_or_else(|_| PathBuf::from("."))
+    abs(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
 }
 
 fn need_link() -> Result<(), i32> {
@@ -48,9 +56,9 @@ pub fn open(args: &[String]) -> i32 {
     }
     let here = cwd();
     for a in args.iter().filter(|a| !a.starts_with('-')) {
-        let path = a.rsplitn(3, ':').collect::<Vec<_>>();
-        // c:\x\y.rs:12 → the part before :12 must exist.
-        let file = if path.len() > 1 && path[0].chars().all(|c| c.is_ascii_digit()) { a[..a.len() - path[0].len() - 1].trim_end_matches(|c: char| c == ':' || c.is_ascii_digit()).to_string() } else { a.clone() };
+        // file.rs:12 or file.rs:12:5 → the part before the numbers must exist.
+        let re = regex::Regex::new(r"^(.*?)(?::\d+){1,2}$").unwrap();
+        let file = re.captures(a).map(|c| c[1].to_string()).filter(|f| !f.is_empty() && !Path::new(a).exists()).unwrap_or_else(|| a.clone());
         let real = if Path::new(&file).is_absolute() { PathBuf::from(&file) } else { here.join(&file) };
         if !real.exists() {
             let looks_like_command = !a.contains(['.', '/', '\\', ':']);
@@ -107,7 +115,10 @@ pub fn trust(yes: bool) -> i32 {
     if let Err(c) = need_link() {
         return c;
     }
-    match link::call("trust", json!({ "path": cwd(), "yes": yes }), 10) {
+    if yes {
+        println!("{}", dim("Answer the question in the Ledger window…"));
+    }
+    match link::call("trust", json!({ "path": cwd(), "yes": yes }), 600) {
         Ok(v) => {
             let root = v.as_str().unwrap_or("");
             if yes {
@@ -154,7 +165,7 @@ pub fn history(rest: &[String]) -> i32 {
     let Some(f) = rest.iter().find(|a| !a.starts_with('-') && rest.iter().position(|x| x == *a).map_or(true, |i| i == 0 || !rest[i - 1].starts_with("--"))) else {
         return fail("Which file? ledger history src/main.rs");
     };
-    let path = plain(std::fs::canonicalize(cwd().join(f)).unwrap_or_else(|_| cwd().join(f)));
+    let path = abs(&cwd().join(f));
     let p = path.display().to_string();
     let list = match link::call("history_list", json!({ "path": p }), 10) {
         Ok(v) => v.as_array().cloned().unwrap_or_default(),
@@ -305,9 +316,15 @@ fn made(dir: &Path, rest: &[String]) -> i32 {
 
 // ---------------------------------------------------------------- doctor
 
+fn home_dir() -> PathBuf {
+    std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from).unwrap_or_else(std::env::temp_dir)
+}
+
+/// A tool's version, asked from your home folder: in the project's folder, rustup would read its
+/// rust-toolchain.toml (which can name a toolchain inside the project) and dotnet its global.json.
 fn version_of(prog: &str, args: &[&str]) -> Option<String> {
     let real = if cfg!(windows) && ["npm", "npx"].contains(&prog) { format!("{prog}.cmd") } else { prog.to_string() };
-    let o = Command::new(real).args(args).env("DOTNET_CLI_UI_LANGUAGE", "en").env("DOTNET_NOLOGO", "1").output().ok()?;
+    let o = Command::new(real).current_dir(home_dir()).args(args).env("DOTNET_CLI_UI_LANGUAGE", "en").env("DOTNET_NOLOGO", "1").output().ok()?;
     let text = String::from_utf8_lossy(if o.stdout.is_empty() { &o.stderr } else { &o.stdout }).trim().to_string();
     (o.status.success()).then(|| text.lines().next().unwrap_or("").to_string())
 }
@@ -384,8 +401,12 @@ pub fn doctor(here: &Path, fix: bool) -> i32 {
             None => println!("  {} {}  {}", dim("–"), pad(t.name, 22), dim(&format!("not installed · {} (not used here)", t.what))),
         }
     }
-    // global.json pinning an SDK that isn't here: dotnet itself says so.
-    if here.join("global.json").is_file() || used.contains("dotnet") {
+    // global.json pinning an SDK that isn't here: dotnet itself says so. That runs dotnet in the
+    // folder, so only in one Ledger trusts.
+    let trusted = link::available() && link::call("trusted", json!({ "path": here }), 10).ok().and_then(|v| v.as_bool()) == Some(true);
+    if here.join("global.json").is_file() && !trusted {
+        println!("  {} {}  {}", dim("–"), pad("global.json", 22), dim("checked in trusted folders only (ledger trust)"));
+    } else if trusted && (here.join("global.json").is_file() || used.contains("dotnet")) {
         let o = Command::new("dotnet").arg("--version").current_dir(&here).env("DOTNET_CLI_UI_LANGUAGE", "en").output();
         if let Ok(o) = o {
             if !o.status.success() {
@@ -429,8 +450,7 @@ pub fn doctor(here: &Path, fix: bool) -> i32 {
         eprintln!("{} {}", cyan("$"), dim(&format!("{prog} {}", a.join(" "))));
         let real = if cfg!(windows) && prog == "npm" { "npm.cmd".to_string() } else { prog.to_string() };
         // Installs run in your home folder, not the project's (npm and NuGet read settings from the folder they run in).
-        let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-        let ok = Command::new(real).args(&a).current_dir(home).status().map(|s| s.success()).unwrap_or(false);
+        let ok = Command::new(real).args(&a).current_dir(home_dir()).status().map(|s| s.success()).unwrap_or(false);
         if ok {
             println!("  {} {}", green("✓"), t.name);
         } else {
@@ -535,9 +555,9 @@ pub fn clean(root: &Path, yes: bool) -> i32 {
 
 // ---------------------------------------------------------------- todo, stats
 
-/// The text files under a folder (respecting .gitignore), skipping big and binary ones.
-fn text_files(root: &Path) -> Vec<(PathBuf, String)> {
-    let mut out = vec![];
+/// Each text file under a folder (respecting .gitignore), skipping big and binary ones, one at a
+/// time so a big tree never sits in memory at once.
+fn each_text_file(root: &Path, mut f: impl FnMut(&Path, &str)) {
     let walk = ignore::WalkBuilder::new(root).hidden(true).filter_entry(|e| !e.file_name().eq_ignore_ascii_case("node_modules")).build();
     for e in walk.flatten() {
         if !e.file_type().is_some_and(|t| t.is_file()) || e.metadata().map(|m| m.len() > 2_000_000).unwrap_or(true) {
@@ -547,21 +567,20 @@ fn text_files(root: &Path) -> Vec<(PathBuf, String)> {
         if b.iter().take(8000).any(|&c| c == 0) {
             continue;
         }
-        out.push((e.into_path(), String::from_utf8_lossy(&b).into_owned()));
+        f(e.path(), &String::from_utf8_lossy(&b));
     }
-    out
 }
 
 pub fn todo(root: &Path) -> i32 {
     let re = regex::Regex::new(r"\b(TODO|FIXME|HACK|XXX|BUG)\b[:(\s]?\s*(.*)").unwrap();
     let mut n = 0;
     let mut by: BTreeMap<&str, usize> = BTreeMap::new();
-    for (path, text) in text_files(root) {
+    each_text_file(root, |path, text| {
         let mut shown = false;
         for (i, line) in text.lines().enumerate() {
             let Some(c) = re.captures(line) else { continue };
             if !shown {
-                println!("\n{}", bold(&crate::audit::rel(root, &path)));
+                println!("\n{}", bold(&crate::audit::rel(root, path)));
                 shown = true;
             }
             let word = c.get(1).unwrap().as_str();
@@ -571,7 +590,7 @@ pub fn todo(root: &Path) -> i32 {
             println!("  {}  {} {}", dim(&format!("{:>5}", i + 1)), tag, rest);
             n += 1;
         }
-    }
+    });
     if n == 0 {
         println!("{} No TODO, FIXME or HACK notes.", green("✓"));
     } else {
@@ -615,16 +634,16 @@ fn language_of(p: &Path) -> Option<&'static str> {
 
 pub fn stats(root: &Path) -> i32 {
     let mut by: BTreeMap<&str, (usize, usize, usize)> = BTreeMap::new(); // files, lines, non-blank
-    for (path, text) in text_files(root) {
+    each_text_file(root, |path, text| {
         if path.file_name().is_some_and(|f| f.to_string_lossy().contains(".lock") || f == "package-lock.json" || f == "project.assets.json") {
-            continue;
+            return;
         }
-        let Some(l) = language_of(&path) else { continue };
+        let Some(l) = language_of(path) else { return };
         let e = by.entry(l).or_default();
         e.0 += 1;
         e.1 += text.lines().count();
         e.2 += text.lines().filter(|x| !x.trim().is_empty()).count();
-    }
+    });
     if by.is_empty() {
         println!("No code here.");
         return 0;
@@ -772,8 +791,25 @@ pub fn licenses(root: &Path, as_json: bool) -> i32 {
     if !as_json {
         step(&format!("Reading the licences of {} packages…", pkgs.len()));
     }
-    // crates.io asks for one request a second from tools; the local copy usually has it.
-    let found: Vec<Option<String>> = net::parallel(&pkgs, 8, |(e, n, v, d)| local_license(*e, d, n, v).or_else(|| registry::license(*e, n, v)));
+    // From what's on this computer first; then the registries. crates.io asks tools for one
+    // request a second, so crates are asked one at a time (and only so many).
+    let mut found: Vec<Option<String>> = net::parallel(&pkgs, 8, |(e, n, v, d)| local_license(*e, d, n, v));
+    let missing: Vec<usize> = (0..pkgs.len()).filter(|&i| found[i].is_none()).collect();
+    let others: Vec<usize> = missing.iter().copied().filter(|&i| pkgs[i].0 != Eco::Cargo).collect();
+    for (i, l) in others.iter().zip(net::parallel(&others, 8, |&i| registry::license(pkgs[i].0, &pkgs[i].1, &pkgs[i].2))) {
+        found[*i] = l;
+    }
+    let crates: Vec<usize> = missing.iter().copied().filter(|&i| pkgs[i].0 == Eco::Cargo).collect();
+    const MAX_CRATES: usize = 60;
+    if crates.len() > MAX_CRATES && !as_json {
+        step(&format!("{} crates aren't in Cargo's cache; asking crates.io about the first {MAX_CRATES} (a build fills the cache, then audit again for all).", crates.len()));
+    }
+    for (k, &i) in crates.iter().take(MAX_CRATES).enumerate() {
+        if k > 0 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        found[i] = registry::license(Eco::Cargo, &pkgs[i].1, &pkgs[i].2);
+    }
     let rows: Vec<(Eco, String, String, String, u8)> = pkgs.into_iter().zip(found).map(|((e, n, v, _), l)| {
         let l = l.unwrap_or_default();
         let lv = license_level(&l);
