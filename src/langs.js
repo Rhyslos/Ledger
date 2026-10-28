@@ -104,7 +104,7 @@ const godotResource = {
 // the rest plain. Structure, states and the names being declared are a touch heavier (500), never fully bold.
 // In a view, the pieces of the screen (column, text, button…) share the classes' blue, since your own
 // pieces are classes too, and the style words in [ ] are muted like types.
-const LUST_CONTROL = "is then or either match when loop stop skip return try error like keep enter send on";
+const LUST_CONTROL = "is then or either check when loop stop skip return try error like keep enter send on";
 const LUST_DEFINE = "class object node assembly component event schema database route method hook has new create lock";
 const LUST_MODULE = "fetch get pass end save load saved lua view style native";
 const LUST_TYPES = "int int8 int16 int32 uint8 uint16 uint32 float string bool array cMap map vec3 rotation entity";
