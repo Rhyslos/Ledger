@@ -161,5 +161,17 @@ export function initTerminal(app) {
   C("terminal.next", "Next terminal", [], () => cycle(1));
   C("terminal.prev", "Previous terminal", [], () => cycle(-1));
 
-  return { restyle, show, newTerminal, closeAll: () => { for (const id of [...terms.keys()]) close(id); } };
+  /** Types a command into the terminal (opening one if there's none) and presses Enter. */
+  async function runInTerminal(line) {
+    await show(true);
+    await creating;
+    const t = terms.get(cur);
+    if (!t || t.exited) { await make(); }
+    const id = cur;
+    if (id == null) return;
+    await invoke("term_write", { id, data: line + "\r" }).catch((e) => app.toast(String(e)));
+  }
+  app.runInTerminal = runInTerminal;
+
+  return { restyle, show, newTerminal, runInTerminal, closeAll: () => { for (const id of [...terms.keys()]) close(id); } };
 }

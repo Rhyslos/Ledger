@@ -3,6 +3,7 @@ name = "ledger"
 version = "0.1.0"
 description = "A small Rust IDE"
 edition = "2021"
+default-run = "ledger"
 
 [lib]
 name = "ledger_lib"
@@ -21,6 +22,7 @@ tauri-plugin-process = "2"
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
 ignore = "0.4"
 regex = "1"
 globset = "0.4"
