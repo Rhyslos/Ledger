@@ -2294,7 +2294,16 @@ async fn term_open(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_
     if Path::new(&cwd).is_dir() {
         cmd.cwd(&cwd);
     }
-    cmd.env("PATH", child_path());
+    // `ledger` (the terminal command) first on PATH, and how it reaches this window.
+    let (vars, cli_dir) = cli_link::terminal_env(&label);
+    let path = match cli_dir {
+        Some(d) => std::env::join_paths(std::iter::once(d).chain(std::env::split_paths(&child_path()))).unwrap_or_else(|_| child_path()),
+        None => child_path(),
+    };
+    cmd.env("PATH", path);
+    for (k, v) in vars {
+        cmd.env(k, v);
+    }
     cmd.env("NoDefaultCurrentDirectoryInExePath", "1"); // see command_at
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
@@ -2704,6 +2713,7 @@ async fn install_debugger(app: AppHandle, kind: String) -> Res<String> {
     .map_err(err)?
 }
 
+mod cli_link;
 mod db;
 mod trust;
 mod job;
@@ -2819,8 +2829,13 @@ pub fn run() {
             set_window_root,
             set_window_trust,
             focus_window_with,
-            global_tsserver
+            global_tsserver,
+            cli_link::cli_reply
         ])
+        .setup(|app| {
+            cli_link::start(app.handle().clone());
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("error while building Ledger")
         .run(|app, ev| {

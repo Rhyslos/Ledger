@@ -95,7 +95,7 @@ jobs:
 
       # After the build, so it reuses the release build's compiled dependencies.
       - name: Run the Rust tests
-        run: cargo test --release --manifest-path src-tauri/Cargo.toml --lib
+        run: cargo test --release --manifest-path src-tauri/Cargo.toml --lib --bins
 
       - name: Collect the installer and the portable exe
         shell: pwsh

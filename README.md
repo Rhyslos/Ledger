@@ -64,10 +64,11 @@ Each window has one folder open. Ctrl Shift N opens another window (or Ctrl Ente
 
 ## Building the .exe
 
-Two ways. Both put the same two files in a `release` folder:
+Two ways. Both put the same files in a `release` folder:
 
 - `Ledger_0.1.<n>_x64-setup.exe`, an installer (adds a Start menu entry, installs for your user only, no admin needed).
 - `Ledger-portable.exe`, the program itself. It runs from anywhere and needs nothing else on Windows 11.
+- `ledger-cli.exe`, the `ledger` terminal command. The installer includes it; with the portable exe, keep it in the same folder for `ledger` to work in Ledger's terminal.
 
 ### On your PC
 
@@ -190,6 +191,42 @@ npm run rename -- "New Name"
 
 This changes the window title, the Start menu entry, the installer, the program (`NewName.exe`) and this README. Settings stay where they are. Then rebuild.
 
+## The `ledger` command
+
+Ledger's terminal (Ctrl \`) has a `ledger` command. It works in that terminal only, where it can talk to the Ledger window it belongs to. Most of it is also in the command list (Ctrl Shift P, "Ledger: …"), which types the command into a terminal for you. `ledger help` lists everything.
+
+**Packages**
+
+- `ledger audit` finds every Rust, npm and .NET project under the folder and checks the packages they use against [OSV.dev](https://osv.dev), the open database that collects the RustSec, GitHub and other security advisories. That covers the packages you listed and the ones they pull in.
+  - **What it shows:** each problem's severity (critical, high, moderate, low), the version that fixes it, and the package that pulls it in. It also lists newer versions of your own packages, either safe (same major version) or a new major. Rust's "unmaintained" and "unsound" notices show too.
+  - **Runtimes:** it flags a .NET runtime or Node.js on your computer that's missing security fixes or is out of support.
+  - **In the editor:** the problems also go into Problems and onto the package lines in `Cargo.toml`, `package.json` and `.csproj`.
+  - **Safe anywhere:** it only reads files (`Cargo.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `obj/project.assets.json`), so it works in restricted mode.
+  - **Options:** `--json` is for scripts. `--prod` leaves out packages that are only for development. It fails (exit code 1) when it finds security problems, so it can be used as a check before a release.
+- `ledger audit fix` moves each affected package to the lowest version that fixes it, using `cargo update`, `npm install`/`npm audit fix` (or yarn and pnpm), and `dotnet add package`.
+  - **Afterwards:** it builds and runs the tests. If they fail, everything goes back the way it was, and it tries the changes one at a time to name the one that broke it.
+  - **New majors:** fixes that need a new major version (which can need code changes) are listed but left alone unless you add `--major`.
+  - **Options:** `--dry-run` shows the plan without changing anything. `--no-check` skips the build and tests.
+- `ledger update` does the same for ordinary updates: the safe ones, or every one with `--major`.
+- `ledger licenses` lists the licence of every package, marking copyleft ones (GPL, AGPL) and file-level copyleft ones (MPL, LGPL). It reads them from your package caches where it can. It's a guide, not legal advice.
+
+**Your project**
+
+- `ledger src/main.rs:12` opens a file at a line in the window; `ledger .` opens the folder.
+- `ledger run`, `build`, `test` and `check` run what F5 and the buttons run, with the same startup project, Debug or Release, framework and launch profile, in the terminal. Anything after `--` goes to the program.
+- `ledger trust` and `ledger untrust` set restricted mode for the folder.
+- `ledger history <file>` lists the file's saved versions. `--show N` prints one; `--restore N` puts it back in the editor.
+- `ledger self-update` updates Ledger.
+
+**Tools**
+
+- `ledger new <kind> <name>` makes a project: rust, rust-lib, console, classlib, webapi, blazor and every other dotnet template, react, vue, svelte and the other Vite templates, next, node, website, lua, lust and lust-app. `ledger new --list` shows them.
+- `ledger doctor` checks what's installed against what the folder needs (SDKs, Rust, Node, the language servers, debuggers, `global.json`). `--fix` installs what's missing.
+- `ledger clean` deletes build output: `target` next to `Cargo.toml`, `bin` and `obj` next to a .NET project, `node_modules` next to `package.json`. It shows the sizes and asks first.
+- `ledger todo` lists every TODO, FIXME and HACK note. `ledger stats` counts lines of code per language.
+
+Like Run, `ledger audit fix`, `ledger update`, `ledger run` and the rest that run a project's code only work in a trusted folder. Making a project inside a restricted folder is refused too.
+
 ## Trusting a folder (restricted mode)
 
 Opening a downloaded project shouldn't run its code. The first time Ledger opens a folder with a project or a Git repository in it, it asks whether you trust the code in it, like VS Code does. Until you do, the folder is in **restricted mode** (shown as **Restricted** in the status bar; click it to trust the folder):
@@ -265,6 +302,9 @@ src/csv.js            CSV columns and the table view
 src/hex.js            the hex view
 src/history.js        local history
 src-tauri/src/trust.rs restricted mode: what an untrusted folder may run
+src-tauri/src/cli_link.rs  how the `ledger` command reaches its window, and putting it on the terminals' PATH
+src-tauri/src/bin/ledger-cli.rs  the `ledger` command (its parts are in src-tauri/src/cli/)
+src/cli.js            the window's side of the `ledger` command, and its entries in the command list
 src-tauri/src/job.rs  child processes end with Ledger (a Windows Job Object)
 src/tests.js          the Tests panel
 src/icons.js          file icons (public/fileicons, made by scripts/fileicons.mjs)

@@ -22,6 +22,7 @@ import { initEditCommands } from "./editcmds.js";
 import { initLspMore } from "./lspmore.js";
 import { initDotnet } from "./dotnet.js";
 import { initDotnetTools } from "./dotnettools.js";
+import { initCli } from "./cli.js";
 import { parseEditorConfig, propsFor, settingsFrom } from "./editorconfig.js";
 import { findPanel, openReplace } from "./findbar.js";
 import { iconHtml } from "./icons.js";
@@ -333,14 +334,34 @@ function known(path) {
 // replaces them, and the server's own (fresher) list for a file wins.
 let buildDiagPaths = new Set();
 function setBuildProblems(map) {
-  for (const p of buildDiagPaths) if ((S.diags.get(p) || []).every((d) => d.source === "build")) { S.diags.delete(p); if (S.bufs.has(p)) applyDiags(p); }
+  // Problems from `ledger audit` (source "audit") stay alongside build problems.
+  for (const p of buildDiagPaths) {
+    const left = (S.diags.get(p) || []).filter((d) => d.source !== "build");
+    if (left.every((d) => d.source === "audit")) { if (left.length) S.diags.set(p, left); else S.diags.delete(p); if (S.bufs.has(p)) applyDiags(p); }
+  }
   buildDiagPaths = new Set();
   for (const [raw, list] of map) {
     const p = known(raw);
     const cur = S.diags.get(p);
-    if (cur?.length && cur.some((d) => d.source !== "build")) continue;
-    S.diags.set(p, list.map((d) => ({ ...d, source: "build" })));
+    if (cur?.length && cur.some((d) => d.source !== "build" && d.source !== "audit")) continue;
+    S.diags.set(p, [...list.map((d) => ({ ...d, source: "build" })), ...(cur || []).filter((d) => d.source === "audit")]);
     buildDiagPaths.add(p);
+    if (S.bufs.has(p)) applyDiags(p);
+  }
+  renderProblems();
+  scheduleUi();
+}
+// Problems from somewhere other than a language server or a build, by source ("audit": `ledger
+// audit` in the terminal). Each call replaces that source's problems everywhere.
+const extraDiags = new Map(); // source -> Map(path -> diagnostics)
+function setProblems(source, map) {
+  const old = extraDiags.get(source) || new Map();
+  const next = new Map();
+  for (const [raw, list] of map) if (list.length) next.set(known(raw), list.map((d) => ({ ...d, source })));
+  extraDiags.set(source, next);
+  for (const p of new Set([...old.keys(), ...next.keys()])) {
+    const all = [...(S.diags.get(p) || []).filter((d) => d.source !== source), ...(next.get(p) || [])];
+    if (all.length) S.diags.set(p, all); else S.diags.delete(p);
     if (S.bufs.has(p)) applyDiags(p);
   }
   renderProblems();
@@ -351,7 +372,8 @@ const dotnetHooks = {}; // dotnet.js: { opts(P) -> { startup, config, framework,
 const lspHandlers = {
   diagnostics(path, list) {
     path = known(path);
-    const shown = list.filter((d) => (d.severity || 1) <= 4);
+    // Problems from `ledger audit` on package lines stay alongside the server's.
+    const shown = [...list.filter((d) => (d.severity || 1) <= 4), ...(extraDiags.get("audit")?.get(path) || [])];
     if (shown.length) S.diags.set(path, shown); else S.diags.delete(path);
     applyDiags(path);
     scheduleUi();
@@ -3280,7 +3302,7 @@ C("task.build", "Build", "Ctrl+Shift+B", () => runAction("build"));
 C("task.test", "Run tests", "Ctrl+Alt+T", () => runAction("test"));
 C("task.check", "Check (Rust)", "Ctrl+Alt+C", () => runAction("check"));
 C("task.lint", "Clippy (Rust)", [], () => runAction("lint"));
-C("app.update", "Check for updates", [], () => updater?.check());
+C("app.update", "Check for updates", [], () => updater?.check()?.catch(() => {}));
 C("panel.dock", "Move the panel (terminal, output) to the right or the bottom", [], togglePanelDock);
 C("lust.lua", "Lust: show the Lua this file turns into", [], () => runAction("lua"));
 C("lust.rust", "Lust: show the Rust this file turns into (.lst)", [], () => runAction("rust"));
@@ -3785,6 +3807,7 @@ const app = {
   lspHooks, dotnetHooks, outputHooks, taskDoneHooks, setBuildProblems, highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
   cwd: () => S.ctx?.dir || S.root || "",
   trusted: () => trusted(),
+  setProblems, taskSteps, handleArgs, setTrust, checkUpdate: () => updater?.check(),
   startServer: (id) => startServer(id),
   ensureTrusted, isUntrustedError, askTrust, trustHooks,
   indentOf,
@@ -3863,7 +3886,7 @@ async function boot() {
     editSnippets: () => snippets?.edit(),
     installDebugger: (kind) => debug?.install(kind),
     debuggerFor: async (kind) => debug?.adapterPath(kind),
-    checkUpdate: () => updater?.check(),
+    checkUpdate: () => updater?.check()?.catch(() => {}),
   });
   updater = initUpdate({
     aborted: () => { updateAborted(); emit("update-aborted", { from: winLabel }).catch(() => {}); },
@@ -3909,6 +3932,7 @@ async function boot() {
   initLspMore(app);
   initDotnet(app);
   initDotnetTools(app);
+  initCli(app);
   showSideView(sideViews[sideView] ? sideView : "files");
   term = initTerminal(app);
   navx = initNav(app);

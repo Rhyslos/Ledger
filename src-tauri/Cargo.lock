@@ -2133,6 +2133,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "toml 0.8.2",
  "trash",
  "ureq",
  "windows-sys 0.60.2",
