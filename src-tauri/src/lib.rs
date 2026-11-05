@@ -1168,6 +1168,7 @@ async fn new_window(app: AppHandle, procs: State<'_, Procs>, folder: Option<Stri
 fn open_window(app: &AppHandle, label: &str) -> Res<()> {
     let mut conf = app.config().app.windows.first().cloned().ok_or("no window config")?;
     conf.label = label.to_string();
+    conf.visible = true; // the first window starts hidden behind the update splash; others don't
     let w = tauri::WebviewWindowBuilder::from_config(app, &conf).map_err(err)?.build().map_err(err)?;
     let _ = w.set_focus();
     Ok(())
@@ -2762,6 +2763,7 @@ async fn install_debugger(app: AppHandle, kind: String) -> Res<String> {
 }
 
 mod cli_link;
+mod splash;
 mod db;
 mod trust;
 mod job;
@@ -2878,10 +2880,13 @@ pub fn run() {
             set_window_trust,
             focus_window_with,
             global_tsserver,
-            cli_link::cli_reply
+            cli_link::cli_reply,
+            splash::splash_ready,
+            splash::splash_done
         ])
         .setup(|app| {
             cli_link::start(app.handle().clone());
+            splash::start(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

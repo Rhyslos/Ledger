@@ -1,0 +1,44 @@
+/* The update splash: Ledger's colours and type, nothing else of the main window. */
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+
+:root {
+  --bg: #ffffff; --ink: #202020; --muted: #6b6b68; --line: #e2e2df; --track: #eeeeec;
+  --accent: #2f6db0; --accent-ink: #ffffff; --seal: #a3262e; --hover: #e9e9e6;
+  --sans: "IBM Plex Sans", system-ui, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1e1e1e; --ink: #e2e2e0; --muted: #9b9b97; --line: #303030; --track: #2c2c2c;
+    --accent: #6ea8e6; --accent-ink: #10202e; --seal: #e05a60; --hover: #2c2c2c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1e1e1e; --ink: #e2e2e0; --muted: #9b9b97; --line: #303030; --track: #2c2c2c;
+  --accent: #6ea8e6; --accent-ink: #10202e; --seal: #e05a60; --hover: #2c2c2c;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; margin: 0; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; overflow: hidden; user-select: none; cursor: default; }
+.splash { height: 100%; display: flex; flex-direction: column; padding: 24px 26px 20px; border: 1px solid var(--line); border-top: 3px solid var(--seal); }
+header { display: flex; align-items: center; gap: 14px; }
+header img { border-radius: 8px; }
+h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
+.ver { color: var(--muted); font-size: 12.5px; }
+section { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+.status { font-size: 14px; }
+.notes { color: var(--muted); font-size: 13px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.bar { height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+footer { display: flex; justify-content: flex-end; gap: 8px; }
+.btn { font: 500 13px var(--sans); padding: 6px 14px; border-radius: 4px; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+.btn:hover { background: var(--hover); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

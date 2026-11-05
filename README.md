@@ -53,7 +53,7 @@ To change the name, see [Renaming](#renaming).
 - **Installing languages**: Settings › Languages installs Node.js, Lua, Rust, the .NET SDK, Git, Lust and the language servers with one click.
 - **.NET tools**: Settings › C# and .NET lists the installed SDKs and runtimes, installs the .NET 8, 9 or 10 SDK side by side, lists and installs workloads (MAUI, Android, iOS, WebAssembly tools), and installs `dotnet-ef`. When a folder opens, Ledger warns if its `global.json` pins an SDK that isn't installed (and offers it), offers `dotnet tool restore` for a project's own tools, and runs `dotnet restore` in a trusted folder so the language server and the first build find every package. Go to definition reaches into NuGet packages and the framework: their source through Source Link when the package has it, decompiled when not, opened read-only.
 - **Explorer menu**: "Open with Ledger" when you right-click a file or folder in Windows (Settings › Windows turns it off).
-- **Updates**: Ledger checks for a new version on start, downloads it in the background and shows **Restart to update**.
+- **Updates**: when Ledger starts, a small window checks for a new version first. If there is one, it asks: **Update now** downloads and installs it and starts the new Ledger; **Later** (or Esc) opens Ledger as it is. The editor loads behind it meanwhile, and the check gives up after 8 seconds (offline, say), so it never holds Ledger back for long. Turn it off in Settings › Updates; then Ledger checks once it's open, downloads in the background and shows **Restart to update**. Updates are signed, and one that isn't signed by Ledger's own release workflow is refused.
 - **Settings** on Ctrl P: theme, fonts, status bar position, tab size, wrapping, format on save, auto save, editor extras, tool paths, terminal shell, debuggers, Godot setup, and every Ledger command's shortcut can be changed.
 
 Each window has one folder open. Ctrl Shift N opens another window (or Ctrl Enter on a recent folder on the start page), each with its own program, language servers, debugger and terminals. Open a project folder (with `Cargo.toml`, a `.sln`/`.csproj`, `project.godot` or `package.json`), or a folder that holds several projects, like a course folder with one project per lesson. Run, Build and Test always use the project of the file you have open; its name shows at the left of the status bar. New project (in the command list) can create the project inside the open folder.
@@ -309,6 +309,7 @@ src-tauri/src/job.rs  child processes end with Ledger (a Windows Job Object)
 src/tests.js          the Tests panel
 src/icons.js          file icons (public/fileicons, made by scripts/fileicons.mjs)
 src/scaffold.js       Vite and Next.js projects
+src/splash.js         the update check before Ledger opens (splash.html; the window is made in src-tauri/src/splash.rs)
 src/update.js         updates
 src/assets/lust-*.svg the Lust file icons (Lt, Ls, Lq)
 src/lsp.js            the language server client (rust-analyzer, csharp-ls, TypeScript, HTML, CSS, JSON, Lua)

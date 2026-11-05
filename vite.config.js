@@ -5,5 +5,6 @@ export default defineConfig({
   clearScreen: false,
   server: { port: 1420, strictPort: true, watch: { ignored: ["**/src-tauri/**"] } },
   envPrefix: ["VITE_", "TAURI_ENV_"], // never TAURI_SIGNING_* or other secrets
-  build: { target: "es2021", sourcemap: false, chunkSizeWarningLimit: 2000 },
+  // Two pages: the editor, and the update check before it opens (splash.html).
+  build: { target: "es2021", sourcemap: false, chunkSizeWarningLimit: 2000, rollupOptions: { input: { main: "index.html", splash: "splash.html" } } },
 });
