@@ -183,6 +183,7 @@ async function refreshTools() {
   // "Lust 2.0.0-alpha.17", shown in Settings › Lust.
   out.lustVersion = out.lust ? ((await invoke("run_capture", { cwd: ".", program: settings.lust || "lust", args: ["version"] }).catch(() => null))?.out || "").trim() : "";
   out.shellMenu = await invoke("shell_menu_state").catch(() => false);
+  out.tsserver = await invoke("global_tsserver").catch(() => null);
   out.sdks = []; out.runtimes = []; out.globalJson = null;
   out.workloads = tools.workloads || null; // listed when asked: dotnet workload list takes a few seconds
   if (out.dotnet) {
@@ -290,7 +291,7 @@ export function settingsHtml() {
 
     <section aria-labelledby="sInst"><h2 id="sInst">Languages</h2>
       <p class="hint">Ledger installs these with winget, which comes with Windows (the web language servers with npm, Lust with cargo). Run also offers to install whatever a project needs.</p>
-      ${row("Web servers", `<div class="tool">JavaScript and TypeScript: ${found(tools.tsls, "")}</div><div class="tool">HTML, CSS and JSON: ${found(tools.htmlls, "")}</div><div class="bar"><button class="btn" data-act="tsls-install">${tools.tsls && tools.htmlls ? "Update" : "Install"} the web language servers</button><button class="btn" data-act="restart-web">Restart</button></div>`, "Completions, errors, hover help and go-to-definition for JavaScript, TypeScript, React, HTML, CSS and JSON (package.json, tsconfig and other config files are checked against their schemas). Installed with npm, so Node.js comes first. Tailwind classes complete on their own in any project that uses Tailwind.")}
+      ${row("Web servers", `<div class="tool">JavaScript and TypeScript: ${found(tools.tsls, "")}</div>${tools.tsls && !tools.tsserver ? `<div class="tool"><span class="bad">TypeScript's editor server (tsserver) isn't installed. TypeScript 7 doesn't have one, so the button below adds TypeScript 6 next to it for the editor.</span></div>` : ""}<div class="tool">HTML, CSS and JSON: ${found(tools.htmlls, "")}</div><div class="bar"><button class="btn" data-act="tsls-install">${tools.tsls && tools.htmlls ? "Update" : "Install"} the web language servers</button><button class="btn" data-act="restart-web">Restart</button></div>`, "Completions, errors, hover help and go-to-definition for JavaScript, TypeScript, React, HTML, CSS and JSON (package.json, tsconfig and other config files are checked against their schemas). Installed with npm, so Node.js comes first. Tailwind classes complete on their own in any project that uses Tailwind.")}
       ${Object.entries(INSTALLS).map(([k, t]) => {
         // .NET: an older SDK counts as found, but the C# server needs 10, so say so and offer that one.
         const need10 = k === "dotnet" && tools.dotnet && !hasSdk(10);
@@ -419,7 +420,7 @@ export function wireSettings(root, redraw) {
     if (act === "restart-web") ["web", "css", "html"].forEach((id) => ctx.restartServer(id));
     if (act === "tsls-install") {
       const ids = ["web", "css", "html"];
-      const go = () => { ids.forEach((id) => ctx.stopServer(id)); ctx.runTask("npm", ["install", "--global", "typescript", "typescript-language-server", "vscode-langservers-extracted"], "Installing the web language servers", () => { refreshTools().then(() => rerender(true)); ids.forEach((id) => ctx.restartServer(id)); }, () => { refreshTools().then(() => rerender(true)); ids.forEach((id) => ctx.restartServer(id)); }); };
+      const go = () => { ids.forEach((id) => ctx.stopServer(id)); ctx.runTask("npm", ["install", "--global", "typescript", "@typescript/typescript6", "typescript-language-server", "vscode-langservers-extracted"], "Installing the web language servers", () => { refreshTools().then(() => rerender(true)); ids.forEach((id) => ctx.restartServer(id)); }, () => { refreshTools().then(() => rerender(true)); ids.forEach((id) => ctx.restartServer(id)); }); };
       if (tools.node) go(); else installTool("node", (ok) => ok && go());
       return;
     }
