@@ -56,6 +56,7 @@ export const DEFAULTS = {
   browserPath: "",
   livePort: 5500,
   autoUpdate: true,
+  updateOnStart: true, // the small window that checks before Ledger opens (read by splash.rs)
   debugRust: "",
   debugCsharp: "",
   debugBreakOn: "unhandled", // never | unhandled | all
@@ -306,7 +307,7 @@ export function settingsHtml() {
     </section>
 
     <section aria-labelledby="sUpd"><h2 id="sUpd">Updates</h2>
-      ${row("Updates", check("sAutoUpd", "autoUpdate", "Check for a new Ledger on start and download it in the background") + `<div class="bar"><button class="btn" data-act="update-check">Check now</button></div>`, "When one is ready, Restart to update appears in the status bar. Nothing installs until you click it.")}
+      ${row("Updates", check("sUpdStart", "updateOnStart", "Check before Ledger opens, and ask whether to update first") + check("sAutoUpd", "autoUpdate", "Otherwise, check once Ledger is open and download it in the background") + `<div class="bar"><button class="btn" data-act="update-check">Check now</button></div>`, "When one is ready, Restart to update appears in the status bar. Nothing installs until you click it.")}
     </section>
 
     <section aria-labelledby="sWeb"><h2 id="sWeb">Web</h2>

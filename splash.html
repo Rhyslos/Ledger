@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ledger</title>
+</head>
+<body data-tauri-drag-region>
+  <main class="splash" data-tauri-drag-region>
+    <header data-tauri-drag-region>
+      <img id="icon" alt="" width="40" height="40" data-tauri-drag-region>
+      <div data-tauri-drag-region>
+        <h1 data-tauri-drag-region>Ledger</h1>
+        <p class="ver" id="ver" data-tauri-drag-region></p>
+      </div>
+    </header>
+    <section id="body" aria-live="polite">
+      <p class="status" id="status">Checking for updates…</p>
+      <div class="bar" id="bar" hidden><i id="fill"></i></div>
+      <p class="notes" id="notes" hidden></p>
+    </section>
+    <footer id="actions" hidden>
+      <button class="btn" id="later">Later</button>
+      <button class="btn primary" id="update">Update now</button>
+    </footer>
+  </main>
+  <script type="module" src="/src/splash.js"></script>
+</body>
+</html>

@@ -41,6 +41,9 @@ export function initUpdate({ $, toast, settings, beforeInstall, isMain, aborted 
   }
 
   // Only one window checks, and not in development builds.
-  if (isMain && settings.autoUpdate && !import.meta.env.DEV) setTimeout(() => run(false).catch(() => {}), 5000);
+  // With the check before Ledger opens on, that one asks first; this one waits, then fetches an
+  // update you said Later to, so Restart to update is there when you want it.
+  const wait = settings.updateOnStart !== false ? 120_000 : 5000;
+  if (isMain && settings.autoUpdate && !import.meta.env.DEV) setTimeout(() => run(false).catch(() => {}), wait);
   return { check: () => run(true) };
 }
