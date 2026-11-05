@@ -231,6 +231,7 @@ const KINDS: &[(&str, &str)] = &[
     ("vanilla", "plain JavaScript with Vite (vanilla-ts)"),
     ("next", "Next.js"),
     ("node", "Node.js package"),
+    ("typescript", "TypeScript on Node.js, no framework (ts)"),
     ("website", "HTML, CSS and JavaScript"),
     ("lua", "Lua program"),
     ("lust", "Lust program"),
@@ -277,8 +278,15 @@ pub fn new(rest: &[String]) -> i32 {
         "next" => ("npx".into(), vec!["--yes".into(), "create-next-app@latest".into(), name.into()]),
         "lust" => (lust, vec!["new".into(), name.into()]),
         "lust-app" => (lust, vec!["new".into(), name.into(), "app".into()]),
-        "node" | "website" | "lua" => {
+        "node" | "website" | "lua" | "typescript" | "ts" => {
             let files: Vec<(&str, String)> = match kind {
+                // The same as Ledger's New project: tsc turns src/ into dist/, then node runs it.
+                "typescript" | "ts" => vec![
+                    ("package.json", format!("{{\n  \"name\": \"{}\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"start\": \"tsc && node dist/index.js\",\n    \"build\": \"tsc\",\n    \"watch\": \"tsc --watch\",\n    \"typecheck\": \"tsc --noEmit\"\n  }},\n  \"devDependencies\": {{\n    \"@types/node\": \"^24\",\n    \"typescript\": \"^7\"\n  }}\n}}\n", name.to_lowercase())),
+                    ("tsconfig.json", "{\n  \"compilerOptions\": {\n    \"target\": \"es2023\",\n    \"module\": \"nodenext\",\n    \"moduleResolution\": \"nodenext\",\n    \"rootDir\": \"src\",\n    \"outDir\": \"dist\",\n    \"types\": [\"node\"],\n    \"strict\": true,\n    \"sourceMap\": true,\n    \"skipLibCheck\": true\n  },\n  \"include\": [\"src\"]\n}\n".into()),
+                    ("src/index.ts", format!("// {name}: npm start compiles src/ into dist/ with tsc, then runs it with node.\n\nfunction greet(who: string): string {{\n  return `Hello, ${{who}}!`;\n}}\n\nconsole.log(greet(\"{name}\"));\n")),
+                    (".gitignore", "node_modules/\ndist/\n".into()),
+                ],
                 "node" => vec![("package.json", format!("{{\n  \"name\": \"{}\",\n  \"version\": \"0.1.0\",\n  \"type\": \"module\",\n  \"main\": \"index.js\",\n  \"scripts\": {{\n    \"start\": \"node index.js\"\n  }}\n}}\n", name.to_lowercase())), ("index.js", "console.log(\"Hello\");\n".into())],
                 "website" => vec![("index.html", format!("<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>{name}</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <h1>{name}</h1>\n  <script src=\"script.js\"></script>\n</body>\n</html>\n")), ("style.css", "body {\n  font-family: system-ui, sans-serif;\n  margin: 2rem;\n}\n".into()), ("script.js", "".into())],
                 _ => vec![("main.lua", "print(\"Hello\")\n".into())],
@@ -287,8 +295,20 @@ pub fn new(rest: &[String]) -> i32 {
                 return fail(&format!("Couldn't make {}.", dir.display()));
             }
             for (f, t) in files {
-                if std::fs::write(dir.join(f), t).is_err() {
+                let at = dir.join(f);
+                if let Some(p) = at.parent() {
+                    let _ = std::fs::create_dir_all(p);
+                }
+                if std::fs::write(&at, t).is_err() {
                     return fail(&format!("Couldn't write {f}."));
+                }
+            }
+            if kind == "typescript" || kind == "ts" {
+                eprintln!("{} {}", cyan("$"), dim("npm install"));
+                let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
+                let ok = Command::new(npm).args(["install", "--no-fund", "--no-audit"]).current_dir(&dir).status().map(|s| s.success()).unwrap_or(false);
+                if !ok {
+                    println!("{} npm install didn't finish; run it in {} (npm start does it too).", yellow("!"), dir.display());
                 }
             }
             return made(&dir, rest);
@@ -347,7 +367,7 @@ const TOOLS: &[Tool] = &[
     Tool { lang: "dotnet", name: "csharp-ls", cmd: "csharp-ls", args: &["--version"], install: Some(("dotnet", &["tool", "install", "--global", "csharp-ls"])), what: "C# language server (or Roslyn, in Settings)" },
     Tool { lang: "dotnet", name: "dotnet-ef", cmd: "dotnet-ef", args: &["--version"], install: Some(("dotnet", &["tool", "install", "--global", "dotnet-ef"])), what: "Entity Framework migrations" },
     Tool { lang: "node", name: "Node.js", cmd: "node", args: &["--version"], install: Some(("winget", &["install", "--id", "OpenJS.NodeJS.LTS", "-e", "--source", "winget"])), what: "runs JavaScript" },
-    Tool { lang: "node", name: "Web language servers", cmd: "typescript-language-server", args: &["--version"], install: Some(("npm", &["install", "--global", "typescript", "typescript-language-server", "vscode-langservers-extracted"])), what: "JavaScript, TypeScript, HTML and CSS" },
+    Tool { lang: "node", name: "Web language servers", cmd: "typescript-language-server", args: &["--version"], install: Some(("npm", &["install", "--global", "typescript", "@typescript/typescript6", "typescript-language-server", "vscode-langservers-extracted"])), what: "JavaScript, TypeScript, HTML and CSS" },
     Tool { lang: "lua", name: "Lua", cmd: "lua", args: &["-v"], install: Some(("winget", &["install", "--id", "DEVCOM.Lua", "-e", "--source", "winget"])), what: "runs .lua files" },
     Tool { lang: "lua", name: "Lua language server", cmd: "lua-language-server", args: &["--version"], install: Some(("winget", &["install", "--id", "LuaLS.lua-language-server", "-e", "--source", "winget"])), what: "Lua completions and errors" },
     Tool { lang: "lust", name: "Lust", cmd: "lust", args: &["version"], install: Some(("cargo", &["install", "--git", "https://github.com/Rhyslos/Lust", "--locked", "--force", "lust"])), what: "runs Lust" },

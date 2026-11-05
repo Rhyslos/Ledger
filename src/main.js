@@ -461,7 +461,9 @@ function serverSpec(id) {
     exe: "typescript-language-server", args: ["--stdio"],
     // In a restricted folder the server uses the computer's own TypeScript, not the project's
     // node_modules/typescript (which is the project's code).
-    initOptions: { ...(!trusted() && globalTs ? { tsserver: { path: globalTs } } : {}), preferences: { includeCompletionsForModuleExports: true, includeCompletionsWithInsertText: true, includeCompletionsForImportStatements: true, includeInlayParameterNameHints: "literals", includeInlayFunctionLikeReturnTypeHints: false } },
+    // Elsewhere it uses the project's, unless that has none (TypeScript 7 has no tsserver.js): then
+    // the computer's (TypeScript 6, installed next to 7 for this).
+    initOptions: { ...(globalTs ? { tsserver: !trusted() ? { path: globalTs } : { fallbackPath: globalTs } } : {}), preferences: { includeCompletionsForModuleExports: true, includeCompletionsWithInsertText: true, includeCompletionsForImportStatements: true, includeInlayParameterNameHints: "literals", includeInlayFunctionLikeReturnTypeHints: false } },
     missing: "The JavaScript and TypeScript language server isn't installed. Open Settings (Ctrl+P) › Languages and install it.",
   };
   // C#: csharp-ls, Microsoft's Roslyn server (loads the projects it finds under the folder by
@@ -500,6 +502,8 @@ function startServer(id) {
   srv.starting = (async () => {
     await loadFiles();
     if (S.root !== root) return;
+    // Look again: TypeScript 6 may have been installed since Ledger started.
+    if (id === "web" && !globalTs) globalTs = await invoke("global_tsserver").then((p) => (p ? norm(p) : null), () => null);
     if (await srv.start(root, serverSpec(id))) {
       for (const [p, b] of S.bufs) if (LANGS[b.lang].server === id && !b.virtual && !b.ro) { b.sent = b.state.doc; b.pend = null; srv.open(p, b.state.doc.toString(), LANGS[b.lang].languageId); }
     }
@@ -3649,11 +3653,11 @@ async function closeFolder() {
   renderMain(); renderProblems();
 }
 async function newProject() {
-  const kinds = ["Web app with Vite (React, Vue, Svelte…)", "Next.js app", "Website (plain HTML, CSS and JS)", "Node.js program", "Lua program", "Lust program", "LustScript (.lsc, turns into Lua)", "Rust program", "Rust library", "C# console app", "C# class library", "Other .NET project (Web API, Blazor, MVC, WPF, tests…)"];
+  const kinds = ["Web app with Vite (React, Vue, Svelte…)", "Next.js app", "Website (plain HTML, CSS and JS)", "Node.js program", "TypeScript program (Node.js, no framework)", "Lua program", "Lust program", "LustScript (.lsc, turns into Lua)", "Rust program", "Rust library", "C# console app", "C# class library", "Other .NET project (Web API, Blazor, MVC, WPF, tests…)"];
   const i = await choose("What kind of project?", kinds, true);
   if (i == null || i < 0) return;
   if (i === kinds.length - 1) { dotnetHooks.newProject?.(); return; }
-  let kind = ["vite", "next", "web", "node", "lua", "lust", "lustscript", "rust", "rust-lib", "console", "classlib"][i];
+  let kind = ["vite", "next", "web", "node", "ts", "lua", "lust", "lustscript", "rust", "rust-lib", "console", "classlib"][i];
   if (kind === "lust") {
     // Every Lust program can have a view; this only picks the starting point.
     const w = await choose("Start with a window?", ["Yes: a window, with a piece of it in ui/", "No: a plain program"], true);
@@ -3701,7 +3705,7 @@ async function newProject() {
       () => openNewProject(at, "main.lst", null));
     return;
   }
-  const MAIN = { lust: "main.lst", "lust-app": "main.lst", lustscript: "main.lsc", rust: "src/main.rs", "rust-lib": "src/lib.rs", console: "Program.cs", classlib: "Class1.cs", web: "index.html", node: "index.js", lua: "main.lua" };
+  const MAIN = { lust: "main.lst", "lust-app": "main.lst", lustscript: "main.lsc", rust: "src/main.rs", "rust-lib": "src/lib.rs", console: "Program.cs", classlib: "Class1.cs", web: "index.html", node: "index.js", ts: "src/index.ts", lua: "main.lua" };
   const plain = !["rust", "rust-lib", "console", "classlib"].includes(kind); // no language server to start
   try {
     const make = () => invoke("new_project", { parent: dir, name, kind });
@@ -3709,6 +3713,9 @@ async function newProject() {
     try { p = await make(); }
     catch (e) { if (!isUntrustedError(e) || !(await ensureTrusted("Making a project inside this folder"))) throw e; p = await make(); }
     await openNewProject(norm(p), MAIN[kind], plain ? null : kind.startsWith("rust") ? "rust" : "csharp");
+    // TypeScript and Node's types come from npm: get them now, so nothing is underlined for want of
+    // them, then let the language server see them.
+    if (kind === "ts") startSteps([{ label: "npm install", program: "npm", args: ["install", "--no-fund"], cwd: norm(p) }], () => startServer("web"));
   } catch (e) { if (!isUntrustedError(e)) toast(String(e), 6000); }
 }
 // Opens a project that was just made: inside the open folder, or as the folder.

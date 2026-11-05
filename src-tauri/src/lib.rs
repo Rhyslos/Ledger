@@ -1204,6 +1204,9 @@ fn set_window_trust(window: tauri::WebviewWindow, procs: State<'_, Procs>, trust
 /// A TypeScript installed for the whole computer (npm -g), for the TypeScript server in a restricted
 /// folder: otherwise it would load the project's own node_modules/typescript.
 #[tauri::command(async)]
+/// TypeScript 7 (the native compiler) has no tsserver.js, which the JavaScript and TypeScript
+/// language server needs; TypeScript 6 does, and Microsoft publishes it as @typescript/typescript6
+/// to install next to 7. So the first of these that has tsserver.js.
 fn global_tsserver() -> Option<String> {
     let mut dirs = vec![];
     if let Ok(a) = std::env::var("APPDATA") {
@@ -1217,8 +1220,24 @@ fn global_tsserver() -> Option<String> {
     }
     dirs.push(PathBuf::from("/usr/local/lib/node_modules"));
     dirs.push(PathBuf::from("/usr/lib/node_modules"));
+    tsserver_in(&dirs).or_else(|| {
+        // npm set to install somewhere else (nvm, a changed prefix): ask npm where.
+        let out = command_at(&find_tool("npm")).args(["root", "-g"]).output().ok()?;
+        let root = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (!root.is_empty()).then(|| tsserver_in(&[PathBuf::from(root)])).flatten()
+    })
+}
+
+/// The first TypeScript lib folder with tsserver.js in these global node_modules folders.
+fn tsserver_in(dirs: &[PathBuf]) -> Option<String> {
     for d in dirs {
-        for lib in [d.join("typescript").join("lib"), d.join("typescript-language-server").join("node_modules").join("typescript").join("lib")] {
+        let ts6 = d.join("@typescript").join("typescript6");
+        for lib in [
+            d.join("typescript").join("lib"),
+            ts6.join("node_modules").join("@typescript").join("old").join("lib"),
+            d.join("@typescript").join("old").join("lib"),
+            d.join("typescript-language-server").join("node_modules").join("typescript").join("lib"),
+        ] {
             if lib.join("tsserver.js").is_file() {
                 return Some(plain_path(&lib));
             }
@@ -1591,6 +1610,27 @@ fn kill_tree(child: &mut Child) {
 }
 
 #[cfg(test)]
+mod tsserver_tests {
+    #[test]
+    fn typescript_6_next_to_7() {
+        let d = std::env::temp_dir().join(format!("ledger-ts-{}", std::process::id()));
+        // TypeScript 7: a tsc, no tsserver.js.
+        std::fs::create_dir_all(d.join("typescript/lib")).unwrap();
+        std::fs::write(d.join("typescript/lib/tsc.js"), "").unwrap();
+        assert_eq!(super::tsserver_in(&[d.clone()]), None);
+        // @typescript/typescript6, as npm installs it globally.
+        let lib = d.join("@typescript/typescript6/node_modules/@typescript/old/lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(lib.join("tsserver.js"), "").unwrap();
+        // Compared as folders: Windows writes \ where the test wrote /.
+        let got = super::tsserver_in(&[d.clone()]).expect("found TypeScript 6");
+        assert!(std::path::Path::new(&got).join("tsserver.js").is_file());
+        assert_eq!(std::fs::canonicalize(&got).unwrap(), std::fs::canonicalize(&lib).unwrap());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+#[cfg(test)]
 mod env_tests {
     use super::safe_env;
     #[test]
@@ -1911,6 +1951,14 @@ fn web_template(kind: &str, name: &str) -> Option<Vec<(&'static str, String)>> {
         "node" => vec![
             ("package.json", format!("{{\n  \"name\": \"{pkg}\",\n  \"version\": \"0.1.0\",\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"start\": \"node index.js\",\n    \"dev\": \"node --watch index.js\"\n  }}\n}}\n")),
             ("index.js", format!("// {name}: F5 runs it with node --watch, so it restarts when you save.\nconsole.log(\"Hello from {name}!\");\n")),
+        ],
+        // TypeScript on Node.js: tsc turns src/ into dist/, then node runs it. npm install (for
+        // TypeScript itself) happens on the first Run.
+        "ts" => vec![
+            ("package.json", format!("{{\n  \"name\": \"{pkg}\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"start\": \"tsc && node dist/index.js\",\n    \"build\": \"tsc\",\n    \"watch\": \"tsc --watch\",\n    \"typecheck\": \"tsc --noEmit\"\n  }},\n  \"devDependencies\": {{\n    \"@types/node\": \"^24\",\n    \"typescript\": \"^7\"\n  }}\n}}\n")),
+            ("tsconfig.json", "{\n  \"compilerOptions\": {\n    \"target\": \"es2023\",\n    \"module\": \"nodenext\",\n    \"moduleResolution\": \"nodenext\",\n    \"rootDir\": \"src\",\n    \"outDir\": \"dist\",\n    \"types\": [\"node\"],\n    \"strict\": true,\n    \"sourceMap\": true,\n    \"skipLibCheck\": true\n  },\n  \"include\": [\"src\"]\n}\n".into()),
+            ("src/index.ts", format!("// {name}: F5 compiles src/ into dist/ with tsc, then runs it with node.\n// Type mistakes are underlined as you type; Check (tsc --noEmit) lists them all.\n\nfunction greet(who: string): string {{\n  return `Hello, ${{who}}!`;\n}}\n\nconsole.log(greet(\"{name}\"));\n")),
+            (".gitignore", "node_modules/\ndist/\n".into()),
         ],
         "lua" => vec![("main.lua", format!("-- {name}\n-- F5 runs this file with lua.\n\nlocal function greet(who)\n  return \"Hello, \" .. who .. \"!\"\nend\n\nprint(greet(\"{name}\"))\n"))],
         _ => return None,
