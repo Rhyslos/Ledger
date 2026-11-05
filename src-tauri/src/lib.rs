@@ -1622,7 +1622,10 @@ mod tsserver_tests {
         let lib = d.join("@typescript/typescript6/node_modules/@typescript/old/lib");
         std::fs::create_dir_all(&lib).unwrap();
         std::fs::write(lib.join("tsserver.js"), "").unwrap();
-        assert_eq!(super::tsserver_in(&[d.clone()]), Some(super::plain_path(&lib)));
+        // Compared as folders: Windows writes \ where the test wrote /.
+        let got = super::tsserver_in(&[d.clone()]).expect("found TypeScript 6");
+        assert!(std::path::Path::new(&got).join("tsserver.js").is_file());
+        assert_eq!(std::fs::canonicalize(&got).unwrap(), std::fs::canonicalize(&lib).unwrap());
         let _ = std::fs::remove_dir_all(&d);
     }
 }
