@@ -23,6 +23,8 @@ export const DEFAULTS = {
   stickyScroll: true,
   colourSwatches: true,
   overviewRuler: true,
+  minimap: true,
+  minimapOverlay: "always", // or "mouse-over"
   localHistory: true,
   smoothCaret: true,
   cursorStyle: "line",
@@ -275,6 +277,7 @@ export function settingsHtml() {
       ${row("Sticky scroll", check("sSticky", "stickyScroll", "Keep the lines that open the current block (fn, impl, class…) pinned at the top while scrolling"))}
       ${row("Local history", check("sHist", "localHistory", "Keep a copy of every save (the last 50 per file, in Ledger's own folder) so you can go back to an earlier version"))}
       ${row("Overview ruler", check("sOv", "overviewRuler", "Mark errors, warnings, search matches, Git changes and bookmarks along the scrollbar"))}
+      ${row("Minimap", check("sMini", "minimap", "Show a small picture of the whole file at the right edge (click or drag it to move)") + `<div class="bar">${select("sMiniOv", "minimapOverlay", [["always", "Always shade what's on screen"], ["mouse-over", "Shade what's on screen when pointed at"]])}</div>`, "Ctrl Shift P › View: show or hide the minimap.", "sMini")}
       ${row("Colours", check("sSw", "colourSwatches", "Show a swatch before colours in code (#hex, rgb(), hsl(), Godot's Color()); click it to pick a colour"))}
       ${row("Cursor", select("sCursor", "cursorStyle", [["line", "Line"], ["block", "Block"], ["underline", "Underline"]]), "", "sCursor")}
       ${row("Smooth cursor", check("sSmoothCaret", "smoothCaret", "The cursor fades in and out, and glides when it moves"))}

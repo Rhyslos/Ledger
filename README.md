@@ -31,6 +31,7 @@ To change the name, see [Renaming](#renaming).
 - **Tests panel**: finds Rust, C# and Lust tests, runs all of them, the failed ones, a file or one test, shows the output live while they run (with a Stop button), shows each failure's message and line, and marks results next to each test in the editor. Filter by name or by category (`Category=Fast`, from `[Trait]`, `[Category]` and `[TestCategory]`), see what each C# test printed, debug a C# test, and **Coverage** runs the C# tests with coverlet and marks the lines that ran (green) and didn't (red). **Tests: create a test for this file** gets you started.
 - **Bookmarks**: Ctrl Alt K marks a line (a blue ribbon by its number), Ctrl Alt L and Ctrl Alt J go to the next and previous, **Bookmarks: list** shows them all. They're kept for next time.
 - **Overview ruler**: errors, warnings, search matches, Git changes and bookmarks are marked along the scrollbar, so you can see where they are in a long file.
+- **Minimap**: a small picture of the file at the right edge, in the editor's colours, with the part on screen shaded. Click it to jump, or drag the shaded part to scroll. Lines with errors and warnings are tinted, and Git changes show down its left edge. Settings › Editor turns it off, or shades the screen's part only while you point at it; **View: show or hide the minimap** in the command list toggles it.
 - **TODO panel**: every `TODO`, `FIXME`, `HACK`, `XXX` and `BUG` comment in the folder, grouped by file and filtered by word, in the bottom panel. The words are tinted in the editor too.
 - **Zen mode**: Ctrl Alt Z hides everything but the editor and goes full screen; the same key brings it all back.
 - **Local history**: every save keeps a copy (the last 50 per file, in Ledger's own folder, not your project), plus the file as it was before you started editing. **Local history: this file's saved versions** (or right-click a file) shows any of them next to the file now, with **Restore this version**. Works in folders without Git.
@@ -297,6 +298,7 @@ src/colour.js         colour swatches and the colour picker
 src/emmet.js          Emmet abbreviations
 src/prettier.js       formatting web files with Prettier
 src/marks.js          bookmarks and the overview ruler
+src/minimap.js        the minimap
 src/todo.js           the TODO panel
 src/csv.js            CSV columns and the table view
 src/hex.js            the hex view
