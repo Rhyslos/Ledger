@@ -23,6 +23,7 @@ import { initLspMore } from "./lspmore.js";
 import { initDotnet } from "./dotnet.js";
 import { initDotnetTools } from "./dotnettools.js";
 import { initCli } from "./cli.js";
+import { initMinimap } from "./minimap.js";
 import { parseEditorConfig, propsFor, settingsFrom } from "./editorconfig.js";
 import { findPanel, openReplace } from "./findbar.js";
 import { iconHtml } from "./icons.js";
@@ -3814,7 +3815,7 @@ const app = {
   lspHooks, dotnetHooks, outputHooks, taskDoneHooks, setBuildProblems, highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
   cwd: () => S.ctx?.dir || S.root || "",
   trusted: () => trusted(),
-  setProblems, taskSteps, handleArgs, setTrust, checkUpdate: () => updater?.check(),
+  setProblems, taskSteps, handleArgs, setTrust, reconfigureExtras, checkUpdate: () => updater?.check(),
   startServer: (id) => startServer(id),
   ensureTrusted, isUntrustedError, askTrust, trustHooks,
   indentOf,
@@ -3940,6 +3941,7 @@ async function boot() {
   initDotnet(app);
   initDotnetTools(app);
   initCli(app);
+  initMinimap(app);
   showSideView(sideViews[sideView] ? sideView : "files");
   term = initTerminal(app);
   navx = initNav(app);

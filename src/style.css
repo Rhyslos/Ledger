@@ -887,3 +887,13 @@ th.db-n { z-index: 2; background: var(--side); }
 .tmsg.tout { color: var(--ink); }
 .cm-line.cm-cov-hit { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--good) 75%, transparent); }
 .cm-line.cm-cov-miss { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--seal) 75%, transparent); background: color-mix(in srgb, var(--seal) 6%, transparent); }
+
+/* The minimap (minimap.js): beside the scrollbar, with the text kept clear of it. */
+.cm-editor.lg-has-minimap .cm-scroller { padding-right: 88px; }
+.lg-minimap { position: absolute; z-index: 4; cursor: default; border-left: 1px solid color-mix(in srgb, var(--line) 60%, transparent); background: var(--bg); }
+.lg-minimap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.lg-minimap-slider { position: absolute; left: 0; right: 0; background: color-mix(in srgb, var(--ink) 9%, transparent); border-top: 1px solid color-mix(in srgb, var(--ink) 14%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--ink) 14%, transparent); }
+.lg-minimap:hover .lg-minimap-slider { background: color-mix(in srgb, var(--ink) 13%, transparent); }
+.lg-minimap.dragging .lg-minimap-slider { background: color-mix(in srgb, var(--ink) 18%, transparent); }
+.lg-minimap.hover-only .lg-minimap-slider { opacity: 0; transition: opacity .15s; }
+.lg-minimap.hover-only:hover .lg-minimap-slider, .lg-minimap.hover-only.dragging .lg-minimap-slider { opacity: 1; }
