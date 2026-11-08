@@ -47,7 +47,7 @@ import { csharp } from "@codemirror/legacy-modes/mode/clike";
 import { tags as t, highlightCode } from "@lezer/highlight";
 import { Lsp, norm, uriToPath, pathToUri, toOffset, toPos, severity, unsnippet, completionType } from "./lsp.js";
 import { ansiToHtml, esc } from "./ansi.js";
-import { LANGS, langOf, dotOf } from "./langs.js";
+import { LANGS, langOf, dotOf, fenceLanguage } from "./langs.js";
 import { Keymap, keyString } from "./keys.js";
 import { settings, DEFAULTS, loadSettings, setSetting, initSettings, settingsHtml, applySettingsFind, wireSettings, isRecording, refreshSettingsTools, openInBrowser, INSTALLS, INSTALL_FOR, installTool } from "./settings.js";
 import { APP_NAME } from "./app.js";
@@ -263,7 +263,7 @@ function inlineMd(s) {
 }
 /** Colours a code block (Markdown preview) like the editor. False if the language isn't known. */
 function highlightInto(el, code, lang) {
-  const parser = FENCE[lang];
+  const parser = FENCE[lang] || fenceLanguage(lang)?.parser;
   if (!parser) return false;
   el.textContent = "";
   highlightCode(code, parser.parse(code), hl,
@@ -870,7 +870,7 @@ function reconfigureExtras() {
 }
 // Indentation: what the file already uses (2 spaces, 4, tabs) when Settings › Editing › Detect
 // indentation is on, otherwise the tab size setting. The status bar shows it; click to change it.
-function detectIndent(text) {
+function detectIndent(text, md = false) {
   const deltas = new Map();
   let tabs = 0, spaced = 0, prev = 0, ind = 0;
   for (const line of text.split("\n", 3000)) {
@@ -887,7 +887,8 @@ function detectIndent(text) {
   }
   if (tabs > spaced && tabs >= 2) return { tabs: true, size: settings.tabSize };
   // A block comment's " * " lines step by 1: not an indent.
-  const best = [...deltas].filter(([d]) => d >= 2).sort((a, b) => b[1] - a[1])[0];
+  // Markdown: "1. " items put their next lines 3 in, which isn't how the file is indented.
+  const best = [...deltas].filter(([d]) => d >= 2 && (!md || d === 2 || d === 4)).sort((a, b) => b[1] - a[1])[0];
   // Most steps agree; a flat file (JSON, YAML) steps in only once, but then many lines sit at that depth.
   // (One indented line counts too: a small component with a single 2-space line is 2 spaces.)
   return best ? { tabs: false, size: best[0] } : null;
@@ -924,9 +925,11 @@ async function applyEditorConfig(path) {
   if (ec.eol && now.state.doc.length === 0) now.eol = ec.eol; // a new file takes the project's line endings
   if (ec.indent) { dispatchBuf(path, { effects: cfg.reconfigure(cfgExt(now)) }); if (path === S.active) renderPos(); }
 }
+// Markdown is prose: it wraps unless you turn that off (Alt+Z in a Markdown file).
+const wraps = (b) => (b?.lang === "markdown" ? settings.markdownWrap !== false : settings.wordWrap);
 const cfgExt = (b) => {
   const ind = indentOf(b);
-  return [EditorState.tabSize.of(ind.tabs ? settings.tabSize : ind.size), indentUnit.of(ind.tabs ? "\t" : " ".repeat(ind.size)), settings.wordWrap ? EditorView.lineWrapping : []];
+  return [EditorState.tabSize.of(ind.tabs ? settings.tabSize : ind.size), indentUnit.of(ind.tabs ? "\t" : " ".repeat(ind.size)), wraps(b) ? EditorView.lineWrapping : []];
 };
 async function pickIndent() {
   const b = S.bufs.get(S.active);
@@ -936,7 +939,7 @@ async function pickIndent() {
   if (i == null || i < 0) return;
   const path = S.active, was = indentOf(b), want = opts[i][1];
   b.indentSet = want;
-  if (!b.indentSet) b.indent = detectIndent(b.state.doc.toString());
+  if (!b.indentSet) b.indent = detectIndent(b.state.doc.toString(), b.lang === "markdown");
   dispatchBuf(path, { effects: cfg.reconfigure(cfgExt(b)) });
   renderPos();
   // Like VS Code's "Convert indentation": offer to change the lines already there too.
@@ -1077,7 +1080,7 @@ function makeBuffer(path, text, opts = {}) {
   Object.assign(b, eolOf(text));
   b.ro = !!opts.virtual || (!isUnder(path, S.root) && TOOLCHAIN.test(path));
   b.saved = Text.of(text.split(/\r?\n/));
-  b.indent = detectIndent(text.length > 2_000_000 ? text.slice(0, 200_000) : text);
+  b.indent = detectIndent(text.length > 2_000_000 ? text.slice(0, 200_000) : text, b.lang === "markdown");
   b.state = EditorState.create({ doc: b.saved, extensions: extensionsFor(path, b) });
   S.bufs.set(path, b);
   if (!b.virtual) applyEditorConfig(path);
@@ -2803,7 +2806,7 @@ function applySetting(key) {
   if (key === "detectIndent") reconfigureAll();
   if (key === "theme" || key === "codeColours" || key === "smoothCaret" || key === "cursorStyle") applyTheme();
   if (["fontSize", "fontFamily", "uiFont", "uiSize"].includes(key)) applyFonts();
-  if (key === "tabSize" || key === "wordWrap") reconfigureAll();
+  if (key === "tabSize" || key === "wordWrap" || key === "markdownWrap") reconfigureAll();
   if (key === "inlayHints") for (const p of S.bufs.keys()) refreshHints(p);
   if (key === "keys") { keymap.setOverrides(settings.keys); renderStatus(); }
   if ((key === "rustAnalyzer" || key === "rustCheck") && started(servers.rust)) startServer("rust");
@@ -3312,7 +3315,12 @@ C("panel.dock", "Move the panel (terminal, output) to the right or the bottom", 
 C("lust.lua", "Lust: show the Lua this file turns into", [], () => runAction("lua"));
 C("lust.rust", "Lust: show the Rust this file turns into (.lst)", [], () => runAction("rust"));
 C("view.zen", "Toggle zen mode (just the editor, full screen)", "Ctrl+Alt+Z", toggleZen);
-C("view.wrap", "Toggle word wrap (long lines wrap onto the next line)", "Alt+Z", () => { setSetting("wordWrap", !settings.wordWrap); toast(settings.wordWrap ? "Long lines wrap." : "Long lines run on; scroll sideways to see them."); });
+C("view.wrap", "Toggle word wrap (long lines wrap onto the next line)", "Alt+Z", () => {
+  const md = S.bufs.get(S.active)?.lang === "markdown", key = md ? "markdownWrap" : "wordWrap";
+  setSetting(key, !wraps(S.bufs.get(S.active)));
+  const on = md ? settings.markdownWrap !== false : settings.wordWrap;
+  toast((on ? "Long lines wrap" : "Long lines run on; scroll sideways to see them") + (md ? " in Markdown files." : "."));
+});
 C("tab.pin", "Pin or unpin this tab", [], () => togglePin());
 C("tab.closeSaved", "Close saved tabs (unsaved and pinned stay)", [], () => closeSavedTabs());
 C("tab.closeAll", "Close all tabs (not pinned ones; asks about unsaved ones)", [], () => closeAllTabs());

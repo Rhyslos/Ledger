@@ -1,11 +1,12 @@
 // Every file type Ledger knows: how to highlight it, which language server
 // (if any) understands it, and what colour its dot is in the explorer.
-import { StreamLanguage, LanguageSupport, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { StreamLanguage, LanguageSupport, Language, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { Tag, tags as t } from "@lezer/highlight";
 import { Prec } from "@codemirror/state";
 import { rust, rustLanguage } from "@codemirror/lang-rust";
 import { json } from "@codemirror/lang-json";
-import { markdown } from "@codemirror/lang-markdown";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { markdownLook } from "./mdlook.js";
 import { javascript } from "@codemirror/lang-javascript";
 import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
@@ -24,6 +25,12 @@ import { python } from "@codemirror/legacy-modes/mode/python";
 import { yaml } from "@codemirror/legacy-modes/mode/yaml";
 import { lua } from "@codemirror/legacy-modes/mode/lua";
 import { powerShell } from "@codemirror/legacy-modes/mode/powershell";
+import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { diff } from "@codemirror/legacy-modes/mode/diff";
+import { sql } from "@codemirror/legacy-modes/mode/sql";
+import { go } from "@codemirror/legacy-modes/mode/go";
+import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
+import { c, cpp, java, kotlin } from "@codemirror/legacy-modes/mode/clike";
 import { snippetCompletion as snip, completeFromList } from "@codemirror/autocomplete";
 
 const words = (s) => Object.fromEntries(s.split(/\s+/).filter(Boolean).map((w) => [w, true]));
@@ -531,7 +538,7 @@ export const LANGS = {
   toml: { name: "TOML", dot: "toml", ext: () => legacy(toml) },
   json: { name: "JSON", dot: "json", server: "json", languageId: "json", ext: () => json() },
   jsonc: { name: "JSON with comments", dot: "json", server: "json", languageId: "jsonc", ext: () => json() },
-  markdown: { name: "Markdown", dot: "md", ext: () => markdown() },
+  markdown: { name: "Markdown", dot: "md", ext: () => [markdown({ base: markdownLanguage, codeLanguages: fenceLanguage }), markdownLook()] },
   xml: { name: "XML", dot: "xml", ext: () => legacy(xml, { commentTokens: { block: { open: "<!--", close: "-->" } } }) },
   msbuild: { name: "MSBuild", dot: "proj", ext: () => legacy(xml, { commentTokens: { block: { open: "<!--", close: "-->" } }, autocomplete: msbuildComplete }) },
   razor: { name: "Razor", dot: "html", ext: () => new LanguageSupport(StreamLanguage.define(razorMode)) },
@@ -546,13 +553,47 @@ export const LANGS = {
 const BY_EXT = {
   rs: "rust", cs: "csharp", csx: "csharp", lust: "lust", lst: "lust", lsc: "lust", gdshader: "gdshader", gdshaderinc: "gdshader", gd: "gdscript",
   tscn: "godot", tres: "godot", godot: "godot", import: "godot", cfg: "ini", ini: "ini", editorconfig: "ini",
-  lua: "lua", luau: "luau", rockspec: "lua", toml: "toml", json: "json", jsonc: "jsonc", md: "markdown",
+  lua: "lua", luau: "luau", rockspec: "lua", toml: "toml", json: "json", jsonc: "jsonc", md: "markdown", markdown: "markdown", mdx: "markdown",
   js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx", ts: "typescript", mts: "typescript", cts: "typescript", tsx: "tsx",
   html: "html", htm: "html", vue: "html", svelte: "html", astro: "html", css: "css", scss: "scss", sass: "scss", less: "less",
   csproj: "msbuild", fsproj: "msbuild", vbproj: "msbuild", props: "msbuild", targets: "msbuild", slnx: "xml", xml: "xml", resx: "xml", xaml: "xml", axaml: "xml", config: "xml", svg: "xml",
   nuspec: "xml", runsettings: "xml", manifest: "xml", razor: "razor", cshtml: "razor", http: "http", rest: "http",
   yml: "yaml", yaml: "yaml", ps1: "powershell", psm1: "powershell", csv: "csv", tsv: "csv", tab: "csv", psv: "csv",
 };
+
+// ----- code in Markdown: ```lang fences -----
+// Fence names people write, for languages Ledger edits (the editor's own colours, in the editor and
+// the preview) and a few common ones it only colours.
+const FENCES = {
+  rust: "rust", rs: "rust", csharp: "csharp", cs: "csharp", "c#": "csharp", gdshader: "gdshader", lust: "lust", gdscript: "gdscript", gd: "gdscript",
+  javascript: "javascript", js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx", typescript: "typescript", ts: "typescript", tsx: "tsx",
+  html: "html", vue: "html", svelte: "html", css: "css", scss: "scss", sass: "scss", less: "less", lua: "lua", luau: "luau", toml: "toml",
+  json: "json", json5: "jsonc", jsonc: "jsonc", markdown: "markdown", md: "markdown", xml: "xml", svg: "xml", xaml: "xml", csproj: "msbuild", msbuild: "msbuild",
+  razor: "razor", cshtml: "razor", http: "http", yaml: "yaml", yml: "yaml", ini: "ini", cfg: "ini", properties: "ini", powershell: "powershell", ps1: "powershell", pwsh: "powershell",
+};
+const EXTRA_FENCES = {
+  sh: shell, bash: shell, zsh: shell, shell, console: shell, shellscript: shell, diff, patch: diff, sql, go, golang: go, dockerfile: dockerFile, docker: dockerFile,
+  python, py: python, c, h: c, cpp, "c++": cpp, cc: cpp, hpp: cpp, java, kotlin, kt: kotlin,
+};
+const fenceCache = new Map();
+/** The Language for a code fence's info string ("ts", "rust title=x"), or null. */
+export function fenceLanguage(info) {
+  const name = String(info || "").trim().split(/[\s{]/)[0].toLowerCase();
+  if (!name) return null;
+  if (fenceCache.has(name)) return fenceCache.get(name);
+  let found = null;
+  if (FENCES[name] && FENCES[name] !== "markdown") {
+    const walk = (e) => {
+      if (found || !e) return;
+      if (e instanceof Language) found = e;
+      else if (e instanceof LanguageSupport) found = e.language;
+      else if (Array.isArray(e)) e.forEach(walk);
+    };
+    try { walk(LANGS[FENCES[name]].ext()); } catch {}
+  } else if (EXTRA_FENCES[name]) found = StreamLanguage.define(EXTRA_FENCES[name]);
+  fenceCache.set(name, found);
+  return found;
+}
 
 export function langOf(path) {
   const b = String(path).split(/[\\/]/).pop();

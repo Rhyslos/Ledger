@@ -18,6 +18,8 @@ export const DEFAULTS = {
   fileIcons: true,
   previewTabs: true,
   wordWrap: false,
+  markdownWrap: true, // Markdown files wrap whatever wordWrap says
+  markdownOpen: "editor", // how Markdown files open: "editor", "preview" or "side"
   bracketColors: true,
   indentGuides: true,
   stickyScroll: true,
@@ -262,7 +264,8 @@ export function settingsHtml() {
     <section aria-labelledby="sEdit"><h2 id="sEdit">Editing</h2>
       ${row("Tab size", select("sTab", "tabSize", [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]]), "For new files, and files that don't show how they're indented.", "sTab")}
       ${row("Indentation", check("sDetIndent", "detectIndent", "Indent each file the way it already is (2 spaces, 4, tabs); the status bar shows it, click it to change"))}
-      ${row("Wrapping", check("sWrap", "wordWrap", "Wrap long lines"), "Alt+Z turns it on and off from anywhere.")}
+      ${row("Wrapping", check("sWrap", "wordWrap", "Wrap long lines") + check("sMdWrap", "markdownWrap", "Wrap long lines in Markdown files"), "Alt+Z turns it on and off from anywhere (for Markdown files when one is in front).")}
+      ${row("Markdown", select("sMdOpen", "markdownOpen", [["editor", "Open Markdown files in the editor"], ["preview", "Open Markdown files as the preview"], ["side", "Open Markdown files with the preview beside them"]]), "Ctrl+Shift+V shows only the preview, Ctrl+Alt+V shows it beside the editor. Double-click the preview to edit there.", "sMdOpen")}
       ${row("Type hints", check("sHints", "inlayHints", "Show the types and parameter names the language server works out, in grey"), "They aren't part of your file. Rust, C#, TypeScript and Lua send them.")}
       ${row("Formatting", check("sFmt", "formatOnSave", "Format files when saving (Prettier for web files, the language server for the rest)"))}
       ${row("Web formatting", select("sWebFmt", "webFormatter", [["prettier", "Prettier"], ["server", "The language servers"]]), "Prettier formats JavaScript, TypeScript, HTML, CSS, JSON, Markdown and YAML: the project's own Prettier when it has one (in a trusted folder), otherwise the one built into Ledger, with your .prettierrc either way.", "sWebFmt")}
