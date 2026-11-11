@@ -115,3 +115,33 @@ test("blame: typing inside a line, or joining lines, marks them changed", async 
   tr = st.update({ changes: { from: 0, to: 4 } }); // first line deleted: "two" is line 1 and still b's
   assert.equal(blameFor({ ...data, changes: tr.changes }, tr.state.doc, 1), b);
 });
+
+// ---------- New project › barebones (src/scaffold.js) ----------
+import { bareVite, createSteps } from "../src/scaffold.js";
+
+test("barebones Vite: the starter files go, one heading stays, in each language", () => {
+  const r = bareVite("react", true);
+  assert.ok(r.remove.includes("src/assets/") && r.remove.includes("src/App.css") && r.remove.includes("public/favicon.svg"));
+  assert.match(r.write["src/App.tsx"], /return <h1>Hello, world<\/h1>/);
+  assert.equal(r.write["src/index.css"], "");
+  assert.ok(bareVite("react", false).write["src/App.jsx"]);
+  assert.match(bareVite("vue", false).write["src/App.vue"], /^<script setup>/);
+  assert.match(bareVite("svelte", true).write["src/App.svelte"], /^<script lang="ts">/);
+  assert.match(bareVite("vanilla", true).write["src/main.ts"], /<HTMLDivElement>\('#app'\)!/);
+  assert.doesNotMatch(bareVite("vanilla", false).write["src/main.js"], /HTMLDivElement|!\./);
+  assert.match(bareVite("lit", false).write["src/my-element.js"], /customElements\.define/);
+  assert.equal(bareVite("nonesuch", true), null);
+});
+
+test("barebones Vite: index.html loses the Vite icon and Lit's demo heading", () => {
+  const html = '<head>\n    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />\n    <title>x</title>\n  </head>\n  <body>\n    <my-element>\n      <h1>Get started</h1>\n    </my-element>\n';
+  const out = bareVite("lit", true).html(html);
+  assert.doesNotMatch(out, /favicon/);
+  assert.match(out, /<my-element>\n      <h1>Hello, world<\/h1>\n    <\/my-element>/);
+});
+
+test("barebones Next.js asks create-next-app for an empty project", () => {
+  const args = (bare) => createSteps({ kind: "next", ts: true, tailwind: false, name: "a", dir: "/x", bare })[0].args;
+  assert.ok(args(true).includes("--empty") && args(true).includes("--no-agents-md"));
+  assert.ok(!args(false).includes("--empty"));
+});

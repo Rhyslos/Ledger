@@ -27,7 +27,7 @@ import { initMinimap } from "./minimap.js";
 import { parseEditorConfig, propsFor, settingsFrom } from "./editorconfig.js";
 import { findPanel, openReplace } from "./findbar.js";
 import { iconHtml } from "./icons.js";
-import { VITE, createSteps, withTailwindPlugin, CSS_FILES, FIRST_FILES } from "./scaffold.js";
+import { VITE, createSteps, withTailwindPlugin, bareVite, CSS_FILES, FIRST_FILES } from "./scaffold.js";
 import { initTailwind, tailwindSource, tailwindChanged, tailwindWarm, inClassList } from "./tailwind.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -3687,6 +3687,14 @@ async function newProject() {
     const tw = await choose("Add Tailwind CSS?", ["Yes", "No"], true);
     if (tw == null || tw < 0) return;
     web.tailwind = tw === 0;
+    // Barebones: the setup without the starter page. Whichever you picked last time comes first.
+    const starter = kind === "next" ? "With Next.js's starter page (logos, links, its styles)" : "With Vite's starter page (logos, a counter, links, their styles)";
+    const opts = [[true, "Barebones: just the setup and an empty page"], [false, starter]];
+    if (!prefs.webBare) opts.reverse();
+    const t = await choose("Start with the template's files?", opts.map(([, l]) => l), true);
+    if (t == null || t < 0) return;
+    web.bare = opts[t][0];
+    prefs.webBare = web.bare; savePrefs();
   }
   // With a folder open (a course folder, say), new projects go inside it by default.
   let dir = null;
@@ -3753,6 +3761,15 @@ async function newWebProject(o) {
   if (!(await haveTools(steps, () => newWebProject(o)))) return;
   startSteps(steps, async () => {
     try {
+      const bare = o.kind === "vite" && o.bare && bareVite(o.template, o.ts);
+      if (bare) {
+        const gone = bare.remove.map((f) => join(at, f.replace(/\/$/, "")));
+        const there = await invoke("file_stats", { paths: gone });
+        for (const [k, f] of gone.entries()) if (there[k] != null) await invoke("delete_path", { path: f });
+        for (const [f, contents] of Object.entries(bare.write)) await invoke("write_file", { path: join(at, f), contents });
+        const html = join(at, "index.html");
+        await invoke("write_file", { path: html, contents: bare.html(await invoke("read_file", { path: html })) });
+      }
       if (o.kind === "vite" && o.tailwind) {
         const cfgs = ["vite.config.ts", "vite.config.js", "vite.config.mts", "vite.config.mjs"].map((f) => join(at, f));
         const cfg = cfgs[(await invoke("file_stats", { paths: cfgs })).findIndex((x) => x != null)];
