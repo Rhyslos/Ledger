@@ -111,12 +111,12 @@ const godotResource = {
 // the rest plain. Structure, states and the names being declared are a touch heavier (500), never fully bold.
 // In a view, the pieces of the screen (column, text, button…) share the classes' blue, since your own
 // pieces are classes too, and the style words in [ ] are muted like types.
-const LUST_CONTROL = "is then or either check when loop stop skip return try error like keep enter send on";
+const LUST_CONTROL = "is then or either check when loop stop skip return try error like keep enter send on tween";
 const LUST_DEFINE = "class object node assembly component event schema database route method hook has new create lock";
 const LUST_MODULE = "fetch get pass end save load saved lua view style native";
-const LUST_TYPES = "int int8 int16 int32 uint8 uint16 uint32 float string bool array cMap map vec3 rotation entity";
+const LUST_TYPES = "int int8 int16 int32 uint8 uint16 uint32 float string bool array cMap map vec2 vec3 rotation colour entity";
 const LUST_BUILTINS = "print wait ask";
-const LUST_OBJECTS = "Maths Files Time Json Web Random";
+const LUST_OBJECTS = "Maths Files Time Json Web Random Colour Rotation Ease";
 // The pieces of a view, its style words and its colours live in luststyles.js, with their explanations.
 const LUST_PIECES = Object.keys(PIECES).join(" ");
 const LUST_STYLES = [...STYLES.map((s) => s.name), "fill"].join(" ");
@@ -125,14 +125,18 @@ const lustSet = (s) => new Set(s.split(" "));
 const LUST_COLOURS = Object.keys(COLOURS).join(" ");
 // The standard library and the methods on text and arrays (Lust's src/stdlib.rs), for completing after Maths:, name: and name.
 const LUST_LIB = {
-  Maths: ["abs(x)", "min(a, b)", "max(a, b)", "clamp(x, low, high)", "round(x)", "floor(x)", "ceil(x)", "sqrt(x)", "sin(x)", "cos(x)", "tan(x)", "power(x, p)"],
+  Maths: ["abs(x)", "min(a, b)", "max(a, b)", "clamp(x, low, high)", "round(x)", "floor(x)", "ceil(x)", "trunc(x)", "fraction(x)", "sign(x)", "sqrt(x)", "power(x, p)", "log(x)", "exp(x)", "sin(x)", "cos(x)", "tan(x)", "asin(x)", "acos(x)", "atan(x)", "atan2(y, x)", "degrees(radians)", "radians(degrees)", "lerp(a, b, t)", "moveTowards(current, target, step)", "smoothstep(low, high, x)", "isFinite(x)", "noise(x, y)"],
+  Random: ["seed(n)", "chance(odds)", "direction()"],
+  Colour: ["hex(text)"],
+  Rotation: ["toward(direction)", "around(axis, degrees)"],
+  Ease: ["apply(ease, t)"],
   Files: ["read(path)", "write(path, text)", "append(path, text)", "exists(path)", "remove(path)", "list(folder)", "makeFolder(path)", "chooseOpen(title, types)", "chooseSave(title, name)", "chooseFolder(title)"],
   Time: ["now()", "clock()", "date()", "time()", "addDays(date, n)", "daysBetween(from, to)", "weekday(date)", "isDate(text)"],
   Json: ["write(value)", "pretty(value)", "read(text)"],
   Web: ["get(url)", "post(url, body)", "serve(port)", "request(kind, path, body)", "fail(code, message)"],
 };
 const LUST_TEXT = ["contains(text)", "startsWith(text)", "endsWith(text)", "find(text)", "replace(old, new)", "replaceAll(pattern, new)", "split(by)", "slice(from, to)", "matches(pattern)", "findAll(pattern)", "capture(pattern)"];
-const LUST_ARRAY = ["join(between)", "has(value)", "find(value)", "remove(value)", "sort()", "reverse()"];
+const LUST_ARRAY = ["join(between)", "has(value)", "find(value)", "remove(value)", "sort()", "reverse()", "shuffle()", "pick()", "sum()", "average()", "smallest()", "largest()"];
 const LUST_CONVERT = ["text()", "int()", "float()", "upper()", "lower()", "trim()"];
 const libOption = (sig, detail) => {
   const name = sig.slice(0, sig.indexOf("(")), args = sig.slice(name.length + 1, -1);
@@ -144,7 +148,7 @@ const VALUE_OPTIONS = [...LUST_TEXT.map((s) => libOption(s, "text")), ...LUST_AR
 const CONVERT_OPTIONS = LUST_CONVERT.map((s) => libOption(s, "turns it into"));
 /** After Maths: (and the other built-in objects), a value's : or its . — the library, methods and conversions. */
 function lustMembers(ctx) {
-  const lib = ctx.matchBefore(/\b(Maths|Files|Time|Json|Web):\w*$/);
+  const lib = ctx.matchBefore(/\b(Maths|Files|Time|Json|Web|Random|Colour|Rotation|Ease):\w*$/);
   if (lib) return { from: lib.from + lib.text.indexOf(":") + 1, options: LIB_OPTIONS[lib.text.slice(0, lib.text.indexOf(":"))], validFor: /^\w*$/ };
   const val = ctx.matchBefore(/(?:\b[a-z_]\w*|[)\]"])[:.]\w*$/);
   if (!val) return null;
@@ -319,6 +323,9 @@ const lustCompletions = completeFromList([
   snip("loop ${3} {\n\t${}\n}", { label: "loop times", detail: "repeat", type: "text" }),
   snip("loop (${check}) {\n\t${}\n}", { label: "loop while", detail: "while true", type: "text" }),
   snip("loop (${int} ${item} in ${list}) {\n\t${}\n}", { label: "loop in", detail: "each item", type: "text" }),
+  snip("loop (int ${i} = ${0}; ${i} < ${10}; ${i} += 1) {\n\t${}\n}", { label: "loop count", detail: "counting", type: "text" }),
+  snip("tween ${hp} to ${0} over ${0.5} [ease ${OutCubic}];", { label: "tween", detail: "move a field to a value over time", type: "keyword" }),
+  snip("tween ${hp} to ${0} over ${0.5} [ease ${OutCubic}] {\n\t${}\n}", { label: "tween …", detail: "and do something when it ends", type: "keyword" }),
   snip("try {\n\t${}\n} error (string ${message}) {\n\t${print(message);}\n}", { label: "try", detail: "carry on if something goes wrong", type: "text" }),
   snip("state ${Mood} = [${Calm}, ${Busy}];", { label: "state", detail: "a list of options", type: "text" }),
   snip("keep ${thing} in ${place};", { label: "keep", detail: "hold onto something made in a state", type: "keyword" }),
