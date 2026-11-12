@@ -469,7 +469,14 @@ export function initDotnet(app) {
   let buildRun = null;
   app.outputHooks.push((text, label) => {
     if (!/^dotnet (build|run|test|watch)/.test(label || "")) return;
-    const hit = parseBuildLine(text.replace(/\x1b\[[0-9;]*m/g, ""));
+    const plain = text.replace(/\x1b\[[0-9;]*m/g, "");
+    // dotnet watch keeps running: each rebuild's end puts its errors in Problems (none: they go).
+    if (/^dotnet watch/.test(label) && /Build succeeded|Time Elapsed|Waiting for a file to change|🚀|Started\b|Hot reload (of changes )?succeeded|Restarting/i.test(plain)) {
+      app.setBuildProblems(buildRun || new Map());
+      buildRun = null;
+      return;
+    }
+    const hit = parseBuildLine(plain);
     if (!hit) return;
     buildRun ||= new Map();
     const list = buildRun.get(hit.path) || [];

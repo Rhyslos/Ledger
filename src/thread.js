@@ -13,7 +13,7 @@ import { Text } from "@codemirror/state";
 import { invoke } from "@tauri-apps/api/core";
 import { uriToPath, pathToUri, toOffset, norm } from "./lsp.js";
 import { langOf, dotOf } from "./langs.js";
-import { flatSymbols, enclosing, symbolAt, isImport, inRange, KIND } from "./threadsyms.js";
+import { flatSymbols, enclosing, symbolAt, isImport, inRange, KIND, guessEnclosing, declName } from "./threadsyms.js";
 
 const KEY = "@thread:";
 const MAX_USES = 400; // past this, the first 400 (a column of thousands helps nobody)
@@ -105,20 +105,34 @@ export function initThread(app) {
     return { list, more, imports };
   }
 
-  /** No language server: whole-word matches of the name in the folder's files. */
+  /** No language server: whole-word matches of the name in the folder's files, each with a guess
+   *  (from the text) at what it sits in, so the thread can still be followed by name. */
   async function textUses(name, path, line) {
     let hits = [];
     try { hits = await invoke("search_text", { root: S.root, query: name, caseSensitive: true }); } catch {}
     const word = new RegExp(`(^|[^\\w$])${name.replace(/[$]/g, "\\$")}(?![\\w$])`);
     const list = [];
+    let imports = 0;
     for (const h of hits) {
       const p = norm(h.path);
-      if (p === path && h.line - 1 === line) continue;
-      if (!word.test(h.text)) continue;
-      const col = Math.max(0, h.text.search(word) + (/^[\w$]/.test(h.text.slice(h.text.search(word))) ? 0 : 1));
-      list.push({ path: p, range: { start: { line: h.line - 1, character: col }, end: { line: h.line - 1, character: col + name.length } }, text: h.text, encl: null });
+      if (p === path && h.line === line) continue; // where you started (search_text counts lines from 0)
+      if (declName(h.text) === name) continue; // its own declaration, not a use
+      const m = word.exec(h.text);
+      if (!m) continue;
+      if (isImport(h.text)) { imports++; continue; }
+      const col = m.index + m[1].length;
+      list.push({ path: p, range: { start: { line: h.line, character: col }, end: { line: h.line, character: col + name.length } }, text: h.text, encl: null });
     }
-    return { list: list.slice(0, MAX_USES), more: Math.max(0, list.length - MAX_USES) };
+    const shown = list.slice(0, MAX_USES);
+    await Promise.all(shown.map(async (u) => {
+      const d = await docOf(u.path);
+      const lines = [];
+      for (let n = 1; n <= d.lines; n++) lines.push(d.line(n).text);
+      u.encl = guessEnclosing(lines, u.range.start.line);
+      // A use that is the name's own declaration isn't a use inside it.
+      if (u.encl && u.encl.sel.start.line === u.range.start.line && u.encl.name === name) u.encl = null;
+    }));
+    return { list: shown, more: Math.max(0, list.length - MAX_USES), imports };
   }
 
   // ----- columns -----
@@ -127,7 +141,7 @@ export function initThread(app) {
     const srv = serverFor(path);
     const col = { path, name, sym, focus, loading: true, uses: [], more: 0, text: !srv };
     if (srv) Object.assign(col, await usesOf(srv, path, pos, sym));
-    else Object.assign(col, await textUses(name, path, focus ?? pos.line));
+    else Object.assign(col, await textUses(name, path, pos.line));
     col.uses = col.list || col.uses;
     delete col.list;
     col.loading = false;

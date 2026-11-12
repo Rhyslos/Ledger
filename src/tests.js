@@ -344,7 +344,7 @@ export function initTests(app) {
         <datalist id="tTraits">${traits.map((t) => `<option value="${esc(t)}">`).join("")}</datalist>
         ${running ? `<button class="btn" data-ta="stop" title="End the run and everything it started">Stop</button>` : ""}
         <span class="sp"></span>
-        <span class="tsum">${coverage && !running ? `<span title="Lines that ran during the tests">${coveredPercent(coverage)}% covered</span> · ` : ""}${running ? "Running…" : ran ? `<span class="t-pass">${n("pass")} passed</span> · <span class="t-fail">${n("fail")} failed</span>${n("skip") ? ` · ${n("skip")} skipped` : ""}` : `${list.length} test${list.length === 1 ? "" : "s"}`}</span>
+        <span class="tsum">${coverage && !running ? `<span title="Lines that ran during the tests">${coveredPercent(coverage)}% covered</span> · ` : ""}${running ? "Running…" : ran ? `<span class="t-pass">${n("pass")} passed</span> · <span class="${n("fail") ? "t-fail" : ""}">${n("fail")} failed</span>${n("skip") ? ` · ${n("skip")} skipped` : ""}` : `${list.length} test${list.length === 1 ? "" : "s"}`}</span>
       </div>
       ${note ? `<pre class="tnote">${esc(note)}</pre>` : ""}
       ${running ? `<pre class="tlog">${esc(log.join("\n"))}</pre>` : ""}
@@ -392,13 +392,15 @@ export function initTests(app) {
 
   // ---------- marks next to tests in the editor ----------
   class Mark extends GutterMarker {
-    constructor(t) { super(); this.t = t; }
-    eq(o) { return o.t.status === this.t.status && o.t.id === this.t.id; }
+    // The status as it was when drawn: the test object changes in place, so comparing through it
+    // would always say "same" and the editor kept showing the old ✗ after a passing run.
+    constructor(t) { super(); this.t = t; this.status = t.status; }
+    eq(o) { return o.status === this.status && o.t.id === this.t.id; }
     toDOM() {
       const s = document.createElement("span");
-      s.className = "tmark t-" + this.t.status;
-      s.textContent = this.t.status === "idle" ? "▷" : ICON[this.t.status];
-      s.title = { pass: "Passed", fail: "Failed: click to run it again", skip: "Skipped", running: "Running", idle: "Run this test" }[this.t.status];
+      s.className = "tmark t-" + this.status;
+      s.textContent = this.status === "idle" ? "▷" : ICON[this.status];
+      s.title = { pass: "Passed", fail: "Failed: click to run it again", skip: "Skipped", running: "Running", idle: "Run this test" }[this.status];
       return s;
     }
   }
