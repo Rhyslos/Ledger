@@ -419,6 +419,8 @@ fn folder_media(dir: &Path) -> Option<&'static str> {
 fn list_dir(path: String) -> Res<Vec<Entry>> {
     let path = dir_arg(&path);
     let mut out = Vec::new();
+    let skip = Path::new(&path).components().any(|c| SKIP_DIRS.iter().any(|s| c.as_os_str() == *s));
+    let mut peeked = 0usize;
     for ent in std::fs::read_dir(&path).map_err(err)? {
         let ent = ent.map_err(err)?;
         let name = ent.file_name().to_string_lossy().to_string();
@@ -427,7 +429,10 @@ fn list_dir(path: String) -> Res<Vec<Entry>> {
         }
         let p = ent.path();
         let is_dir = p.is_dir();
-        let media = if is_dir { folder_media(&p) } else { None };
+        // Media folder icons cost a look inside each subfolder: not in node_modules, target and the
+        // like (hundreds of packages, none of them media), and only for the first 300 folders.
+        peeked += is_dir as usize;
+        let media = if is_dir && !skip && peeked <= 300 && !SKIP_DIRS.contains(&name.as_str()) { folder_media(&p) } else { None };
         out.push(Entry { name, is_dir, path: p.to_string_lossy().into(), media });
     }
     out.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
@@ -704,6 +709,21 @@ fn read_bytes_checked(path: &str) -> Res<Vec<u8>> {
         return Err("File is larger than 8 MB.".into());
     }
     std::fs::read(path).map_err(err)
+}
+
+/// The start of a text file, cut at a line end: the table view of a CSV too big to open whole
+/// shows its first rows from this.
+#[tauri::command(async)]
+fn read_text_head(path: String, max: usize) -> Res<String> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    std::fs::File::open(&path).map_err(err)?.take(max as u64).read_to_end(&mut buf).map_err(err)?;
+    if buf.len() == max {
+        if let Some(i) = buf.iter().rposition(|&b| b == b'\n') {
+            buf.truncate(i + 1);
+        }
+    }
+    decode_text(buf).map(|(t, _)| t)
 }
 
 #[tauri::command(async)]
@@ -2936,6 +2956,7 @@ pub fn run() {
             file_stats,
             file_kinds,
             file_sizes,
+            read_text_head,
             run_task,
             task_stop,
             task_input,

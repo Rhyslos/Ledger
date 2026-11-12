@@ -76,16 +76,22 @@ export function initCsv(app) {
   let shown = null, timer = 0;
   const keyOf = (path) => "@csv:" + app.norm(path);
 
-  async function textOf(path) {
+  const HEAD = 4 * 1024 * 1024; // a CSV too big to open whole: its first 4 MB (thousands of rows)
+  async function textOf(path, t) {
     const b = S.bufs.get(path);
     if (b) return b.state.doc.toString();
-    return invoke("read_file", { path }).catch(() => "");
+    try { return await invoke("read_file", { path }); }
+    catch (e) {
+      if (!/larger than 8 MB/i.test(String(e))) { app.toast(`Can't read ${app.base(path)}: ${e}`); return ""; }
+      if (t) t.partial = true;
+      return invoke("read_text_head", { path, max: HEAD }).catch((e2) => { app.toast(`Can't read ${app.base(path)}: ${e2}`); return ""; });
+    }
   }
 
   async function draw() {
     const t = tables.get(shown);
     if (!t || !el) return;
-    const text = await textOf(t.path);
+    const text = await textOf(t.path, t);
     const sep = sepOf(t.path, text);
     let rows = parseCsv(text, sep, MAX_ROWS + 2);
     const more = rows.length > MAX_ROWS + 1;
@@ -112,7 +118,7 @@ export function initCsv(app) {
     el.innerHTML = `<div class="csv-view">
       <div class="img-bar">
         <b title="${esc(t.path)}">${esc(base(t.path))}</b>
-        <span class="img-info">${body.length}${t.filter ? " matching" : ""} row${body.length === 1 ? "" : "s"} · ${width} column${width === 1 ? "" : "s"} · ${sep === "\t" ? "tabs" : `“${esc(sep)}”`}${more ? ` · showing the first ${MAX_ROWS}` : ""}</span>
+        <span class="img-info">${body.length}${t.filter ? " matching" : ""} row${body.length === 1 ? "" : "s"} · ${width} column${width === 1 ? "" : "s"} · ${sep === "\t" ? "tabs" : `“${esc(sep)}”`}${more ? ` · showing the first ${MAX_ROWS}` : t.partial ? " · from the start of a big file" : ""}</span>
         <span class="sp"></span>
         <input type="search" class="csv-filter" placeholder="Filter rows" value="${esc(t.filter || "")}" aria-label="Filter rows" spellcheck="false">
         <label class="chk" title="Use the first row as column names"><input type="checkbox" data-act="header"${t.header ? " checked" : ""}> First row is the header</label>
