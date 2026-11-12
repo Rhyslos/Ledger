@@ -1790,7 +1790,7 @@ const DIMMED = new Set(["target", "bin", "obj", ".godot", ".import", "node_modul
 async function loadDir(p) {
   try {
     const list = await invoke("list_dir", { path: p });
-    S.kids.set(p, list.map((e) => ({ name: e.name, path: norm(e.path), dir: e.is_dir })));
+    S.kids.set(p, list.map((e) => ({ name: e.name, path: norm(e.path), dir: e.is_dir, media: e.media || null })));
     return true;
   } catch {
     S.kids.delete(p);
@@ -1853,7 +1853,7 @@ function nodeHtml(n, depth) {
     const open = S.open.has(n.path);
     const c = dirCounts(n.path);
     const gd = app.treeDecor?.(n.path, true);
-    let h = `<button class="node folder${DIMMED.has(n.name) ? " dim" : ""}${c.e ? " err" : c.w ? " warn" : ""}${cur ? " sel" : ""}${treeClip?.cut && treeClip.path === n.path ? " cut" : ""}${gd && !c.e && !c.w ? " " + gd.cls : ""}" ${common} style="padding-left:${pad}px" data-dir="${esc(n.path)}" aria-expanded="${open}"><span class="chev${open ? " open" : ""}">${CHEV}</span>${fileIcons() ? iconHtml(n.path, true, open) : `<span class="ico">${ICON_FOLDER}</span>`}<span class="lbl">${esc(n.name)}</span>${open ? "" : cntHtml(c)}</button>`;
+    let h = `<button class="node folder${DIMMED.has(n.name) ? " dim" : ""}${c.e ? " err" : c.w ? " warn" : ""}${cur ? " sel" : ""}${treeClip?.cut && treeClip.path === n.path ? " cut" : ""}${gd && !c.e && !c.w ? " " + gd.cls : ""}" ${common} style="padding-left:${pad}px" data-dir="${esc(n.path)}" aria-expanded="${open}"><span class="chev${open ? " open" : ""}">${CHEV}</span>${fileIcons() ? iconHtml(n.path, true, open, n.media) : `<span class="ico">${ICON_FOLDER}</span>`}<span class="lbl">${esc(n.name)}</span>${open ? "" : cntHtml(c)}</button>`;
     if (open) {
       const kids = S.kids.get(n.path);
       h += `<div role="group">` + (kids ? (kids.length ? kids.map((k) => nodeHtml(k, depth + 1)).join("") : `<div class="hint" style="padding:2px 0 4px ${pad + 32}px">Empty</div>`) : `<div class="hint" style="padding:2px 0 4px ${pad + 32}px">Loading…</div>`) + `</div>`;

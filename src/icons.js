@@ -4,9 +4,17 @@
 import MAP from "./fileicons.json";
 import { langOf, LANGS } from "./langs.js";
 
-export function iconFor(path, dir = false, open = false) {
+// Folder names whose own icon gives way to what's in them (assets/ full of MP3s is a music folder).
+const GENERAL = new Set(["folder-resource", "folder-public", "folder-content", "folder-src", "folder-dist", "folder-other"]);
+
+export function iconFor(path, dir = false, open = false, media = null) {
   const name = String(path).split(/[\\/]/).pop().toLowerCase();
-  if (dir) return (open ? MAP.folderOpen : MAP.folder)[name] || (open ? "folder-open" : "folder");
+  if (dir) {
+    const named = MAP.folder[name];
+    // A folder of nothing but audio, video, images or fonts (from list_dir) shows as one.
+    if (media && (!named || GENERAL.has(named))) return `folder-${media}${open ? "-open" : ""}`;
+    return (open ? MAP.folderOpen : MAP.folder)[name] || (open ? "folder-open" : "folder");
+  }
   // Lust's own: Lt for programs (.lst, and Lust 1's .lust), Ls for LustScript, Lq for LustQL.
   if (/\.(lst|lust)$/.test(name)) return "lust";
   if (/\.lsc$/.test(name)) return "lust-script";
@@ -21,5 +29,5 @@ export function iconFor(path, dir = false, open = false) {
 }
 
 /** An <img> for the file's icon. */
-export const iconHtml = (path, dir = false, open = false) =>
-  `<img class="fi" src="/fileicons/${iconFor(path, dir, open)}.svg" alt="" draggable="false">`;
+export const iconHtml = (path, dir = false, open = false, media = null) =>
+  `<img class="fi" src="/fileicons/${iconFor(path, dir, open, media)}.svg" alt="" draggable="false">`;
