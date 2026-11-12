@@ -59,7 +59,25 @@ export const joinLinks = (s) => s.replace(/(?:\x1b\[[\d;]*m)*[^\s\x1b]*(?:\x1b\[
 });
 export const joinUrls = joinLinks;
 
-export function ansiToHtml(input) {
+// ESLint and Stylelint name the file once, on a line of its own, then list "  12:5  error  …"
+// lines under it. `ctx` (kept by the caller for the run) remembers that file, so those lines
+// link to it.
+const HEADER = new RegExp(String.raw`^\s*((?:[A-Za-z]:[\\/]|[\\/]|\.{1,2}[\\/])?[^\s:*?"<>|]*[^\s:*?"<>|.]\.(?:${EXT.slice(3, -1)}|json|html?|md))\s*$`);
+const UNDER = /^(\s+)(\d+):(\d+)(\s+(?:error|warning|✖|⚠|×))/;
+
+export function ansiToHtml(input, ctx = null) {
+  if (ctx) {
+    const plain = String(input).replace(/\x1b\[[\d;?]*[A-Za-z]/g, "");
+    const h = HEADER.exec(plain);
+    if (h) { ctx.file = h[1]; return link(h[1], 1, 1, plain.trim()).replace(/^/, esc(plain.match(/^\s*/)[0])); }
+    const u = ctx.file && UNDER.exec(plain);
+    if (u) {
+      const html = ansiToHtml(input);
+      const at = `${u[2]}:${u[3]}`;
+      return html.replace(new RegExp(`(^|>|\\s)${at}(?=<|\\s)`), (m, pre) => pre + link(ctx.file, u[2], u[3], at));
+    }
+    if (/^\s*[✖×]\s*\d+ problems?/.test(plain)) ctx.file = null;
+  }
   const s = joinLinks(String(input));
   // Plain lines (dotnet, Godot) get the smarter link pass on the whole line.
   if (!s.includes("\x1b[")) return linkify(s);

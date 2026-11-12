@@ -1125,7 +1125,8 @@ async function openFile(path, at, opts = {}) {
       // Too big to edit: the hex view reads up to 128 MB.
       if (/larger than 8 MB/i.test(String(e)) && app.openHex && !opts.quiet) {
         const table = /\.(csv|tsv|tab|psv)$/i.test(path) && app.csvTable;
-        const c = await choose(`${base(path)} is over 8 MB, too big to edit in Ledger.`, [...(table ? ["Show it as a table (its first rows)"] : []), "Look at it in the hex view", "Cancel"]);
+        const c = await choose(`${base(path)} is over 8 MB, too big to edit in Ledger.`, ["Read it (the start, or the end; read-only)", ...(table ? ["Show it as a table (its first rows)"] : []), "Look at it in the hex view", "Cancel"]);
+        if (c?.startsWith("Read")) return openBig(path, false);
         if (c?.startsWith("Show")) return app.csvTable(path);
         return c?.startsWith("Look") ? app.openHex(path, opts) : false;
       }
@@ -1165,6 +1166,25 @@ async function openVirtual(key, text, opts = {}) {
   await activate(key);
   renderTabs();
 }
+
+// Text files too big to edit (logs, data dumps): read-only, their first or last 4 MB, with the
+// editor's search and colours. "Big file: show the end" (and the start) switches between them.
+const BIG_PART = 4 * 1024 * 1024;
+const bigKey = (path) => "@big:" + norm(path);
+async function openBig(path, end = false) {
+  path = String(path).replace(/^@big:/, "");
+  let part;
+  try { part = await invoke("read_text_part", { path, end, max: BIG_PART }); }
+  catch (e) { toast(`Can't read ${base(path)}: ${e}`); return false; }
+  const mb = (n) => (n / 1048576).toFixed(n < 10 * 1048576 ? 1 : 0) + " MB";
+  await openVirtual(bigKey(path), part.text, { lang: langOf(path), label: `${base(path)} (${end ? "end" : "start"})` });
+  const b = S.bufs.get(bigKey(path));
+  if (b) { b.bigPath = path; b.bigEnd = end; b.label = `${base(path)} (${end ? "end" : "start"})`; renderTabs(); }
+  if (end) view?.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true });
+  toast(`The ${end ? "last" : "first"} ${mb(Math.min(BIG_PART, part.size))} of ${base(path)} (${mb(part.size)}), read-only. ${end ? "“Big file: show the start”" : "“Big file: show the end”"} in the command palette (Ctrl Shift P) switches${end ? "; line numbers here count from this part" : ""}.`, 7000);
+  return true;
+}
+openers.push((path) => (String(path).startsWith("@big:") ? openBig(path, false) : null));
 
 // csharp-ls serves decompiled framework sources under csharp:/metadata/… URIs.
 async function openMetadata(uri, at, srv) {
@@ -2662,7 +2682,10 @@ async function startSteps(steps, onDone, onFail) {
   S.onFail = onFail || null;
   startStep(steps[0]);
 }
+// What the output so far says about the lines to come (ESLint names a file, then its problems).
+const outCtx = { file: null };
 async function startStep(step) {
+  outCtx.file = null;
   const cwd = step.install ? "" : step.cwd || S.ctx?.dir || S.root || parent(settingsFile); // installs run in your home folder
   S.running = true;
   S.runStart = performance.now();
@@ -2719,13 +2742,13 @@ function onLine(line) {
   }
   const open = partialOut[stream];
   if (open?.isConnected) {
-    open.innerHTML = ansiToHtml(text);
+    open.innerHTML = ansiToHtml(text, outCtx);
     open.dataset.text = text;
     if (!partial) delete partialOut[stream];
     if (!outQuiet) outFollow().changed();
     return;
   }
-  const d = appendOut(ansiToHtml(text));
+  const d = appendOut(ansiToHtml(text, outCtx));
   if (partial) { partialOut[stream] = d; d.dataset.text = text; } else delete partialOut[stream];
   if (!partial) for (const f of outputHooks) { try { f(text, S.runLabel, S.runDir); } catch (e) { console.error(e); } }
 }
@@ -3416,6 +3439,8 @@ C("panel.dock", "Move the panel (terminal, output) to the right or the bottom", 
 C("lust.lua", "Lust: show the Lua this file turns into", [], () => runAction("lua"));
 C("lust.rust", "Lust: show the Rust this file turns into (.lst)", [], () => runAction("rust"));
 C("view.zen", "Toggle zen mode (just the editor, full screen)", "Ctrl+Alt+Z", toggleZen);
+C("big.end", "Big file: show the end (read-only)", [], () => { const b = S.bufs.get(S.active); if (b?.bigPath) openBig(b.bigPath, true); else toast("This is for files too big to edit: open one and choose “Read it”."); }, { alias: "log tail last lines" });
+C("big.start", "Big file: show the start (read-only)", [], () => { const b = S.bufs.get(S.active); if (b?.bigPath) openBig(b.bigPath, false); else toast("This is for files too big to edit: open one and choose “Read it”."); }, { alias: "log head first lines" });
 C("view.wrap", "Toggle word wrap (long lines wrap onto the next line)", "Alt+Z", () => {
   const md = S.bufs.get(S.active)?.lang === "markdown", key = md ? "markdownWrap" : "wordWrap";
   setSetting(key, !wraps(S.bufs.get(S.active)));

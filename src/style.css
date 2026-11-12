@@ -1001,3 +1001,7 @@ th.db-n { z-index: 2; background: var(--side); }
 .rt-line { display: block; font: 12px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
 .rt-line mark { background: color-mix(in srgb, var(--rt-red) 22%, transparent); color: var(--ink); border-radius: 2px; }
 .rt-empty { display: grid; place-items: center; height: 100%; color: var(--muted); }
+.media-doc { margin: auto; text-align: center; padding: 32px 24px 48px; max-width: 520px; }
+.media-doc-icon { display: flex; justify-content: center; }
+.media-doc-icon .fi, .media-doc-icon .dot { width: 56px; height: 56px; margin: 0 0 14px; }
+.media-doc-acts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
