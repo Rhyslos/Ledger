@@ -2,6 +2,7 @@
 // a side-by-side diff page, and the Source control view (stage, commit, pull,
 // push). Everything runs the real git program in the open folder.
 import { EditorState, StateField, StateEffect, RangeSet, Text, Facet } from "@codemirror/state";
+import { gitignoreFor } from "./scaffold.js";
 import { EditorView, gutter, GutterMarker, keymap, lineNumbers, highlightSpecialChars, drawSelection } from "@codemirror/view";
 import { syntaxHighlighting } from "@codemirror/language";
 import { MergeView, Chunk, goToNextChunk, goToPreviousChunk } from "@codemirror/merge";
@@ -576,7 +577,19 @@ export function initGit(app) {
       if (act === "push") push();
       if (act === "refresh") refresh();
       if (act === "trust") { app.askTrust?.(S.root, true).then((yes) => { if (yes) { G.forRoot = null; refresh(); } }); return; }
-      if (act === "init") git(["init"], S.root).then(() => { G.forRoot = null; refresh(); });
+      if (act === "init") git(["init"], S.root).then(async () => {
+        G.forRoot = null;
+        // A .gitignore for what's here, unless there's one already.
+        const file = S.root + "/.gitignore";
+        const there = await invoke("read_file", { path: file }).then(() => true, () => false);
+        const text = there ? "" : gitignoreFor((S.files || []).map((f) => f.slice(S.root.length + 1)));
+        if (text) {
+          await invoke("write_file", { path: file, contents: text }).catch(() => {});
+          app.toast(`Started a repository, with a .gitignore that leaves out ${text.split("\n").filter((l) => l && !l.startsWith("#") && !/DS_Store|Thumbs|desktop/.test(l)).slice(0, 4).join(", ")}${text.split("\n").filter((l) => l && !l.startsWith("#")).length > 7 ? " and more" : ""}.`, 6000);
+          await app.refreshTree?.();
+        }
+        refresh();
+      });
       if (act === "branch") switchBranch();
       if (act === "more") { const r = a.getBoundingClientRect(); moreMenu(r.left, r.bottom + 2); }
       if (act === "abortMerge") abortMerge();

@@ -202,6 +202,7 @@ button { cursor: pointer; }
 .out .done { color: var(--faint); }
 .out .done.bad { color: var(--seal); }
 .out .done.ok { color: var(--good); }
+.out .done.warn { color: var(--warn); }
 .out a { color: var(--accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent); text-underline-offset: 3px; cursor: pointer; }
 .problems { flex: 1; overflow: auto; padding: 0 8px 12px; }
 .problems h3 { font-size: 12.5px; font-weight: 600; color: var(--muted); margin: 8px 6px 2px; display: flex; gap: 8px; }
@@ -234,6 +235,7 @@ button { cursor: pointer; }
 .status .live.on::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
 .status .sp { flex: 1; }
 .status .e { color: var(--seal); }
+.status .w { color: var(--warn); }
 .status .w { color: var(--warn); }
 .status .spin::before { content: ""; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
