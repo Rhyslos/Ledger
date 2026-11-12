@@ -217,11 +217,11 @@ export function initDebugger(app) {
     const P = await app.updateCtx();
     const kind = app.taskKind(P);
     if (!kind) { app.toast("Open a file from the project you want to debug."); return; }
-    if (kind === "rust") return debugRust(P, { build: ["build"], pick: (a) => a.kind.includes("bin"), args: [], label: "Debug " + app.base(P.dir) });
+    if (kind === "rust") return debugRust(P, { build: ["build"], pick: (a) => a.kind.includes("bin"), args: app.splitArgs(app.runOpts(P.dir).args), input: app.runOpts(P.dir).input, label: "Debug " + app.base(P.dir) });
     if (kind === "dotnet") return debugDotnet(P);
     if (kind === "godot") return debugGodot(P);
   }
-  async function debugRust(P, { build, pick, args, label }) {
+  async function debugRust(P, { build, pick, args, input, label }) {
     const adapter = await ensureAdapter("rust");
     if (!adapter) return;
     const run = await buildThen([{ label: "cargo " + build.join(" "), program: "cargo", args: build, cwd: P.dir }]);
@@ -234,7 +234,14 @@ export function initDebugger(app) {
       a = list[i];
     }
     if (!a) { app.toast("cargo didn't build a program to debug. Is this a library? Debug a test instead (the Debug link above it)."); return; }
-    launch({ kind: "rust", adapter, program: a.path, args, cwd: P.dir, label });
+    // Lines for it to read (a debugged program can't be typed to): from a file, as codelldb allows.
+    let stdin = null;
+    if (input) {
+      stdin = P.dir + "/target/.ledger-debug-input.txt";
+      await invoke("write_file", { path: stdin, contents: input.replace(/\\n/g, "\n") + "\n" }).catch(() => (stdin = null));
+    }
+    launch({ kind: "rust", adapter, program: a.path, args, cwd: P.dir, label, stdin });
+    if (!stdin) dconsole(esc("A program being debugged can't be typed to. If it reads input, give it lines with “Run and Debug: arguments and input…” in the command palette."), "hint");
   }
   /** A ▶ Run / Debug link from rust-analyzer. */
   async function runnable(r) {
@@ -291,7 +298,7 @@ export function initDebugger(app) {
     // The .exe next to the .dll starts faster under the debugger on Windows.
     const exe = dll.replace(/\.dll$/i, isWin ? ".exe" : "");
     const hasExe = exe !== dll && (await invoke("resolve_path", { path: exe, cwd: P.dir }).catch(() => null));
-    launch({ kind: "csharp", adapter, program: hasExe ? exe : dll, args: splitArgs(prof?.args || ""), env, cwd: p?.dir || P.dir, label: "Debug " + app.base(dll).replace(/\.dll$/i, "") + (prof ? ` (${prof.name})` : ""), browser: prof?.launchBrowser ? prof.launchUrl || "" : null });
+    launch({ kind: "csharp", adapter, program: hasExe ? exe : dll, args: [...splitArgs(prof?.args || ""), ...splitArgs(app.runOpts(P.dir).args)], env, cwd: p?.dir || P.dir, label: "Debug " + app.base(dll).replace(/\.dll$/i, "") + (prof ? ` (${prof.name})` : ""), browser: prof?.launchBrowser ? prof.launchUrl || "" : null });
   }
   /** Arguments written as one line (commandLineArgs), with "quoted parts" kept together. */
   function splitArgs(line) {
@@ -384,7 +391,9 @@ export function initDebugger(app) {
       const args = cfg.pid
         ? (cfg.kind === "rust" ? { type: "lldb", request: "attach", name: cfg.label, pid: cfg.pid } : { type: "coreclr", request: "attach", name: cfg.label, processId: cfg.pid, justMyCode: true })
         : cfg.kind === "rust"
-        ? { type: "lldb", request: "launch", name: cfg.label, program: native(cfg.program), args: cfg.args, cwd: native(cfg.cwd), stopOnEntry: false, terminal: "console", sourceLanguages: ["rust"], _adapterSettings: { consoleMode: "evaluate", displayFormat: "auto", dereferencePointers: true } }
+        ? { type: "lldb", request: "launch", name: cfg.label, program: native(cfg.program), args: cfg.args, cwd: native(cfg.cwd), stopOnEntry: false, terminal: "console", // codelldb's console mode keeps its own terminal as the input despite stdio; LLDB's
+        // target.input-path is what takes effect.
+        ...(cfg.stdin ? { stdio: [native(cfg.stdin), null, null], preRunCommands: [`settings set target.input-path "${native(cfg.stdin)}"`] } : {}), sourceLanguages: ["rust"], _adapterSettings: { consoleMode: "evaluate", displayFormat: "auto", dereferencePointers: true } }
         : { type: "coreclr", request: "launch", name: cfg.label, program: native(cfg.program), args: cfg.args, cwd: native(cfg.cwd), stopAtEntry: false, console: "internalConsole", justMyCode: true, ...(cfg.env && Object.keys(cfg.env).length ? { env: cfg.env } : {}) };
       const launched = dap.request(cfg.pid ? "attach" : "launch", args);
       // Adapters ask for breakpoints with the "initialized" event; some send it before
