@@ -1660,22 +1660,28 @@ async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_,
         .env("DOTNET_NOLOGO", "1")
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
         .envs(env)
-        .stdin(Stdio::piped()) // the Input box under the output writes here
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stdin(Stdio::piped()); // the Input box under the output writes here
+    // Output and errors share one pipe, as in a terminal, so they arrive in the order the program
+    // wrote them. Two pipes read by two threads let either overtake the other (an error printed
+    // between two lines of output showed up after both).
+    let (reader, writer) = std::io::pipe().map_err(|e| format!("Couldn't start {program} ({e})."))?;
+    let writer2 = writer.try_clone().map_err(|e| format!("Couldn't start {program} ({e})."))?;
+    cmd.stdout(writer).stderr(writer2);
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0); // so Stop takes children (the program cargo/dotnet started) too
     }
-    let mut child = cmd.spawn().map_err(|e| {
+    let spawned = cmd.spawn();
+    // Our copies of the pipe's writing end go now, or the output would never end.
+    drop(cmd);
+    let mut child = spawned.map_err(|e| {
         let what = if is_bare(&program) { program.clone() } else { exe.display().to_string() };
         format!("Couldn't start {what} ({e}).")
     })?;
     job::adopt(child.id());
     let stdin = child.stdin.take();
-    let out = pump(app.clone(), label.clone(), run, child.stdout.take().unwrap(), "stdout", is_cargo);
-    let er = pump(app.clone(), label.clone(), run, child.stderr.take().unwrap(), "stderr", is_cargo);
+    let out = pump(app.clone(), label.clone(), run, reader, "stdout", is_cargo);
     let child = Arc::new(Mutex::new(child));
     // Two Run presses close together both get here: whatever the other one started is stopped
     // rather than left running with no Stop button.
@@ -1699,7 +1705,6 @@ async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_,
         // (a dev server cargo run launched, say) would hold "finished" back forever, so give it
         // two seconds.
         let _ = finish_within(out, Duration::from_secs(2));
-        let _ = finish_within(er, Duration::from_secs(2));
         let _ = app.emit_to(&label, "task-done", Done { run, code });
     });
     Ok(run)

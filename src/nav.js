@@ -23,33 +23,43 @@ export function initNav(app) {
 
   // ---------- Lust (and other files with no server): by reading the files ----------
   const wordAt = () => { const v = app.view, w = v.state.wordAt(v.state.selection.main.head); return w ? v.state.sliceDoc(w.from, w.to) : ""; };
-  /** Whole-word places named `name` in the folder's Lust files: [{ path, range, text, decl }]. */
-  const placesCache = new Map(); // name -> { at, list }: hovering asks often; the files rarely change that fast
-  async function lustPlaces(name) {
-    const c = placesCache.get(name);
-    if (c && performance.now() - c.at < 2500) return c.list;
-    const list = await lustPlacesNow(name);
-    placesCache.set(name, { at: performance.now(), list });
-    if (placesCache.size > 200) placesCache.delete(placesCache.keys().next().value);
-    return list;
-  }
-  async function lustPlacesNow(name) {
+  /** Whole-word places named `name` in the folder's Lust files: [{ path, range, text, decl }].
+   *  Files open in tabs are read from the tab, saved or not, so a rename or a look-up straight
+   *  after typing sees what you typed; the others are searched on disk. */
+  const diskCache = new Map(); // name -> { at, hits }: hovering asks often; files on disk rarely change that fast
+  async function diskHits(name) {
+    const c = diskCache.get(name);
+    if (c && performance.now() - c.at < 2500) return c.hits;
     let hits = [];
     try { hits = await invoke("search_text", { root: S.root, query: name, caseSensitive: true }); } catch {}
+    diskCache.set(name, { at: performance.now(), hits });
+    if (diskCache.size > 200) diskCache.delete(diskCache.keys().next().value);
+    return hits;
+  }
+  const openLust = () => [...S.bufs].filter(([p, b]) => LUST_FILE.test(p) && !b.virtual && b.state && (!S.root || app.isUnder(p, S.root)));
+  async function lustPlaces(name) {
     const word = new RegExp(`(^|[^\\w$])${name.replace(/[$]/g, "\\$")}(?![\\w$])`, "g");
     const out = [];
-    for (const h of hits) {
-      const p = norm(h.path);
-      if (!LUST_FILE.test(p)) continue;
-      // An open file's own text (it may not be saved yet) wins over what's on disk.
-      const b = S.bufs.get(p);
-      const text = b ? b.state.doc.line(Math.min(b.state.doc.lines, h.line + 1)).text : h.text;
+    const scan = (path, line, text) => {
       const d = declOf(text, true);
       let m;
       word.lastIndex = 0;
       while ((m = word.exec(text))) {
         const col = m.index + m[1].length;
-        out.push({ path: p, range: { start: { line: h.line, character: col }, end: { line: h.line, character: col + name.length } }, text, decl: !!(d && d[0] === name && d[2] === col) });
+        out.push({ path, range: { start: { line, character: col }, end: { line, character: col + name.length } }, text, decl: !!(d && d[0] === name && d[2] === col) });
+      }
+    };
+    const open = new Map(openLust());
+    for (const h of await diskHits(name)) {
+      const p = norm(h.path);
+      if (LUST_FILE.test(p) && !open.has(p)) scan(p, h.line, h.text);
+    }
+    for (const [p, b] of open) {
+      const doc = b.state.doc;
+      if (!doc.toString().includes(name)) continue;
+      for (let i = 1; i <= doc.lines; i++) {
+        const text = doc.line(i).text;
+        if (text.includes(name)) scan(p, i - 1, text);
       }
     }
     return out;
@@ -91,6 +101,7 @@ export function initNav(app) {
       const changes = {};
       for (const x of all) (changes[pathToUri(x.path)] ||= []).push({ range: x.range, newText: to });
       const n = await app.applyWorkspaceEdit({ changes });
+      diskCache.clear();
       app.toast(`Renamed ${name} to ${to} in ${n ?? files.size} file${(n ?? files.size) === 1 ? "" : "s"}. Ctrl Z undoes it in each.`, 5000);
     },
     /** Markdown about the name at the cursor: where it's declared and how. */
