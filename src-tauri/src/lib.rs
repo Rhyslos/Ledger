@@ -368,6 +368,51 @@ struct Entry {
     name: String,
     path: String,
     is_dir: bool,
+    /// For a folder of nothing but media files: "audio", "video", "images" or "font" (its icon).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    media: Option<&'static str>,
+}
+
+/// What kind of media file this is, by its extension.
+fn media_kind(name: &str) -> Option<&'static str> {
+    let ext = name.rsplit_once('.')?.1.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "mp3" | "wav" | "wave" | "ogg" | "oga" | "opus" | "flac" | "m4a" | "aac" | "weba" | "aiff" | "aif" | "mid" | "midi" | "wma" => "audio",
+        "mp4" | "m4v" | "webm" | "mov" | "ogv" | "mkv" | "avi" | "wmv" | "flv" => "video",
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "avif" | "bmp" | "ico" | "apng" | "jfif" | "tif" | "tiff" | "psd" => "images",
+        "ttf" | "otf" | "woff" | "woff2" => "font",
+        _ => return None,
+    })
+}
+
+/// A folder whose files are all one kind of media (audio and video together count as video), so
+/// the explorer can show it as a music or video folder. Looks at the first 500 entries only;
+/// subfolders and system files (.DS_Store, desktop.ini, Thumbs.db, .gitkeep) don't count.
+fn folder_media(dir: &Path) -> Option<&'static str> {
+    let (mut audio, mut video, mut images, mut font) = (0, 0, 0, 0);
+    for ent in std::fs::read_dir(dir).ok()?.take(500) {
+        let ent = ent.ok()?;
+        if ent.file_type().ok()?.is_dir() {
+            continue;
+        }
+        let name = ent.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name.eq_ignore_ascii_case("desktop.ini") || name.eq_ignore_ascii_case("thumbs.db") {
+            continue;
+        }
+        match media_kind(&name)? {
+            "audio" => audio += 1,
+            "video" => video += 1,
+            "images" => images += 1,
+            _ => font += 1,
+        }
+    }
+    match (audio, video, images, font) {
+        (a, 0, 0, 0) if a > 0 => Some("audio"),
+        (_, v, 0, 0) if v > 0 => Some("video"),
+        (0, 0, i, 0) if i > 0 => Some("images"),
+        (0, 0, 0, f) if f > 0 => Some("font"),
+        _ => None,
+    }
 }
 
 #[tauri::command(async)]
@@ -381,7 +426,9 @@ fn list_dir(path: String) -> Res<Vec<Entry>> {
             continue;
         }
         let p = ent.path();
-        out.push(Entry { name, is_dir: p.is_dir(), path: p.to_string_lossy().into() });
+        let is_dir = p.is_dir();
+        let media = if is_dir { folder_media(&p) } else { None };
+        out.push(Entry { name, is_dir, path: p.to_string_lossy().into(), media });
     }
     out.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
     Ok(out)
@@ -1062,6 +1109,19 @@ fn file_stats(paths: Vec<String>) -> Vec<Option<f64>> {
         .collect()
 }
 
+/// "dir", "file", or "" (missing) for each path: what was dropped on the window.
+#[tauri::command(async)]
+fn file_kinds(paths: Vec<String>) -> Vec<&'static str> {
+    paths
+        .iter()
+        .map(|p| match std::fs::metadata(p) {
+            Ok(m) if m.is_dir() => "dir",
+            Ok(_) => "file",
+            Err(_) => "",
+        })
+        .collect()
+}
+
 // ---------- windows ----------
 //
 // Every window is its own workspace: its own folder, running program, language
@@ -1627,6 +1687,30 @@ mod tsserver_tests {
         let got = super::tsserver_in(&[d.clone()]).expect("found TypeScript 6");
         assert!(std::path::Path::new(&got).join("tsserver.js").is_file());
         assert_eq!(std::fs::canonicalize(&got).unwrap(), std::fs::canonicalize(&lib).unwrap());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+#[cfg(test)]
+mod media_folder_tests {
+    #[test]
+    fn folders_of_one_kind_of_media() {
+        let d = std::env::temp_dir().join(format!("ledger-media-{}", std::process::id()));
+        let make = |name: &str, files: &[&str]| {
+            let f = d.join(name);
+            std::fs::create_dir_all(f.join("sub")).unwrap();
+            for n in files {
+                std::fs::write(f.join(n), "").unwrap();
+            }
+            super::folder_media(&f)
+        };
+        assert_eq!(make("music", &["a.mp3", "B.WAV", "desktop.ini", ".DS_Store"]), Some("audio"));
+        assert_eq!(make("clips", &["intro.mp4", "theme.mp3"]), Some("video"));
+        assert_eq!(make("art", &["a.png", "b.svg"]), Some("images"));
+        assert_eq!(make("type", &["a.woff2"]), Some("font"));
+        assert_eq!(make("mixed", &["a.mp3", "notes.txt"]), None);
+        assert_eq!(make("pics-and-songs", &["a.mp3", "a.png"]), None);
+        assert_eq!(make("empty", &[]), None);
         let _ = std::fs::remove_dir_all(&d);
     }
 }
@@ -2844,6 +2928,7 @@ pub fn run() {
             list_files,
             search_text,
             file_stats,
+            file_kinds,
             run_task,
             task_stop,
             task_input,

@@ -25,3 +25,12 @@ test("LSP snippets: nested placeholders, choices, variables, escapes", () => {
   assert.deepEqual(unsnippet("a \\$ b $1"), { text: "a $ b ", cursor: 6 });
   assert.equal(unsnippet("fn ${1:name}(${2}) {\n\t$0\n}").text, "fn name() {\n\t\n}");
 });
+
+test("a dev server's address stays one link when its port is coloured differently (Vite)", () => {
+  const vite = "  \x1b[32m➜\x1b[39m  \x1b[1mLocal\x1b[22m:   \x1b[36mhttp://localhost:\x1b[1m5173\x1b[22m/\x1b[39m";
+  const html = ansiToHtml(vite);
+  assert.match(html, /<a href="http:\/\/localhost:5173\/">http:\/\/localhost:5173\/<\/a>/);
+  assert.match(html, /<span class="a-36"><a /);
+  // Colours after the address carry on as before.
+  assert.match(ansiToHtml("\x1b[36mhttp://localhost:\x1b[1m3000\x1b[22m\x1b[39m ready \x1b[31mred\x1b[39m"), /<\/a><\/span> ready <span class="a-31">red<\/span>/);
+});

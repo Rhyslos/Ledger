@@ -145,3 +145,11 @@ test("barebones Next.js asks create-next-app for an empty project", () => {
   assert.ok(args(true).includes("--empty") && args(true).includes("--no-agents-md"));
   assert.ok(!args(false).includes("--empty"));
 });
+
+test("Go Live runs the dev server for Vite and friends, and serves plain sites itself", async () => {
+  const { needsDevServer } = await import("../src/scaffold.js");
+  assert.ok(needsDevServer({ devDependencies: { vite: "^7", typescript: "~5" } }));
+  assert.ok(needsDevServer({ dependencies: { next: "16" } }));
+  assert.ok(!needsDevServer({ dependencies: { express: "5" } }));
+  assert.ok(!needsDevServer(null));
+});

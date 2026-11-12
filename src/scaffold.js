@@ -77,3 +77,11 @@ export function bareVite(template, ts) {
       .replace(/<my-element>[\s\S]*?<\/my-element>/, `<my-element>\n      ${HELLO}\n    </my-element>`),
   };
 }
+
+// Go Live: a project built with one of these has to be served by its own dev server (TypeScript,
+// JSX and imports from node_modules don't work as plain files).
+const DEV_SERVERS = ["vite", "next", "astro", "@sveltejs/kit", "nuxt", "@angular/cli", "react-scripts", "parcel", "webpack-dev-server", "@remix-run/dev", "gatsby"];
+export function needsDevServer(pkg) {
+  const deps = { ...pkg?.dependencies, ...pkg?.devDependencies };
+  return DEV_SERVERS.some((d) => d in deps);
+}
