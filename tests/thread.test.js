@@ -52,3 +52,27 @@ test("imports are told apart from uses", () => {
   for (const l of ['import { Inventory } from "./inventory";', "import Inventory from './x'", 'export { Inventory } from "./inventory";', "using Game.Items;", "use crate::inventory::{Inventory, Item};", "const { Inventory } = require('./inv');"]) assert.ok(isImport(l), l);
   for (const l of ["const bag = new Inventory();", "export class Backpack extends Inventory {", "  inventory.add(item);", "export const stock = new Inventory();"]) assert.ok(!isImport(l), l);
 });
+
+import { guessEnclosing, declName } from "../src/threadsyms.js";
+
+test("without a server: what a line sits in, guessed from the text, in several languages", () => {
+  const rust = ["impl Counter {", "    pub fn add(&mut self, w: &str) {", "        self.words.push(w);", "    }", "}"];
+  assert.deepEqual([guessEnclosing(rust, 2).name, guessEnclosing(rust, 2).kind, guessEnclosing(rust, 2).range.end.line], ["add", 12, 3]);
+  const cs = ["public class Account", "{", "    public decimal Deposit(decimal amount)", "    {", "        if (amount <= 0)", "            throw new X();", "    }", "}"];
+  assert.equal(guessEnclosing(cs, 5).name, "Deposit"); // past the "if" to the method
+  const js = ["export class Player {", "  pickUp(item) {", "    this.bag.add(item);", "  }", "}", "const sell = (p) => {", "  p.pickUp(1);", "};"];
+  assert.equal(guessEnclosing(js, 2).name, "pickUp");
+  assert.equal(guessEnclosing(js, 6).name, "sell");
+  const lust = ["class Tasks", "    method string summary(int done)", "        return done", "    end", "end"];
+  assert.equal(guessEnclosing(lust, 2).name, "summary");
+  assert.equal(guessEnclosing(["x = 1", "print(x)"], 1), null); // top level
+});
+
+test("without a server: a line that declares the name isn't a use of it", () => {
+  assert.equal(declName("    pub fn add(&mut self, w: &str) {"), "add");
+  assert.equal(declName("public class Account"), "Account");
+  assert.equal(declName("    method string summary(int done)"), "summary");
+  assert.equal(declName("const sell = (p) => {"), "sell");
+  assert.equal(declName("        if (amount <= 0)"), null);
+  assert.equal(declName("    stock.add(item);"), null);
+});

@@ -61,6 +61,12 @@ class FindBar {
         this.commit();
         return;
       }
+      // Tab from Find goes to Replace (not to the Aa / ab / .* buttons between them, which have
+      // Alt C / W / R), and Shift Tab comes back: typing after Tab used to land on "Match case".
+      if (e.key === "Tab" && !e.ctrlKey && !e.altKey && this.showReplace) {
+        if (!e.shiftKey && e.target === this.q) { e.preventDefault(); this.r.focus(); this.r.select(); return; }
+        if (e.shiftKey && e.target === this.r) { e.preventDefault(); this.q.focus(); this.q.select(); return; }
+      }
       if (e.key === "Enter" && e.ctrlKey && e.altKey) { e.preventDefault(); this.replaceEvery(); return; }
       if (e.key === "Escape") { e.preventDefault(); closeSearchPanel(view); view.focus(); }
       else if (e.key === "Enter" && e.target === this.r) { e.preventDefault(); e.ctrlKey || e.metaKey ? this.replaceEvery() : replaceNext(view); }

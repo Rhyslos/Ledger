@@ -42,7 +42,7 @@ import {
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { searchKeymap, highlightSelectionMatches, search } from "@codemirror/search";
-import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, completeFromList, acceptCompletion, completionStatus } from "@codemirror/autocomplete";
+import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, completeFromList, acceptCompletion, completionStatus, completeAnyWord } from "@codemirror/autocomplete";
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap, syntaxHighlighting, HighlightStyle, indentUnit, StreamLanguage } from "@codemirror/language";
 import { lintGutter, setDiagnostics, lintKeymap } from "@codemirror/lint";
 import { rustLanguage } from "@codemirror/lang-rust";
@@ -626,11 +626,36 @@ const hoverSource = (path) => async (v, pos) => {
   return { pos: from, end: to, above: true, create: () => ({ dom: renderMd(md, LANGS[b.lang].languageId) }) };
 };
 
+/** The words already in the file, as completions: not the one being typed. */
+function fileWords(ctx) {
+  const r = completeAnyWord(ctx);
+  if (!r) return r;
+  const typed = ctx.state.sliceDoc(r.from, ctx.pos);
+  return { ...r, options: r.options.filter((o) => o.label !== typed) };
+}
 function needServer(b, what) {
   const srv = serverOf(b);
   if (!srv) { toast(`${what} isn't available for ${b.virtual ? "this" : LANGS[b.lang].name} file.`); return null; }
-  if (!srv.alive) { toast(srv.state.detail || `${srv.label} isn't running.`, 5000); return null; }
+  if (!srv.alive) { toast(serverTrouble(srv), 7000); return null; }
   return srv;
+}
+/** Why a language server can't answer, and what to do about it: the same words for every command. */
+function serverTrouble(srv) {
+  const s = srv.state || {};
+  if (s.text === "not installed") return serverSpec(srv.id)?.missing || s.detail || `${srv.label} isn't installed. Open Settings (Ctrl+P) to install it.`;
+  if (s.text === "restricted") return s.detail;
+  if (srv.starting || s.busy) return `${srv.label} is still starting. Try again in a moment.`;
+  return s.detail || `${srv.label} isn't running. Click it in the status bar to start it again.`;
+}
+// Where each server is installed or set up in Settings (the status bar item opens it there).
+const SERVER_SETTING = { rust: "sRa", csharp: "sCsKind", lua: "sLuaLs" };
+function openServerSettings(id) {
+  openSettings();
+  setTimeout(() => {
+    const el = document.getElementById(SERVER_SETTING[id]) || document.getElementById("sInst");
+    el?.scrollIntoView({ block: "center" });
+    (el?.closest(".row")?.querySelector("button") || el)?.focus?.();
+  }, 150);
 }
 
 async function goToDefinition(path = S.active, pos) {
@@ -979,7 +1004,9 @@ function extensionsFor(path, b) {
     cfg.of(cfgExt(b)), infoField, xcfg.of(xExt(path, b)),
     autocompletion({
       override: [
-        ...(hasServer ? [completionSource(path), (ctx) => (started(serverOf(S.bufs.get(path))) ? null : langDataSource(ctx))] : L.complete ? [L.complete] : [langDataSource]),
+        // With the language server not running (not installed, still starting, stopped), the
+        // language's keywords and the words already in the file stand in for it.
+        ...(hasServer ? [completionSource(path), (ctx) => (started(serverOf(S.bufs.get(path))) ? null : langDataSource(ctx)), (ctx) => (started(serverOf(S.bufs.get(path))) ? null : fileWords(ctx))] : L.complete ? [L.complete] : [langDataSource]),
         ...(L.tailwind ? [tailwindSource] : []),
         ...(emmetSource(b.lang) ? [((src) => (ctx) => (settings.emmet === false ? null : src(ctx)))(emmetSource(b.lang))] : []),
         ...(snippets ? [snippets.source(b.lang, L.languageId)] : []),
@@ -2152,6 +2179,9 @@ function initDrops() {
 }
 const copy = (s) => navigator.clipboard?.writeText(s).then(() => toast("Copied"), () => toast("Couldn't copy"));
 const folderLabel = (dir) => (dir === S.root ? base(S.root) : base(S.root) + "/" + rel(dir));
+// Ctrl N / the new-folder command from the editor: next to the file you're in. From the explorer
+// (or its buttons): the selected folder, or the selected file's.
+const keyTargetDir = () => ($("tree").contains(document.activeElement) || !S.active || !isUnder(S.active, S.root) ? targetDir() : parent(S.active));
 const targetDir = () => {
   const p = S.sel || (isUnder(S.active, S.root) ? S.active : null);
   if (!p) return S.root;
@@ -2163,13 +2193,16 @@ $("bNewFolder").onclick = () => S.root ? newFolder(targetDir()) : openFolder();
 $("bRefresh").onclick = () => { refreshTree(); reloadClean(); };
 $("bCollapse").onclick = () => { S.open.clear(); renderTree(); saveSession(); };
 
+/** a/b/../c → a/c (and drops ./). */
+const normPath = (p) => { const out = []; for (const s of p.split("/")) { if (s === "..") { if (out.length > 1) out.pop(); } else if (s !== "." && (s || !out.length)) out.push(s); } return out.join("/"); };
 const validName = (n) => n && !/(^|\/)\.\.?(\/|$)/.test(n) && !/[<>:"|?*\\]/.test(n);
 async function newFile(dir = targetDir()) {
   if (!S.root) return openFolder();
   const name = (await promptText(`New file in ${folderLabel(dir)}`, "", "e.g. notes.md, or a path inside it like lib/utils.js"))?.trim();
   if (!name) return;
-  if (!validName(name)) { toast("That isn't a usable file name."); return; }
-  const path = join(dir, name);
+  // "../ui/row.lst" is fine as long as it stays inside the folder.
+  const path = normPath(join(dir, name.replace(/\\/g, "/")));
+  if (!validName(name.replace(/(^|\/)\.\.(?=\/)/g, "$1x")) || !isUnder(path, S.root)) { toast(isUnder(path, S.root) ? "That isn't a usable file name." : "That would be outside this folder."); return; }
   try { await invoke("create_file", { path }); } catch (e) { toast(String(e)); return; }
   // A new .cs file starts as a class named after the file (a Godot node in Godot projects).
   const cls = base(name).replace(/\.cs$/i, "");
@@ -2465,19 +2498,28 @@ function renderServer() {
   const el = $("stServer");
   const b = S.bufs.get(S.active);
   let srv = serverOf(b);
-  if (!srv || !started(srv)) srv = [servers.csharp, servers.rust].find((s) => started(s) && s.state.text && (S.ctx ? (s.id === "rust" ? S.ctx.rust : S.ctx.dotnet) : true)) || null;
+  // A server that should be running for this file but isn't installed or stopped shows too (in
+  // red), so a missing one doesn't just mean silently no completions or errors.
+  const missing = srv && !started(srv) && srv.state?.bad && b && !b.virtual;
+  if (!srv || (!started(srv) && !missing)) srv = [servers.csharp, servers.rust].find((s) => (started(s) || s.state?.bad) && s.state.text && (S.ctx ? (s.id === "rust" ? S.ctx.rust : S.ctx.dotnet) : false)) || null;
   if (!srv || !srv.state.text) { el.textContent = ""; el.hidden = true; return; }
   el.hidden = false;
   const s = srv.state;
   el.textContent = `${srv.label}: ${s.text}`;
   el.className = (s.busy ? "spin" : "") + (s.bad ? " e" : "");
-  el.title = s.detail || srv.label;
+  el.title = s.bad ? serverTrouble(srv) + (s.text === "not installed" ? " (click to install)" : " (click to start it again)") : s.detail || srv.label;
   el.dataset.server = srv.id;
+  // The first time a file needs a server that isn't installed, say so once.
+  if (s.text === "not installed" && !renderServer.told?.has(srv.id)) {
+    (renderServer.told ||= new Set()).add(srv.id);
+    toast(`${srv.label} isn't installed, so ${LANGS[b?.lang]?.name || "these"} files get no completions or error checking from it yet. Click "${srv.label}: not installed" in the status bar to install it.`, 9000);
+  }
 }
 $("stTrust").onclick = () => S.root && askTrust(S.root, true);
 $("stServer").onclick = () => {
   const srv = servers[$("stServer").dataset.server];
   if (!srv) return;
+  if (srv.state.text === "not installed") { openServerSettings(srv.id); return; }
   if (srv.state.detail) toast(srv.state.detail, 8000);
   if (srv.state.bad) startServer(srv.id);
 };
@@ -2612,6 +2654,9 @@ function taskLabel(action) {
 async function runAction(action) {
   if (!S.root) { toast("Open a folder first."); return; }
   const P = await updateCtx();
+  // Test (status bar, Ctrl+Alt+T) in Rust and C# runs through the Tests panel, so the panel and
+  // the ✓/✗ beside each test show this run's results (cargo test on its own updated neither).
+  if (action === "test" && ["rust", "dotnet"].includes(taskKind(P)) && keymap.cmds.has("tests.all")) { keymap.cmds.get("tests.all").run(); return; }
   // Lust 2 only reads .lst and .lsc; a Lust 1 file can become a .lst in one go.
   if (taskKind(P) === "lust" && /\.lust$/i.test(S.active || "")) {
     const to = S.active.replace(/\.lust$/i, ".lst");
@@ -2677,7 +2722,18 @@ async function startSteps(steps, onDone, onFail) {
   // F5 twice in a row: the second press waits for the first to get going instead of racing it.
   if (startSteps.busy) return;
   startSteps.busy = true;
-  try { await saveAll(); } finally { startSteps.busy = false; }
+  try {
+    // Something else still running (a long build, say): starting this would stop it, so ask
+    // first. Running the same thing again (F5 twice) just restarts it, as before.
+    if (S.running && S.runLabel && S.runLabel !== steps[0].label) {
+      const secs = Math.round((performance.now() - (S.runStart || 0)) / 1000);
+      const go = `Stop it and start ${steps[0].label}`;
+      const c = await choose(`${S.runLabel} is still running (${secs < 60 ? secs + " s" : Math.round(secs / 60) + " min"}). Only one thing runs at a time.`, ["Keep it running", go]); // Enter keeps the long build going
+      if (c !== go) return;
+    }
+    if (S.running) appendOut(`<span class="a-90">■ Stopped ${esc(S.runLabel || "the last run")}${S.runLabel === steps[0].label ? " to run it again" : ` to start ${esc(steps[0].label)}`}.</span>`);
+    await saveAll();
+  } finally { startSteps.busy = false; }
   showPanel("output");
   outFollow().reset(); // a new run always starts at the bottom
   S.queue = steps.slice(1);
@@ -3435,7 +3491,7 @@ C("task.run", "Run / Play (Continue while debugging)", "F5", () => (debug?.pause
 C("task.stop", "Stop (the debugger, or the running task)", "Shift+F5", () => (debug?.active ? debug.stop() : stopTask()));
 C("task.build", "Build", "Ctrl+Shift+B", () => runAction("build"));
 C("task.test", "Run tests", "Ctrl+Alt+T", () => runAction("test"));
-C("task.check", "Check (Rust)", "Ctrl+Alt+C", () => runAction("check"));
+C("task.check", "Check for mistakes (cargo check, lust check, or the project's lint)", "Ctrl+Alt+C", () => runAction("check"));
 C("task.lint", "Clippy (Rust)", [], () => runAction("lint"));
 C("app.update", "Check for updates", [], () => updater?.check()?.catch(() => {}));
 C("panel.dock", "Move the panel (terminal, output) to the right or the bottom", [], togglePanelDock);
@@ -3513,8 +3569,8 @@ C("tab.close", "Close tab", "Ctrl+W", () => closeTab(S.active));
 C("tab.reopen", "Reopen closed tab", "Ctrl+Shift+T", reopenClosed);
 C("file.save", "Save", "Ctrl+S", () => save());
 C("file.saveAll", "Save all", "Ctrl+Alt+S", saveAll);
-C("file.new", "New file", "Ctrl+N", () => newFile());
-C("file.newFolder", "New folder", "Ctrl+Alt+N", () => newFolder());
+C("file.new", "New file", "Ctrl+N", () => newFile(keyTargetDir()));
+C("file.newFolder", "New folder", "Ctrl+Alt+N", () => newFolder(keyTargetDir()));
 C("folder.open", "Open folder", "Ctrl+O", () => openFolder());
 C("folder.close", "Close folder", [], () => closeFolder());
 C("window.new", "New window", "Ctrl+Shift+N", () => invoke("new_window", { folder: null }).catch((e) => toast(String(e))));
@@ -3676,7 +3732,10 @@ async function askTrust(path, force) {
 /** Before running the project's code: asks for trust if needed. True when it may run. */
 async function ensureTrusted(what) {
   if (!S.root || trusted()) return true;
-  const c = await choose(`${what} runs this folder's code, and ${base(S.root)} isn't trusted yet. Trust it?`, ["Cancel", "Trust it"]); // Enter keeps it restricted
+  // An empty folder (a new project about to be made in it) has no code of its own to worry about.
+  const q = hasProjectCode() ? `${what} runs this folder's code, and ${base(S.root)} isn't trusted yet. Trust it?`
+    : `${what} runs a program in ${base(S.root)}, which isn't trusted yet. It has no project of its own yet; trusting it lets Ledger run what you make here. Trust it?`;
+  const c = await choose(q, ["Cancel", "Trust it"]); // Enter keeps it restricted
   if (c !== "Trust it") return false;
   setTrust(S.root, true);
   return true;

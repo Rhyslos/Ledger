@@ -1770,6 +1770,19 @@ mod big_file_tests {
 }
 
 #[cfg(test)]
+mod proxy_tests {
+    #[test]
+    fn windows_proxy_setting() {
+        use super::windows_proxy_server as w;
+        assert_eq!(w("proxy.corp:8080").as_deref(), Some("http://proxy.corp:8080"));
+        assert_eq!(w("http=p1:80;https=p2:443;ftp=x:21").as_deref(), Some("http://p2:443"));
+        assert_eq!(w("http=p1:80").as_deref(), Some("http://p1:80"));
+        assert_eq!(w("socks=s:1080").as_deref(), None);
+        assert_eq!(w("").as_deref(), None);
+    }
+}
+
+#[cfg(test)]
 mod media_folder_tests {
     #[test]
     fn folders_of_one_kind_of_media() {
@@ -2690,11 +2703,72 @@ async fn run_capture(window: tauri::WebviewWindow, procs: State<'_, Procs>, cwd:
 
 fn agent() -> ureq::Agent {
     // Connect and per-read limits rather than a total, so big downloads on slow lines finish.
-    ureq::AgentBuilder::new()
+    let mut b = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(20))
         .timeout_read(Duration::from_secs(60))
-        .user_agent("Ledger editor (dependency version hints)")
-        .build()
+        .user_agent("Ledger editor (dependency version hints)");
+    // Behind a proxy (work and school networks): the one set for programs (HTTPS_PROXY and
+    // friends), else on Windows the one in Settings › Network › Proxy. NuGet search, debugger
+    // downloads and version hints failed without it while dotnet and npm worked.
+    if let Some(p) = proxy_url().and_then(|u| ureq::Proxy::new(u).ok()) {
+        b = b.proxy(p);
+    }
+    b.build()
+}
+
+/// The proxy to use, if any: HTTPS_PROXY / https_proxy / ALL_PROXY, or Windows' own setting.
+fn proxy_url() -> Option<String> {
+    for k in ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"] {
+        if let Ok(v) = std::env::var(k) {
+            if !v.trim().is_empty() {
+                return Some(v.trim().to_string());
+            }
+        }
+    }
+    windows_proxy()
+}
+
+#[cfg(windows)]
+fn windows_proxy() -> Option<String> {
+    static ONCE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    ONCE.get_or_init(read_windows_proxy).clone()
+}
+#[cfg(windows)]
+fn read_windows_proxy() -> Option<String> {
+    // HKCU\...\Internet Settings: ProxyEnable 0x1 and ProxyServer "host:port" or
+    // "http=host:port;https=host:port".
+    let q = |name: &str| -> Option<String> {
+        let out = command_at(&find_tool("reg"))
+            .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings", "/v", name])
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        text.lines().find(|l| l.trim_start().starts_with(name)).and_then(|l| l.split_whitespace().nth(2).map(str::to_string))
+    };
+    if q("ProxyEnable")? != "0x1" {
+        return None;
+    }
+    windows_proxy_server(&q("ProxyServer")?)
+}
+#[cfg(not(windows))]
+fn windows_proxy() -> Option<String> {
+    None
+}
+
+/// Windows' ProxyServer value to a proxy URL: "host:port", or the https= (else http=) entry.
+fn windows_proxy_server(v: &str) -> Option<String> {
+    let v = v.trim();
+    let pick = if v.contains('=') {
+        let parts: Vec<&str> = v.split(';').collect();
+        let find = |k: &str| parts.iter().find_map(|p| p.trim().strip_prefix(k).map(str::trim));
+        find("https=").or_else(|| find("http="))?
+    } else {
+        v
+    };
+    if pick.is_empty() {
+        return None;
+    }
+    Some(if pick.contains("://") { pick.to_string() } else { format!("http://{pick}") })
 }
 
 #[tauri::command]
