@@ -76,3 +76,12 @@ test("without a server: a line that declares the name isn't a use of it", () => 
   assert.equal(declName("        if (amount <= 0)"), null);
   assert.equal(declName("    stock.add(item);"), null);
 });
+
+test("Lust: keyword declarations only, nested by indentation (view lines aren't declarations)", async () => {
+  const { textSymbols, declName } = await import("../src/threadsyms.js");
+  const lines = ["class Tasks", "    method string summary(int done)", "        return done", "    end", "end", "view {", "    text summary(1)", "}"];
+  const syms = textSymbols(lines, true);
+  assert.deepEqual(syms.map((s) => [s.name, s.children.map((c) => c.name)]), [["Tasks", ["summary"]]]);
+  assert.equal(declName("    text summary(1)", true), null);
+  assert.equal(declName("    text summary(1)"), "summary"); // in C#-like languages it would be
+});

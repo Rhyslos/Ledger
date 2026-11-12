@@ -31,7 +31,25 @@ import { sql } from "@codemirror/legacy-modes/mode/sql";
 import { go } from "@codemirror/legacy-modes/mode/go";
 import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
 import { c, cpp, java, kotlin } from "@codemirror/legacy-modes/mode/clike";
-import { snippetCompletion as snip, completeFromList } from "@codemirror/autocomplete";
+import { snippetCompletion, completeFromList } from "@codemirror/autocomplete";
+
+/** Snippet fields with a number as their text (loop to ${10}, = ${0}) are read by CodeMirror as
+ *  tab stop numbers, so the number vanished and the cursor started at the wrong place. Such a
+ *  snippet gets every field numbered in the order it appears, keeping its text: ${3:10}. */
+export function literalNumbers(t) {
+  if (!/\$\{\d+\}/.test(t)) return t;
+  const seen = new Map();
+  let n = 0;
+  return t.replace(/\$\{((?:\\[{}]|[^{}])*)\}/g, (m, inner) => {
+    if (/^\d+:/.test(inner)) return m;
+    const key = inner && !/^\d+$/.test(inner) ? inner : null; // a name used twice is one field
+    if (key && seen.has(key)) return `\${${seen.get(key)}:${inner}}`;
+    const k = ++n;
+    if (key) seen.set(key, k);
+    return `\${${k}:${inner}}`;
+  });
+}
+const snip = (template, opts) => snippetCompletion(literalNumbers(template), opts);
 
 const words = (s) => Object.fromEntries(s.split(/\s+/).filter(Boolean).map((w) => [w, true]));
 

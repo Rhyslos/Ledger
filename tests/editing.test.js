@@ -162,6 +162,13 @@ test("Qwik projects install Vite 7, which Qwik supports (the template asks for 8
   assert.deepEqual(createSteps({ kind: "vite", template: "react", ts: true, tailwind: false, name: "r", dir: "/x" })[1].args, ["install"]);
 });
 
+test("snippet fields that hold numbers keep them, in the order they appear", async () => {
+  const { literalNumbers } = await import("../src/langs.js");
+  assert.equal(literalNumbers("loop (int ${i} = ${0}; ${i} < ${10}; ${i} += 1) {\n\t${}\n}"), "loop (int ${1:i} = ${2:0}; ${1:i} < ${3:10}; ${1:i} += 1) {\n\t${4:}\n}");
+  assert.equal(literalNumbers("Random[${1}, ${6}]"), "Random[${1:1}, ${2:6}]");
+  assert.equal(literalNumbers("void vertex() {\n\t${}\n}"), "void vertex() {\n\t${}\n}"); // untouched
+});
+
 test("Start a repository: a .gitignore for what the folder holds", async () => {
   const { gitignoreFor } = await import("../src/scaffold.js");
   const cs = gitignoreFor(["Bank.sln", "Bank.Core/Bank.Core.csproj", "Bank.Core/Account.cs"]);

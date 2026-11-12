@@ -109,12 +109,38 @@ const swatchPlugin = ViewPlugin.fromClass(class {
 
 // ----- hover -----
 
-const hover = hoverTooltip((view, pos) => {
+// A style word or piece: what it does, with an example. Else one of your own names (a method, a
+// class): where and how it's declared, found by `declared` (nav.js reads the folder's Lust files).
+let declared = null;
+export const setLustDeclared = (f) => { declared = f; };
+/** Markdown for Ctrl K: the same as the mouse hover. */
+export function lustExplainMd(view, pos) {
   const e = explainAt(view.state.doc.toString(), pos);
-  if (!e) return null;
+  return e ? `**${e.title || ""}** ${e.doc}${e.example ? "\n\n```lust\n" + e.example + "\n```" : ""}` : "";
+}
+const hover = hoverTooltip(async (view, pos) => {
+  const e = explainAt(view.state.doc.toString(), pos);
+  if (e) return { pos: e.from, end: e.to, above: true, create: () => ({ dom: helpDom(e) }) };
+  const w = view.state.wordAt(pos);
+  if (!w || !declared) return null;
+  const name = view.state.sliceDoc(w.from, w.to);
+  const defs = await declared(name);
+  if (!defs?.length) return null;
   return {
-    pos: e.from, end: e.to, above: true,
-    create: () => ({ dom: helpDom(e) }),
+    pos: w.from, end: w.to, above: true,
+    create: () => {
+      const d = document.createElement("div");
+      d.className = "hv";
+      for (const x of defs.slice(0, 3)) {
+        const pre = document.createElement("pre");
+        pre.textContent = x.text.trim();
+        const where = document.createElement("p");
+        where.className = "hint";
+        where.textContent = x.where;
+        d.append(pre, where);
+      }
+      return { dom: d };
+    },
   };
 }, { hoverTime: 350 });
 
