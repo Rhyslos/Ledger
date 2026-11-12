@@ -17,6 +17,31 @@
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "http://*", "app": true }, { "url": "https://*", "app": true }]
+    },
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "**/*.mp3" }, { "path": "**/*.MP3" },
+        { "path": "**/*.wav" }, { "path": "**/*.WAV" },
+        { "path": "**/*.wave" }, { "path": "**/*.WAVE" },
+        { "path": "**/*.ogg" }, { "path": "**/*.OGG" },
+        { "path": "**/*.oga" }, { "path": "**/*.OGA" },
+        { "path": "**/*.opus" }, { "path": "**/*.OPUS" },
+        { "path": "**/*.flac" }, { "path": "**/*.FLAC" },
+        { "path": "**/*.m4a" }, { "path": "**/*.M4A" },
+        { "path": "**/*.aac" }, { "path": "**/*.AAC" },
+        { "path": "**/*.weba" }, { "path": "**/*.WEBA" },
+        { "path": "**/*.mp4" }, { "path": "**/*.MP4" },
+        { "path": "**/*.m4v" }, { "path": "**/*.M4V" },
+        { "path": "**/*.webm" }, { "path": "**/*.WEBM" },
+        { "path": "**/*.mov" }, { "path": "**/*.MOV" },
+        { "path": "**/*.ogv" }, { "path": "**/*.OGV" },
+        { "path": "**/*.mkv" }, { "path": "**/*.MKV" },
+        { "path": "**/*.ttf" }, { "path": "**/*.TTF" },
+        { "path": "**/*.otf" }, { "path": "**/*.OTF" },
+        { "path": "**/*.woff" }, { "path": "**/*.WOFF" },
+        { "path": "**/*.woff2" }, { "path": "**/*.WOFF2" }
+      ]
     }
   ]
 }

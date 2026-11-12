@@ -44,8 +44,14 @@ function files(text) {
   return out + esc(text.slice(last));
 }
 
+// Colour codes inside a web address (Vite prints the port in bold: http://localhost:<bold>5173</bold>/)
+// would cut its link short, so they move to just after it: the address is one link, and the
+// colours after it are as they were.
+const URL_WITH_CODES = /https?:\/\/(?:[^\s"'<>\x1b]|\x1b\[[\d;]*m)+/g;
+export const joinUrls = (s) => s.replace(URL_WITH_CODES, (u) => u.replace(/\x1b\[[\d;]*m/g, "") + (u.match(/\x1b\[[\d;]*m/g) || []).join(""));
+
 export function ansiToHtml(input) {
-  const s = String(input);
+  const s = joinUrls(String(input));
   // Plain lines (dotnet, Godot) get the smarter link pass on the whole line.
   if (!s.includes("\x1b[")) return linkify(s);
   let out = "", cls = new Set();

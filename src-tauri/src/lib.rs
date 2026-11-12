@@ -1062,6 +1062,19 @@ fn file_stats(paths: Vec<String>) -> Vec<Option<f64>> {
         .collect()
 }
 
+/// "dir", "file", or "" (missing) for each path: what was dropped on the window.
+#[tauri::command(async)]
+fn file_kinds(paths: Vec<String>) -> Vec<&'static str> {
+    paths
+        .iter()
+        .map(|p| match std::fs::metadata(p) {
+            Ok(m) if m.is_dir() => "dir",
+            Ok(_) => "file",
+            Err(_) => "",
+        })
+        .collect()
+}
+
 // ---------- windows ----------
 //
 // Every window is its own workspace: its own folder, running program, language
@@ -2844,6 +2857,7 @@ pub fn run() {
             list_files,
             search_text,
             file_stats,
+            file_kinds,
             run_task,
             task_stop,
             task_input,

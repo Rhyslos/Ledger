@@ -16,6 +16,7 @@ import { initMarks } from "./marks.js";
 import { initTodo } from "./todo.js";
 import { initCsv } from "./csv.js";
 import { initHex } from "./hex.js";
+import { initMedia } from "./media.js";
 import { initHistory } from "./history.js";
 import { initSearch } from "./search.js";
 import { initEditCommands } from "./editcmds.js";
@@ -27,9 +28,10 @@ import { initMinimap } from "./minimap.js";
 import { parseEditorConfig, propsFor, settingsFrom } from "./editorconfig.js";
 import { findPanel, openReplace } from "./findbar.js";
 import { iconHtml } from "./icons.js";
-import { VITE, createSteps, withTailwindPlugin, bareVite, CSS_FILES, FIRST_FILES } from "./scaffold.js";
+import { VITE, createSteps, withTailwindPlugin, bareVite, needsDevServer, CSS_FILES, FIRST_FILES } from "./scaffold.js";
 import { initTailwind, tailwindSource, tailwindChanged, tailwindWarm, inClassList } from "./tailwind.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { EditorState, Text, ChangeSet, Compartment, StateEffect, StateField, RangeSetBuilder, Annotation, Transaction } from "@codemirror/state";
@@ -1490,8 +1492,30 @@ function liveUrl() {
   const rel = b && !b.virtual && b.lang === "html" && isUnder(S.active, live.root) ? norm(S.active).slice(norm(live.root).length).replace(/^\/+/, "") : "";
   return `http://localhost:${live.port}/` + rel.split("/").map(encodeURIComponent).join("/");
 }
+// Projects whose pages need building first (TypeScript, JSX, imports from node_modules) can't be
+// served as plain files: Go Live runs their own dev server instead and opens the page it serves.
+let devLive = null; // { dir, at }: waiting for the dev server to say where it is
+const devLiveHook = (text, label, dir) => {
+  if (!devLive || (dir && devLive.dir && norm(dir) !== norm(devLive.dir))) return;
+  const m = text.replace(/\x1b\[[0-9;]*m/g, "").match(/https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?[^\s"')]*/);
+  if (!m) return;
+  devLive = null;
+  openInBrowser(m[0].replace("//0.0.0.0", "//localhost")).catch((e) => toast("Couldn't open the browser: " + e, 5000));
+};
+async function startDevLive(P) {
+  devLive = { dir: P.dir, at: Date.now() };
+  toast(`Starting ${base(P.dir)}'s dev server (npm run ${runScript(P)}); the page opens when it's ready.`, 4000);
+  await runAction("run");
+  if (!S.running) devLive = null; // didn't start (restricted mode said no, say)
+}
 async function startLive() {
   if (!S.root) { toast("Open a folder first."); return; }
+  const P = await updateCtx().catch(() => null);
+  if (P && taskKind(P) === "node" && runScript(P)) {
+    let pkg = null;
+    try { pkg = JSON.parse(await invoke("read_file", { path: join(P.dir, "package.json") })); } catch {}
+    if (needsDevServer(pkg)) { await startDevLive(P); return; }
+  }
   try {
     live.port = await invoke("live_start", { root: S.root, port: +settings.livePort || 5500 });
     live.root = S.root;
@@ -1974,6 +1998,7 @@ function treeMenu(p, isDir, x, y) {
     { label: "New file…", key: "file.new", run: () => newFile(dirOf) },
     { label: "New folder…", key: "file.newFolder", run: () => newFolder(dirOf) },
     { label: "New SQLite database…", run: () => app.newDb?.(dirOf) },
+    { label: "Add files…", run: () => addFilesTo(dirOf) },
   ];
   if (p && !isDir) items.unshift({ label: "Open", hint: "Enter", run: () => openFile(p) },
     ...(/\.(csv|tsv|tab|psv)$/i.test(p) ? [{ label: "Open as a table", run: () => app.csvTable?.(p) }] : []),
@@ -2025,6 +2050,77 @@ async function duplicatePath(p) {
   await refreshTree();
   S.sel = to; S.selDir = false; renderTree();
   focusTree(); // the copy, ready for F2
+}
+// Files from outside Ledger (dragged from File Explorer onto the explorer, or "Add files…"): copied
+// into the folder, never moved. A name that's taken asks once: keep both, replace, or skip.
+async function importInto(dir, paths) {
+  if (!S.root || !dir || !paths?.length) return;
+  let clash = null;
+  const done = [];
+  for (const raw of paths) {
+    const from = norm(raw);
+    if (parent(from) === dir) continue; // already there
+    if (isUnder(dir, from)) { toast(`${base(from)} can't be copied into itself.`); continue; }
+    let to = join(dir, base(from));
+    const taken = (await invoke("file_stats", { paths: [to] }).catch(() => [null]))[0] != null;
+    if (taken) {
+      if (!clash) {
+        const more = paths.length > 1 ? " (and for any others with a name that's taken)" : "";
+        const c = await choose(`${base(from)} is already in ${folderLabel(dir)}. What should Ledger do${more}?`, ["Keep both: the new one gets a new name", "Replace it: the old one goes to the Recycle Bin", "Skip it"], true);
+        if (c == null || c < 0) break;
+        clash = ["both", "replace", "skip"][c];
+      }
+      if (clash === "skip") continue;
+      if (clash === "both") { to = await freeName(dir, base(from)); if (!to) continue; }
+      else {
+        if (!(await closePagesUnder(to))) continue;
+        try { await invoke("delete_path", { path: to }); } catch (e) { toast(`${base(to)}: ${e}`); continue; }
+      }
+    }
+    try { await invoke("copy_path", { from, to }); done.push(to); } catch (e) { toast(`${base(from)}: ${e}`); }
+  }
+  if (!done.length) return;
+  S.open.add(dir);
+  await refreshTree();
+  S.sel = done.at(-1); S.selDir = false; renderTree();
+  toast(done.length === 1 ? `Copied ${base(done[0])} into ${folderLabel(dir)}.` : `Copied ${done.length} items into ${folderLabel(dir)}.`);
+}
+async function addFilesTo(dir) {
+  const picked = await openDialog({ multiple: true, title: `Add files to ${folderLabel(dir)}` }).catch(() => null);
+  if (picked) await importInto(dir, [].concat(picked));
+}
+// Dragging from File Explorer: over the explorer, the folder it would go into lights up; dropped
+// there, it's copied in. Dropped anywhere else, files open (a folder opens as the project when
+// none is open).
+function initDrops() {
+  let lit = null;
+  const light = (node) => { if (lit === node) return; lit?.classList.remove("drop-into"); lit = node; lit?.classList.add("drop-into"); };
+  const targetAt = (pos) => {
+    const r = window.devicePixelRatio || 1;
+    const at = document.elementFromPoint(pos.x / r, pos.y / r);
+    if (!S.root || !at?.closest("#tree")) return null;
+    const d = at.closest("[data-dir]"), f = at.closest("[data-file]");
+    const dir = d ? d.dataset.dir : f ? parent(f.dataset.file) : S.root;
+    const row = d || (f && $("tree").querySelector(`[data-dir="${CSS.escape(dir)}"]`)) || $("tree");
+    return { dir, row };
+  };
+  try {
+    getCurrentWebview().onDragDropEvent(async ({ payload: e }) => {
+      if (e.type === "leave") { light(null); return; }
+      const t = e.position && targetAt(e.position);
+      if (e.type === "enter" || e.type === "over") { light(t?.row || null); return; }
+      if (e.type !== "drop") return;
+      light(null);
+      const paths = (e.paths || []).map(norm);
+      if (!paths.length) return;
+      if (t) { await importInto(t.dir, paths); return; }
+      const kinds = await invoke("file_kinds", { paths }).catch(() => paths.map(() => "file"));
+      const dirs = paths.filter((_, i) => kinds[i] === "dir"), files = paths.filter((_, i) => kinds[i] !== "dir");
+      if (dirs.length && !S.root) { await openFolder(dirs[0]); return; }
+      if (dirs.length && !files.length) { toast("To copy a folder into the project, drop it on the explorer. To open it instead, use File › Open folder."); return; }
+      for (const f of files) await openFile(f, null, { background: f !== files.at(-1) });
+    });
+  } catch {}
 }
 const copy = (s) => navigator.clipboard?.writeText(s).then(() => toast("Copied"), () => toast("Couldn't copy"));
 const folderLabel = (dir) => (dir === S.root ? base(S.root) : base(S.root) + "/" + rel(dir));
@@ -3837,7 +3933,7 @@ const app = {
   showPanel, focusPanel, focusZone, currentZone, showSideView, sideViews, get sideView() { return sideView; },
   openFile, openVirtual, activate, addTab, keepTab, save, saveAll, startSteps, appendOut, renderTabs, renderMain, renderStatus, scheduleUi,
   dispatchBuf, serverOf, needServer, syncDoc, renderMd, hl, norm, rel, base, parent, join, isUnder, isAbs, esc, splitArgs,
-  lspHooks, dotnetHooks, outputHooks, taskDoneHooks, setBuildProblems, highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
+  importInto, lspHooks, dotnetHooks, outputHooks, taskDoneHooks, setBuildProblems, highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
   cwd: () => S.ctx?.dir || S.root || "",
   trusted: () => trusted(),
   setProblems, taskSteps, handleArgs, setTrust, reconfigureExtras, checkUpdate: () => updater?.check(),
@@ -3984,6 +4080,9 @@ async function boot() {
   initTodo(app);
   initCsv(app);
   initHex(app);
+  initMedia(app);
+  initDrops();
+  outputHooks.push(devLiveHook);
   initHistory(app);
   debug = app.debug = initDebugger(app);
   view = panes[0].view = new EditorView({ parent: $("editor") });

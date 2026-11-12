@@ -928,3 +928,36 @@ th.db-n { z-index: 2; background: var(--side); }
 .cm-md-fence-last { border-bottom-left-radius: 4px; border-bottom-right-radius: 4px; }
 .cm-md-quote { border-left: 3px solid var(--line); padding-left: 10px !important; }
 .cm-md-code { background: var(--hover); border-radius: 3px; }
+
+/* Dragging files in from outside (main.js initDrops): the folder they'd go into. */
+.tree .node.drop-into, .tree.drop-into { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 4px; }
+
+/* Media tabs (media.js) */
+.img-stage.media-stage { display: flex; background: var(--bg); overflow: auto; }
+.media-audio { margin: auto; width: min(920px, 100% - 48px); padding: 28px 0 40px; }
+.media-title { font: 600 20px/1.3 var(--sans); color: var(--ink); overflow-wrap: anywhere; }
+.media-sub { color: var(--muted); font-size: 13.5px; min-height: 1.4em; margin: 2px 0 18px; }
+.media-wave { position: relative; height: 120px; cursor: pointer; border-radius: 6px; background: var(--side); }
+.media-wave canvas { width: 100%; height: 100%; display: block; --played: var(--accent); --rest: color-mix(in srgb, var(--muted) 55%, transparent); }
+.media-wave.waiting::after { content: "Reading the waveform…"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 12.5px; }
+.media-wave.flat::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--line); }
+.media-head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink); opacity: .7; pointer-events: none; }
+.media-row { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
+.media-row .sp { flex: 1; }
+.media-play { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--accent); cursor: pointer; position: relative; flex: none; }
+.media-play::before { content: ""; position: absolute; left: 17px; top: 13px; border-style: solid; border-width: 9px 0 9px 14px; border-color: transparent transparent transparent var(--bg); }
+.media-play.on::before { left: 15px; top: 14px; width: 4px; height: 16px; border: 0; background: var(--bg); box-shadow: 9px 0 0 var(--bg); }
+.media-play:hover { filter: brightness(1.08); }
+.media-play:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.media-time { font: 13px var(--mono, monospace); color: var(--ink); font-variant-numeric: tabular-nums; }
+.media-vol { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; }
+.media-vol input { width: 110px; accent-color: var(--accent); }
+.media-keys { color: var(--muted); font-size: 12px; margin-top: 18px; }
+.media-video { margin: auto; padding: 16px; max-width: 100%; max-height: 100%; display: flex; }
+.media-video video { max-width: 100%; max-height: calc(100vh - 160px); background: #000; border-radius: 4px; }
+.media-font { margin: 0 auto; width: min(1000px, 100% - 48px); padding: 24px 0 48px; color: var(--ink); }
+.media-sample { width: 100%; font-size: 22px; padding: 6px 10px; margin-bottom: 18px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); }
+.media-size { display: flex; gap: 14px; align-items: baseline; border-top: 1px solid var(--line); padding: 8px 0; }
+.media-size span { flex: none; width: 28px; color: var(--muted); font: 11.5px var(--sans); }
+.media-size p { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
+.media-glyphs { font-size: 26px; line-height: 1.5; margin-top: 18px; overflow-wrap: anywhere; }
