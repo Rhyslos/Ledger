@@ -167,4 +167,14 @@ test("snippet fields that hold numbers keep them, in the order they appear", asy
   assert.equal(literalNumbers("loop (int ${i} = ${0}; ${i} < ${10}; ${i} += 1) {\n\t${}\n}"), "loop (int ${1:i} = ${2:0}; ${1:i} < ${3:10}; ${1:i} += 1) {\n\t${4:}\n}");
   assert.equal(literalNumbers("Random[${1}, ${6}]"), "Random[${1:1}, ${2:6}]");
   assert.equal(literalNumbers("void vertex() {\n\t${}\n}"), "void vertex() {\n\t${}\n}"); // untouched
+test("Start a repository: a .gitignore for what the folder holds", async () => {
+  const { gitignoreFor } = await import("../src/scaffold.js");
+  const cs = gitignoreFor(["Bank.sln", "Bank.Core/Bank.Core.csproj", "Bank.Core/Account.cs"]);
+  assert.match(cs, /^bin\/$/m);
+  assert.match(cs, /^obj\/$/m);
+  assert.doesNotMatch(cs, /target\//);
+  const mixed = gitignoreFor(["app/Cargo.toml", "web/package.json"]);
+  assert.match(mixed, /^target\/$/m);
+  assert.match(mixed, /^node_modules\/$/m);
+  assert.equal(gitignoreFor(["notes.md", "a.txt"]), "");
 });

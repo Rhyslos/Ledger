@@ -108,7 +108,9 @@ export function initDotnet(app) {
   // ---------- run options: startup project, configuration, framework, profile, watch ----------
   function opts(P) {
     const s = state();
-    const startup = s.startup && model?.projects.some((p) => p.path === s.startup) ? s.startup : model?.projects.filter(runnable).length === 1 && P?.sln ? model.projects.find(runnable).path : null;
+    // The one you set; else, when the folder has a single program (an app beside its library and
+    // tests), that one, so Run doesn't run a test project because its file was open.
+    const startup = s.startup && model?.projects.some((p) => p.path === s.startup) ? s.startup : model?.projects.filter(runnable).length === 1 ? model.projects.find(runnable).path : null;
     return { startup, config: s.config || "Debug", framework: s.framework || null, profile: s.profile || null, watch: !!s.watch };
   }
   app.dotnetHooks.opts = (P) => opts(P);
@@ -168,7 +170,8 @@ export function initDotnet(app) {
     stEl.hidden = !P;
     if (!P) return;
     const o = opts(P), sp = projOf(o.startup);
-    stEl.textContent = [o.config, o.framework, sp && model.projects.length > 1 ? sp.name : null, o.watch ? "watch" : null].filter(Boolean).join(" · ");
+    // "Debug build", not "Debug": it sat beside the Debug button and read like a second one.
+    stEl.textContent = [`${o.config} build`, o.framework, sp && model.projects.length > 1 ? sp.name : null, o.watch ? "watch" : null].filter(Boolean).join(" · ");
   }
 
   // ---------- the Solution view ----------
@@ -529,7 +532,9 @@ export function initDotnet(app) {
     const P = need(), path = S.active;
     if (!P || !/\.cs$/i.test(path || "")) { if (P) app.toast("Open a .cs file first."); return; }
     await app.save(path);
-    app.startSteps([{ label: "dotnet format", program: "dotnet", args: ["format", P.sln || P.csproj, "--include", path], cwd: P.dir }], () => app.reloadClean());
+    // --include takes paths relative to the working folder; a full path is silently ignored.
+    const rel = app.isUnder(path, P.dir) ? path.slice(P.dir.length + 1) : path;
+    app.startSteps([{ label: "dotnet format", program: "dotnet", args: ["format", P.sln || P.csproj, "--include", rel], cwd: P.dir }], () => app.reloadClean());
   }, { alias: "dotnet format" });
 
   app.dotnet = { load, get model() { return model; }, projOf, opts, steps, need, runnable };

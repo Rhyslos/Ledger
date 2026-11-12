@@ -657,6 +657,8 @@ function needServer(b, what) {
   if (!srv.alive) { toast(serverTrouble(srv), 7000); return null; }
   return srv;
 }
+/** "rust-analyzer", or "the C# language server" for servers named after their language. */
+const serverName = (srv) => (/server|analyzer|-ls$/i.test(srv.label) ? srv.label : `${srv.label} language server`);
 /** Why a language server can't answer, and what to do about it: the same words for every command. */
 function serverTrouble(srv) {
   const s = srv.state || {};
@@ -707,6 +709,28 @@ formatters.push((path, b) => {
     if (r.code === 0 && r.out) return r.out;
     toast(/not found|No such file|cannot find/i.test(r.err || "") ? "rustfmt isn't installed (rustup component add rustfmt)." : "rustfmt couldn't format it: " + ((r.err || "").split("\n").find((l) => /error/i.test(l)) || "fix the syntax errors first."), 6000);
     return null;
+  };
+});
+// C# without its language server: dotnet format's whitespace pass on a copy of the editor's text
+// (in the project's obj/, with the nearest .editorconfig), so the file on disk isn't touched.
+formatters.push((path, b) => {
+  if (b.lang !== "csharp" || b.virtual || started(servers.csharp)) return null;
+  return async (text) => {
+    const P = await projectFor(path).catch(() => null);
+    const dir = P?.dir || parent(path), tmp = join(dir, "obj", ".ledger-format"), file = join(tmp, base(path));
+    let conf = null;
+    for (let d = parent(path); d && (isUnder(d, S.root) || d === S.root); d = parent(d)) {
+      conf = await invoke("read_file", { path: join(d, ".editorconfig") }).catch(() => null);
+      if (conf != null || d === S.root || parent(d) === d) break;
+    }
+    try {
+      await invoke("create_dir", { path: tmp }).catch(() => {}); // already there: fine
+      await invoke("write_file", { path: file, contents: text });
+      await invoke("write_file", { path: join(tmp, ".editorconfig"), contents: "root = true\n" + (conf || "[*.cs]\nindent_style = space\nindent_size = 4\n") });
+    } catch (e) { toast("Couldn't format: " + e); return null; }
+    const r = await invoke("run_capture", { cwd: tmp, program: "dotnet", args: ["format", "whitespace", tmp, "--folder"], timeoutMs: 60000 }).catch((e) => ({ code: -1, out: "", err: String(e) }));
+    if (r.code !== 0) { toast("dotnet format couldn't format it: " + ((r.err || r.out || "").trim().split("\n").pop() || "is the .NET SDK installed?"), 6000); return null; }
+    return invoke("read_file", { path: file }).catch(() => null);
   };
 });
 const formatterFor = (path, b) => (b && !b.ro ? formatters.map((f) => f(path, b)).find(Boolean) : null);
@@ -2573,14 +2597,14 @@ function renderServer() {
   if (!srv || !srv.state.text) { el.textContent = ""; el.hidden = true; return; }
   el.hidden = false;
   const s = srv.state;
-  el.textContent = `${srv.label}: ${s.text}`;
+  el.textContent = `${s.text === "not installed" ? serverName(srv) : srv.label}: ${s.text}`;
   el.className = (s.busy ? "spin" : "") + (s.bad ? " e" : "");
   el.title = s.bad ? serverTrouble(srv) + (s.text === "not installed" ? " (click to install)" : " (click to start it again)") : s.detail || srv.label;
   el.dataset.server = srv.id;
   // The first time a file needs a server that isn't installed, say so once.
   if (s.text === "not installed" && !renderServer.told?.has(srv.id)) {
     (renderServer.told ||= new Set()).add(srv.id);
-    toast(`${srv.label} isn't installed, so ${LANGS[b?.lang]?.name || "these"} files get no completions or error checking from it yet. Click "${srv.label}: not installed" in the status bar to install it.`, 9000);
+    toast(`${serverName(srv).replace(/^\w/, (c) => c.toUpperCase())} isn't installed, so ${LANGS[b?.lang]?.name || "these"} files get no completions or error checking from it yet. Click "${serverName(srv)}: not installed" in the status bar to install it.`, 9000);
   }
 }
 $("stTrust").onclick = () => S.root && askTrust(S.root, true);
@@ -2820,6 +2844,7 @@ async function startSteps(steps, onDone, onFail) {
     await saveAll();
   } finally { startSteps.busy = false; }
   showPanel("output");
+  S.stepWarn = null; S.runWarned = null;
   outFollow().reset(); // a new run always starts at the bottom
   S.queue = steps.slice(1);
   S.onDone = onDone || null;
@@ -2915,16 +2940,32 @@ taskDoneHooks.push((label) => {
   cargoRun = null;
   setBuildProblems(map);
 });
+// Commands that exit with 0 but didn't quite work: what to say instead of a green "Finished".
+const SOFT_FAILS = [
+  [/^dotnet new/, /Restore failed|Post action failed|Failed to restore|Unable to load the service index/i, "the package restore failed (offline, or NuGet unreachable?). Build or C#: restore packages tries again."],
+  [/^dotnet (add|restore)/, /error NU\d{4}|Unable to load the service index/i, "NuGet couldn't be reached or the package wasn't found."],
+];
+outputHooks.push((text, label) => {
+  if (S.stepWarn) return;
+  for (const [l, re, say] of SOFT_FAILS) if (l.test(label || "") && re.test(text)) { S.stepWarn = say; return; }
+});
 listen("task-done", (e) => {
   if (e.payload.run !== S.run) return;
   const code = e.payload.run === S.stopped ? null : e.payload.code, secs = ((performance.now() - S.runStart) / 1000).toFixed(1);
-  appendOut(`<span class="done ${code === 0 ? "ok" : "bad"}">${code === 0 ? "Finished" : code == null ? "Stopped" : "Exited with code " + code} · ${secs}s</span>\n`);
+  const stepWarn = code === 0 ? S.stepWarn : null;
+  S.stepWarn = null;
+  if (stepWarn) S.runWarned = { label: S.runLabel, say: stepWarn };
+  appendOut(`<span class="done ${stepWarn ? "warn" : code === 0 ? "ok" : "bad"}">${stepWarn ? "Finished, but " + esc(stepWarn) : code === 0 ? "Finished" : code == null ? "Stopped" : "Exited with code " + code} · ${secs}s</span>\n`);
   if (code === 0 && S.queue.length) { startStep(S.queue.shift()); return; }
+  // The run is over: a step that finished but didn't quite work is what the status bar shows.
+  const warn = code === 0 && S.runWarned ? S.runWarned.say : null;
+  if (warn) toast(`${S.runWarned.label} finished, but ${warn}`, 8000);
+  S.runWarned = null;
   const hadInputFocus = $("stdinForm").contains(document.activeElement);
   S.running = false;
   S.runInput = false;
   S.queue = [];
-  S.lastRun = { code, secs, label: S.runLabel };
+  S.lastRun = { code, secs, label: S.runLabel, warn };
   renderStatus();
   if (hadInputFocus) $("out").focus();
   if (/^cargo fmt|^dotnet format/.test(S.runLabel)) reloadClean();
@@ -2998,7 +3039,7 @@ function renderStatus() {
   else {
     el.className = "seg";
     const r = S.lastRun;
-    el.innerHTML = r ? `<span class="${r.code === 0 ? "" : "e"}">${r.code === 0 ? "✓" : "✕"} ${esc(r.label)} · ${r.secs}s</span>` : "";
+    el.innerHTML = r ? `<span class="${r.warn ? "w" : r.code === 0 ? "" : "e"}"${r.warn ? ` title="${esc(r.warn)}"` : ""}>${r.warn ? "⚠" : r.code === 0 ? "✓" : "✕"} ${esc(r.label)} · ${r.secs}s</span>` : "";
   }
   $("stSearch").innerHTML = `Go to file <kbd>${esc(keymap.label("file.goto"))}</kbd>`;
   // On the welcome page, its own Go to file button and an empty problem count would just repeat it.
