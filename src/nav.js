@@ -7,6 +7,12 @@ import { EditorView, Decoration, WidgetType, showTooltip, keymap } from "@codemi
 import { norm, uriToPath, pathToUri, toOffset, toPos } from "./lsp.js";
 import { dotOf } from "./langs.js";
 import { parseHttpFile } from "./httpfile.js";
+import { textSymbols, declOf } from "./threadsyms.js";
+import { setLustDeclared, lustExplainMd } from "./lustview.js";
+
+// Lust has no language server: its outline, go to definition, references, rename and hover come
+// from reading the files (declarations by keyword: class, method, object, assembly…).
+export const LUST_FILE = /\.(lst|lsc|lust)$/i;
 
 const KINDS = { 1: "file", 2: "mod", 3: "ns", 4: "pkg", 5: "class", 6: "fn", 7: "prop", 8: "field", 9: "new", 10: "enum", 11: "trait", 12: "fn", 13: "let", 14: "const", 15: "str", 16: "num", 17: "bool", 18: "arr", 19: "obj", 20: "key", 21: "null", 22: "case", 23: "struct", 24: "event", 25: "op", 26: "T", 101: "h1", 102: "h2", 103: "h3", 104: "h4", 105: "h5", 106: "h6" }; // 10x: Markdown headings
 const kindLabel = (k) => KINDS[k] || "";
@@ -15,10 +21,92 @@ export function initNav(app) {
   const { $, S, esc, rel, base } = app;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  // ---------- Lust (and other files with no server): by reading the files ----------
+  const wordAt = () => { const v = app.view, w = v.state.wordAt(v.state.selection.main.head); return w ? v.state.sliceDoc(w.from, w.to) : ""; };
+  /** Whole-word places named `name` in the folder's Lust files: [{ path, range, text, decl }]. */
+  const placesCache = new Map(); // name -> { at, list }: hovering asks often; the files rarely change that fast
+  async function lustPlaces(name) {
+    const c = placesCache.get(name);
+    if (c && performance.now() - c.at < 2500) return c.list;
+    const list = await lustPlacesNow(name);
+    placesCache.set(name, { at: performance.now(), list });
+    if (placesCache.size > 200) placesCache.delete(placesCache.keys().next().value);
+    return list;
+  }
+  async function lustPlacesNow(name) {
+    let hits = [];
+    try { hits = await invoke("search_text", { root: S.root, query: name, caseSensitive: true }); } catch {}
+    const word = new RegExp(`(^|[^\\w$])${name.replace(/[$]/g, "\\$")}(?![\\w$])`, "g");
+    const out = [];
+    for (const h of hits) {
+      const p = norm(h.path);
+      if (!LUST_FILE.test(p)) continue;
+      // An open file's own text (it may not be saved yet) wins over what's on disk.
+      const b = S.bufs.get(p);
+      const text = b ? b.state.doc.line(Math.min(b.state.doc.lines, h.line + 1)).text : h.text;
+      const d = declOf(text, true);
+      let m;
+      word.lastIndex = 0;
+      while ((m = word.exec(text))) {
+        const col = m.index + m[1].length;
+        out.push({ path: p, range: { start: { line: h.line, character: col }, end: { line: h.line, character: col + name.length } }, text, decl: !!(d && d[0] === name && d[2] === col) });
+      }
+    }
+    return out;
+  }
+  const isLustBuf = (b) => b && !b.virtual && b.lang === "lust";
+  // The mouse hover's "where is this declared" (lustview.js).
+  setLustDeclared(async (name) => (await lustPlaces(name)).filter((x) => x.decl).map((x) => ({ text: x.text, where: `${app.isUnder(x.path, S.root) ? rel(x.path) : x.path}:${x.range.start.line + 1}` })));
+  app.lustHoverAt = (v, pos) => lustExplainMd(v, pos);
+  app.textNav = {
+    handles: (b) => isLustBuf(b) && !(app.serverOf(b)?.alive),
+    async definition() {
+      const name = wordAt();
+      if (!name) return;
+      const defs = (await lustPlaces(name)).filter((x) => x.decl);
+      if (!defs.length) { app.toast(`No class, method or other declaration named ${name} found in the folder's Lust files.`); return; }
+      const mine = defs.filter((d) => d.path === S.active);
+      const list = mine.length === 1 ? mine : defs;
+      if (list.length === 1) { await app.openFile(list[0].path, list[0].range.start); return; }
+      await showLocations(`${list.length} declarations of <code>${esc(name)}</code>`, list);
+    },
+    async references() {
+      const name = wordAt();
+      if (!name) return;
+      const all = await lustPlaces(name);
+      if (!all.length) { app.toast(`No other ${name} found.`); return; }
+      await showLocations(`${all.length} place${all.length === 1 ? "" : "s"} named <code>${esc(name)}</code> (by name: Lust has no language server)`, all.map((x) => ({ ...x, note: x.decl ? "declared" : "" })));
+    },
+    async rename() {
+      const name = wordAt();
+      if (!name) return;
+      const to = (await app.promptText(`Rename ${name} in the folder's Lust files`, name))?.trim();
+      if (!to || to === name) return;
+      if (!/^[A-Za-z_$][\w$]*$/.test(to)) { app.toast("That isn't a name Lust allows."); return; }
+      const all = await lustPlaces(name);
+      const files = new Set(all.map((x) => x.path));
+      const c = await app.choose(`Change ${all.length} place${all.length === 1 ? "" : "s"} named ${name} in ${files.size} file${files.size === 1 ? "" : "s"} to ${to}? Lust has no language server, so this goes by name: anything else called ${name} changes too.`, ["Rename them", "Show them first", "Cancel"]);
+      if (c === "Show them first") { await this.references(); return; }
+      if (c !== "Rename them") return;
+      const changes = {};
+      for (const x of all) (changes[pathToUri(x.path)] ||= []).push({ range: x.range, newText: to });
+      const n = await app.applyWorkspaceEdit({ changes });
+      app.toast(`Renamed ${name} to ${to} in ${n ?? files.size} file${(n ?? files.size) === 1 ? "" : "s"}. Ctrl Z undoes it in each.`, 5000);
+    },
+    /** Markdown about the name at the cursor: where it's declared and how. */
+    async info() {
+      const name = wordAt();
+      if (!name) return "";
+      const defs = (await lustPlaces(name)).filter((x) => x.decl);
+      return defs.slice(0, 3).map((d) => "```lust\n" + d.text.trim() + "\n```\n" + `${app.isUnder(d.path, S.root) ? rel(d.path) : d.path}:${d.range.start.line + 1}`).join("\n\n");
+    },
+  };
+
   // ---------- find all references (Shift+F12) ----------
   async function findReferences() {
     const path = S.active, b = S.bufs.get(path);
     if (!b) return;
+    if (app.textNav.handles(b)) return app.textNav.references();
     const srv = app.needServer(b, "Find references");
     if (!srv) return;
     const v = app.view, pos = v.state.selection.main.head;
@@ -109,6 +197,11 @@ export function initNav(app) {
     const path = S.active, b = S.bufs.get(path);
     if (b && b.lang === "markdown") {
       if (force || sym.path !== path || sym.doc !== b.state.doc) { const list = mdHeadings(b.state.doc); Object.assign(sym, { path, doc: b.state.doc, list, flat: flatten(list), none: null }); }
+      return sym;
+    }
+    // Lust: from the text.
+    if (b && b.lang === "lust" && !app.serverOf(b)?.alive) {
+      if (force || sym.path !== path || sym.doc !== b.state.doc) { const list = normalize(textSymbols(b.state.doc.toString().split("\n"), true)); Object.assign(sym, { path, doc: b.state.doc, list, flat: flatten(list), none: null }); }
       return sym;
     }
     const srv = b && app.serverOf(b);

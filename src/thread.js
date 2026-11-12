@@ -19,6 +19,9 @@ const KEY = "@thread:";
 const MAX_USES = 400; // past this, the first 400 (a column of thousands helps nobody)
 const MAX_CODE = 60; // lines of code shown at the top of a column
 
+// Lust's view lines (text summary(1)) look like C# method declarations: keywords only there.
+const isLust = (p) => /\.(lst|lsc|lust)$/i.test(p);
+
 export function initThread(app) {
   const { S, esc, base, rel } = app;
   const el = document.getElementById("threadpage");
@@ -116,7 +119,7 @@ export function initThread(app) {
     for (const h of hits) {
       const p = norm(h.path);
       if (p === path && h.line === line) continue; // where you started (search_text counts lines from 0)
-      if (declName(h.text) === name) continue; // its own declaration, not a use
+      if (declName(h.text, isLust(p)) === name) continue; // its own declaration, not a use
       const m = word.exec(h.text);
       if (!m) continue;
       if (isImport(h.text)) { imports++; continue; }
@@ -128,7 +131,7 @@ export function initThread(app) {
       const d = await docOf(u.path);
       const lines = [];
       for (let n = 1; n <= d.lines; n++) lines.push(d.line(n).text);
-      u.encl = guessEnclosing(lines, u.range.start.line);
+      u.encl = guessEnclosing(lines, u.range.start.line, isLust(u.path));
       // A use that is the name's own declaration isn't a use inside it.
       if (u.encl && u.encl.sel.start.line === u.range.start.line && u.encl.name === name) u.encl = null;
     }));

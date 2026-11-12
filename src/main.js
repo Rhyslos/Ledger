@@ -679,6 +679,7 @@ function openServerSettings(id) {
 async function goToDefinition(path = S.active, pos) {
   const b = S.bufs.get(path);
   if (!b) return;
+  if (app.textNav?.handles(b)) return app.textNav.definition();
   const srv = needServer(b, "Go to definition");
   if (!srv) return;
   pos ??= view.state.selection.main.head;
@@ -746,6 +747,7 @@ async function formatActive() {
 async function renameSymbol() {
   const path = S.active, b = S.bufs.get(path);
   if (!b || b.ro) return;
+  if (app.textNav?.handles(b)) return app.textNav.rename();
   const srv = needServer(b, "Rename");
   if (!srv) return;
   const pos = view.state.selection.main.head;
@@ -763,9 +765,36 @@ async function renameSymbol() {
 }
 
 const notAfter = (a, b) => a.line < b.line || (a.line === b.line && a.character <= b.character);
+/** Fixes a checker's message spells out, for files with no server: "Did you mean summary?" */
+function suggestedFixes(diags, doc, pos) {
+  const out = [];
+  for (const d of diags) {
+    const from = toOffset(doc, d.range.start), to = toOffset(doc, d.range.end);
+    if (pos < from || pos > Math.max(to, from + 1)) continue;
+    const m = /did you mean\s+[`'"]?([A-Za-z_$][\w$.]*)[`'"]?\s*\??/i.exec(d.message || "");
+    if (!m) continue;
+    // The word the message is about: the one at its start.
+    const line = doc.lineAt(from), rest = line.text.slice(from - line.from);
+    const w = /^[A-Za-z_$][\w$]*/.exec(rest);
+    if (!w || w[0] === m[1]) continue;
+    out.push({ title: `Change ${w[0]} to ${m[1]}`, from, to: from + w[0].length, insert: m[1] });
+  }
+  return out;
+}
 async function codeActions() {
   const path = S.active, b = S.bufs.get(path);
   if (!b || b.ro) return;
+  // No server (Lust): the fixes the checker's own messages suggest.
+  if (!serverOf(b)?.alive) {
+    const fixes = suggestedFixes(S.diags.get(path) || [], view.state.doc, view.state.selection.main.head);
+    if (fixes.length) {
+      const i = fixes.length === 1 ? 0 : await choose("Quick fixes", fixes.map((f) => f.title), true);
+      if (i == null || i < 0) return;
+      view.dispatch({ changes: { from: fixes[i].from, to: fixes[i].to, insert: fixes[i].insert }, userEvent: "input.fix" });
+      return;
+    }
+    if (!serverOf(b)) { toast("No quick fixes here."); return; }
+  }
   const srv = needServer(b, "Quick fixes");
   if (!srv) return;
   syncDoc(path, view.state.doc);
@@ -800,6 +829,10 @@ async function showInfo() {
     syncDoc(path, doc);
     const md = hoverMarkdown(await srv.request("textDocument/hover", srv.at(path, doc, pos)));
     if (md.trim()) parts.push(md);
+  } else if (app.textNav?.handles(b)) {
+    // Lust: the same as the mouse hover (a style word or piece), else where the name is declared.
+    const md = (await app.lustHoverAt?.(view, pos)) || (await app.textNav.info());
+    if (md) parts.push(md);
   }
   if (!parts.length) { toast("Nothing to show at the cursor."); return; }
   if (S.active === path) showInfoAt(pos, renderMd(parts.join("\n\n---\n\n"), LANGS[b.lang].languageId));
@@ -1538,6 +1571,8 @@ const lustRoots = new Map();
 const lustRel = (root, path) => norm(path).slice(norm(root).replace(/\/$/, "").length + 1);
 const lustSeqs = new Map(); // Lust project folder -> number of its newest check
 async function lustCheck(path) {
+  // A new, empty file isn't a mistake yet ("every file ends with end"): wait for something in it.
+  if (!(S.bufs.get(path)?.state.doc.toString().trim() ?? "x")) return;
   const dir = await lustRoot(path);
   const seq = (lustSeqs.get(dir) || 0) + 1;
   lustSeqs.set(dir, seq);
@@ -2719,6 +2754,22 @@ async function runAction(action) {
     else toast(`${taskLabel(action)} isn't available for this project.`);
     return;
   }
+  // Lust's Lua or Rust: a read-only tab with its colours (beside the file), not 100 KB of output.
+  if ((action === "lua" || action === "rust") && steps.length === 1 && steps[0].lust) {
+    const st = steps[0], src = S.active;
+    const r = await invoke("run_capture", { cwd: st.cwd, program: st.program, args: st.args, timeoutMs: 60000 }).catch((e) => ({ code: -1, out: "", err: String(e) }));
+    if (r.code !== 0) {
+      // Mistakes in the file: they go to the output as usual, where they link to the lines.
+      showPanel("output");
+      appendOut(`<span class="cmd">$ ${esc(st.label)} ${esc(st.args.slice(1).join(" "))}</span>`);
+      for (const l of (r.err || r.out || "couldn't turn it into " + action).split("\n")) if (l.trim()) appendOut(ansiToHtml(l));
+      toast(`${base(src)} has mistakes to fix before it turns into ${action === "lua" ? "Lua" : "Rust"}.`, 5000);
+      return;
+    }
+    const ext = action === "lua" ? ".lua" : ".rs";
+    await openVirtual(`@lust-${action}:${norm(src)}`, r.out, { lang: action === "lua" ? "lua" : "rust", label: base(src).replace(/\.[^.]+$/, "") + ext + " (from Lust)" });
+    return;
+  }
   if (steps.some((s) => s.godot && !s.program)) {
     toast("Set the Godot program in Settings first.", 4000);
     openSettings();
@@ -2841,6 +2892,8 @@ function onLine(line) {
     if (!outQuiet) outFollow().changed();
     return;
   }
+  S.lastOut = performance.now();
+  if (S.quietLine?.isConnected) { S.quietLine.remove(); S.quietLine = null; }
   const d = appendOut(ansiToHtml(text, outCtx));
   if (partial) { partialOut[stream] = d; d.dataset.text = text; } else delete partialOut[stream];
   if (!partial) for (const f of outputHooks) { try { f(text, S.runLabel, S.runDir); } catch (e) { console.error(e); } }
@@ -2970,6 +3023,21 @@ $("stLang").addEventListener("click", (ev) => {
 });
 $("stTasks").addEventListener("click", (ev) => { const b = ev.target.closest("[data-task]"); if (b) (b.dataset.task === "debug" ? debug?.start() : runAction(b.dataset.task)); });
 $("stStop").onclick = stopTask;
+// A long run: how long it's been going, on the Stop button; and after 20 s with no output (lust
+// build, a big cargo build), one quiet line in the output saying it's still at it.
+setInterval(() => {
+  const btn = $("stStop");
+  if (!S.running) { delete S.quietLine; return; }
+  const secs = Math.round((performance.now() - (S.runStart || 0)) / 1000);
+  const t = secs < 60 ? `${secs} s` : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  const label = btn.lastChild;
+  if (label?.nodeType === 3) label.data = secs >= 5 ? `Stop · ${t}` : "Stop";
+  const quiet = (performance.now() - Math.max(S.lastOut || 0, S.runStart || 0)) / 1000;
+  if (quiet >= 20) {
+    if (!S.quietLine?.isConnected) S.quietLine = appendOut(`<span class="a-90"></span>`);
+    S.quietLine.firstChild.textContent = `… ${S.runLabel} is still running (${t}), with nothing new to show yet.`;
+  }
+}, 1000);
 $("stLive").onclick = () => (live.port ? stopLive() : startLive());
 $("stToggle").onclick = () => toggleExplorer();
 $("stSearch").onclick = () => openPalette("files");
@@ -3783,7 +3851,8 @@ async function askTrust(path, force) {
 async function ensureTrusted(what) {
   if (!S.root || trusted()) return true;
   // An empty folder (a new project about to be made in it) has no code of its own to worry about.
-  const q = hasProjectCode() ? `${what} runs this folder's code, and ${base(S.root)} isn't trusted yet. Trust it?`
+  const empty = !(S.files || []).some((f) => !f.slice(S.root.length + 1).split("/").some((part) => part.startsWith(".")));
+  const q = !empty ? `${what} runs this folder's code, and ${base(S.root)} isn't trusted yet. Trust it?`
     : `${what} runs a program in ${base(S.root)}, which isn't trusted yet. It has no project of its own yet; trusting it lets Ledger run what you make here. Trust it?`;
   const c = await choose(q, ["Cancel", "Trust it"]); // Enter keeps it restricted
   if (c !== "Trust it") return false;

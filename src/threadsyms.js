@@ -64,7 +64,7 @@ const indentOf = (t) => t.length - t.trimStart().length;
 
 /** What a line sits in, read from the text: the nearest line above it, less indented, that
  *  declares a function, method, class and the like. A symbol like documentSymbol's, or null. */
-export function guessEnclosing(lines, line) {
+export function guessEnclosing(lines, line, strict = false) {
   const own = lines[line] ?? "";
   let limit = indentOf(own);
   if (!own.trim()) return null;
@@ -74,7 +74,7 @@ export function guessEnclosing(lines, line) {
     const ind = indentOf(t);
     if (ind >= limit) continue;
     limit = ind;
-    for (const [re, take] of DECLS) {
+    for (const [re, take] of strict ? DECLS.slice(0, 4) : DECLS) {
       const m = re.exec(t);
       const got = m && take(m);
       if (!got || !got[0]) continue;
@@ -95,11 +95,48 @@ export function guessEnclosing(lines, line) {
 }
 
 /** The name a line declares (fn x, class X, method int x(…), const x = () =>…), or null. */
-export function declName(text) {
-  for (const [re, take] of DECLS) {
+export function declName(text, strict = false) {
+  for (const [re, take] of strict ? DECLS.slice(0, 4) : DECLS) {
     const m = re.exec(text);
     const got = m && take(m);
     if (got?.[0]) return got[0];
   }
   return null;
+}
+
+/** [name, kind, column of the name] for a line that declares something, or null. */
+export function declOf(text, strict = false) {
+  for (const [re, take] of strict ? DECLS.slice(0, 4) : DECLS) {
+    const m = re.exec(text);
+    const got = m && take(m);
+    if (got?.[0]) return [got[0], got[1], text.indexOf(got[0], m.index)];
+  }
+  return null;
+}
+
+/** documentSymbol-like symbols read from the text (for languages with no server, such as Lust):
+ *  each declaration, its block found by indentation, nested by where it sits. */
+export function textSymbols(lines, strict = false) {
+  const flat = [];
+  lines.forEach((t, l) => {
+    const d = declOf(t, strict);
+    if (!d) return;
+    const [name, kind, col] = d;
+    const ind = indentOf(t);
+    let end = l;
+    for (let k = l + 1; k < lines.length; k++) {
+      const u = lines[k];
+      if (!u.trim() || /^\s*[{}]\s*$/.test(u) && indentOf(u) > ind) { if (u.trim()) end = k; continue; }
+      if (indentOf(u) <= ind) { if (/^\s*(\}|end\b|\))/.test(u)) end = k; break; }
+      end = k;
+    }
+    flat.push({ name, kind, detail: t.trim(), range: { start: { line: l, character: ind }, end: { line: end, character: (lines[end] || "").length } }, selectionRange: { start: { line: l, character: col }, end: { line: l, character: col + name.length } }, children: [] });
+  });
+  // Nest each one in the innermost one around it.
+  const top = [];
+  for (const s of flat) {
+    const holder = [...flat].reverse().find((o) => o !== s && o.range.start.line < s.range.start.line && o.range.end.line >= s.range.end.line);
+    (holder ? holder.children : top).push(s);
+  }
+  return top;
 }
