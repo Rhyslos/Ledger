@@ -161,3 +161,15 @@ test("Qwik projects install Vite 7, which Qwik supports (the template asks for 8
   assert.deepEqual(tw[1].args, ["install", "--save-dev", "vite@^7", "tailwindcss", "@tailwindcss/vite"]);
   assert.deepEqual(createSteps({ kind: "vite", template: "react", ts: true, tailwind: false, name: "r", dir: "/x" })[1].args, ["install"]);
 });
+
+test("Start a repository: a .gitignore for what the folder holds", async () => {
+  const { gitignoreFor } = await import("../src/scaffold.js");
+  const cs = gitignoreFor(["Bank.sln", "Bank.Core/Bank.Core.csproj", "Bank.Core/Account.cs"]);
+  assert.match(cs, /^bin\/$/m);
+  assert.match(cs, /^obj\/$/m);
+  assert.doesNotMatch(cs, /target\//);
+  const mixed = gitignoreFor(["app/Cargo.toml", "web/package.json"]);
+  assert.match(mixed, /^target\/$/m);
+  assert.match(mixed, /^node_modules\/$/m);
+  assert.equal(gitignoreFor(["notes.md", "a.txt"]), "");
+});

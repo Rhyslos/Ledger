@@ -92,3 +92,26 @@ export function needsDevServer(pkg) {
   const deps = { ...pkg?.dependencies, ...pkg?.devDependencies };
   return DEV_SERVERS.some((d) => d in deps);
 }
+
+// "Start a repository here": a .gitignore for what's in the folder, so the first commit doesn't
+// sweep in build output (63 bin/ and obj/ files in a fresh .NET solution). Patterns without a
+// leading / match at any depth, so one line covers every project in a solution.
+const IGNORES = {
+  dotnet: ["# .NET", "bin/", "obj/", ".vs/", "*.user", "*.suo", "TestResults/"],
+  rust: ["# Rust", "target/"],
+  node: ["# Node.js", "node_modules/", "dist/", ".env", ".env.*.local"],
+  godot: ["# Godot", ".godot/", ".import/"],
+  lust: ["# Lust", "build/"],
+};
+/** The .gitignore text for a folder holding these files (paths), or "" if nothing needs ignoring. */
+export function gitignoreFor(files) {
+  const has = (re) => files.some((f) => re.test(f));
+  const kinds = [];
+  if (has(/\.(csproj|fsproj|sln|slnx)$/i)) kinds.push("dotnet");
+  if (has(/(^|\/)Cargo\.toml$/)) kinds.push("rust");
+  if (has(/(^|\/)package\.json$/)) kinds.push("node");
+  if (has(/(^|\/)project\.godot$/)) kinds.push("godot");
+  if (has(/\.lst$/i)) kinds.push("lust");
+  if (!kinds.length) return "";
+  return [...kinds.map((k) => IGNORES[k].join("\n")), "# System files\n.DS_Store\nThumbs.db\ndesktop.ini"].join("\n\n") + "\n";
+}
