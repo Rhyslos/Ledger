@@ -35,14 +35,14 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { EditorState, Text, ChangeSet, Compartment, StateEffect, StateField, RangeSetBuilder, Annotation, Transaction } from "@codemirror/state";
+import { EditorState, Text, ChangeSet, Compartment, StateEffect, StateField, RangeSetBuilder, Annotation, Transaction, Prec } from "@codemirror/state";
 import {
   EditorView, keymap as cmKeymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor,
   rectangularSelection, crosshairCursor, highlightActiveLine, hoverTooltip, showTooltip, Decoration, WidgetType,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { searchKeymap, highlightSelectionMatches, search } from "@codemirror/search";
-import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, completeFromList } from "@codemirror/autocomplete";
+import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, completeFromList, acceptCompletion, completionStatus } from "@codemirror/autocomplete";
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap, syntaxHighlighting, HighlightStyle, indentUnit, StreamLanguage } from "@codemirror/language";
 import { lintGutter, setDiagnostics, lintKeymap } from "@codemirror/lint";
 import { rustLanguage } from "@codemirror/lang-rust";
@@ -1001,6 +1001,9 @@ function extensionsFor(path, b) {
         },
       }),
     ] : [],
+    // Tab takes the highlighted suggestion while the list is open (before indenting, Emmet or a
+    // snippet's next field); otherwise Tab does what it did. Settings › Editing can turn it off.
+    Prec.highest(cmKeymap.of([{ key: "Tab", run: (v) => settings.tabAccepts !== false && completionStatus(v.state) === "active" && acceptCompletion(v) }])),
     cmKeymap.of([
       { key: "Escape", run: closeInfo },
       ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, ...completionKeymap, ...lintKeymap, indentWithTab,

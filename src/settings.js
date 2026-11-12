@@ -44,6 +44,7 @@ export const DEFAULTS = {
   formatOnSave: false,
   webFormatter: "prettier",
   emmet: true,
+  tabAccepts: true, // Tab takes the highlighted autocomplete suggestion (Enter always does)
   autoSave: "off",
   rustAnalyzer: "rust-analyzer",
   rustCheck: "check",
@@ -269,6 +270,7 @@ export function settingsHtml() {
       ${row("Type hints", check("sHints", "inlayHints", "Show the types and parameter names the language server works out, in grey"), "They aren't part of your file. Rust, C#, TypeScript and Lua send them.")}
       ${row("Formatting", check("sFmt", "formatOnSave", "Format files when saving (Prettier for web files, the language server for the rest)"))}
       ${row("Web formatting", select("sWebFmt", "webFormatter", [["prettier", "Prettier"], ["server", "The language servers"]]), "Prettier formats JavaScript, TypeScript, HTML, CSS, JSON, Markdown and YAML: the project's own Prettier when it has one (in a trusted folder), otherwise the one built into Ledger, with your .prettierrc either way.", "sWebFmt")}
+      ${row("Suggestions", check("sTabAccepts", "tabAccepts", "Tab takes the highlighted suggestion"), "Enter takes it too. With this off, Tab always indents.")}
       ${row("Emmet", check("sEmmet", "emmet", "Expand Emmet abbreviations with Tab in HTML, JSX and CSS (ul>li*3, div.card, m10, df…)"))}
       ${row("Preview tabs", check("sPreview", "previewTabs", "Clicking through files in the explorer reuses one tab"), "The file shows in a tab in italics, and the next file you click takes its place. Editing, saving, double-clicking or pinning it (right-click the tab) keeps it open.")}
       ${row("Explorer", check("sFollow", "followActive", "Show the open file in the explorer, opening the folders it's in"), "Ctrl Shift R does it once when this is off.")}
