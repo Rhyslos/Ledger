@@ -19,7 +19,14 @@ export function createSteps({ kind, template, ts, tailwind, name, dir, bare }) {
   return [
     { label: "create-vite", program: "npm", cwd: dir, args: ["create", "--yes", "vite@latest", name, "--", "--template", template + (ts ? "-ts" : ""), "--no-interactive"] },
     { label: "npm install", program: "npm", cwd: at, args: tailwind ? ["install", "tailwindcss", "@tailwindcss/vite"] : ["install"] },
-  ];
+  ].map((step, i) => (i === 1 && template === "qwik" ? qwikInstall(step) : step));
+}
+
+// Vite's Qwik template asks for Vite 8, but Qwik supports Vite 5 to 7, so npm refuses to install it.
+// Qwik projects get Vite 7 (saved to package.json, so later installs work too).
+const qwikInstall = (step) => {
+  const extra = step.args.slice(1);
+  return { ...step, label: "npm install (Vite 7 for Qwik)", args: ["install", "--save-dev", "vite@^7", ...(extra.length ? extra : [])] };
 }
 
 /** vite.config with the Tailwind plugin added (or a new one, for vanilla). */

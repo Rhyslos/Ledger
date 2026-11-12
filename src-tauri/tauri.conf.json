@@ -22,8 +22,9 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https:; font-src 'self' data: blob:; media-src 'self' blob:; connect-src ipc: http://ipc.localhost; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'",
-      "devCsp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https:; font-src 'self' data: blob:; media-src 'self' blob: asset: http://asset.localhost; connect-src ipc: http://ipc.localhost asset: http://asset.localhost; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'",
+      "devCsp": null,
+      "assetProtocol": { "enable": true, "scope": ["**/*.mp3", "**/*.MP3", "**/*.wav", "**/*.WAV", "**/*.wave", "**/*.WAVE", "**/*.ogg", "**/*.OGG", "**/*.oga", "**/*.OGA", "**/*.opus", "**/*.OPUS", "**/*.flac", "**/*.FLAC", "**/*.m4a", "**/*.M4A", "**/*.aac", "**/*.AAC", "**/*.weba", "**/*.WEBA", "**/*.mp4", "**/*.MP4", "**/*.m4v", "**/*.M4V", "**/*.webm", "**/*.WEBM", "**/*.mov", "**/*.MOV", "**/*.ogv", "**/*.OGV", "**/*.mkv", "**/*.MKV"] }
     }
   },
   "bundle": {

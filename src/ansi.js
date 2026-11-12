@@ -12,7 +12,7 @@ const RS = new RegExp(String.raw`([A-Za-z]:[\\/](?:[^:*?"<>|\r\n\\/]+[\\/])*[^:*
 // Web addresses, such as the one a dev server prints when it starts.
 const URLS = /https?:\/\/[^\s"'<>]*[^\s"'<>.,;:)\]]/g;
 // MSBuild: C:\proj\Player.cs(12,5): error CS0103: ...   (may contain spaces, so anchored at line start)
-const MSB = /^(\s*)(.+?\.(?:cs|csproj|props|targets|sln|slnx|xaml))\((\d+)(?:,(\d+))?(?:,\d+,\d+)?\)(.*)$/;
+const MSB = /^(\s*)(.+?\.(?:cs|csproj|props|targets|sln|slnx|xaml|[cm]?[jt]sx?|vue|svelte))\((\d+)(?:,(\d+))?(?:,\d+,\d+)?\)(.*)$/;
 // .NET stack trace: at Player._Ready() in C:\proj\Player.cs:line 14
 const TRACE = /( in )(.+?\.cs):line (\d+)/;
 
@@ -44,14 +44,23 @@ function files(text) {
   return out + esc(text.slice(last));
 }
 
-// Colour codes inside a web address (Vite prints the port in bold: http://localhost:<bold>5173</bold>/)
-// would cut its link short, so they move to just after it: the address is one link, and the
-// colours after it are as they were.
-const URL_WITH_CODES = /https?:\/\/(?:[^\s"'<>\x1b]|\x1b\[[\d;]*m)+/g;
-export const joinUrls = (s) => s.replace(URL_WITH_CODES, (u) => u.replace(/\x1b\[[\d;]*m/g, "") + (u.match(/\x1b\[[\d;]*m/g) || []).join(""));
+// Colour codes inside a web address or a file location would cut its link short: Vite prints the
+// port in bold (http://localhost:<bold>5173</bold>/), TypeScript colours the file, line and column
+// apart (<cyan>src/main.ts</cyan>:<yellow>3</yellow>:<yellow>7</yellow>), Vitest dims the ":12:5".
+// So in each word that reads as one of those once the codes are gone, the codes move to just after
+// it: the word is one link, and the colours after it are as they were.
+const SGR = /\x1b\[[\d;]*m/g;
+const RS_ONE = new RegExp(RS.source);
+export const joinLinks = (s) => s.replace(/(?:\x1b\[[\d;]*m)*[^\s\x1b]*(?:\x1b\[[\d;]*m[^\s\x1b]*)+/g, (w) => {
+  const lead = w.match(/^(?:\x1b\[[\d;]*m)*/)[0], rest = w.slice(lead.length);
+  const plain = rest.replace(SGR, "");
+  if (plain === rest || !(/https?:\/\//.test(plain) || RS_ONE.test(plain))) return w;
+  return lead + plain + (rest.match(SGR) || []).join("");
+});
+export const joinUrls = joinLinks;
 
 export function ansiToHtml(input) {
-  const s = joinUrls(String(input));
+  const s = joinLinks(String(input));
   // Plain lines (dotnet, Godot) get the smarter link pass on the whole line.
   if (!s.includes("\x1b[")) return linkify(s);
   let out = "", cls = new Set();

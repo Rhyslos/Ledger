@@ -4,6 +4,7 @@
 // status bar shows what's playing (click it to go back). Space plays and pauses, ← and → skip 5
 // seconds, L loops. Formats the system can't play offer your default app instead.
 import { openPath } from "@tauri-apps/plugin-opener";
+import { convertFileSrc } from "@tauri-apps/api/core";
 
 export const AUDIO_EXT = /\.(mp3|wav|wave|ogg|oga|opus|flac|m4a|aac|weba)$/i;
 export const VIDEO_EXT = /\.(mp4|m4v|webm|mov|ogv|mkv)$/i;
@@ -89,11 +90,30 @@ export function initMedia(app) {
   }
   setInterval(() => { if (playingKey() || !st.hidden) status(); }, 500);
 
+const STREAM_AUDIO = 64 * 1024 * 1024; // bigger audio plays from disk, without a waveform
+
+  /** A URL that plays the file straight from disk, a piece at a time (Tauri's asset protocol,
+   *  allowed for media files only), or null where there's none (the browser test page). */
+  const streamUrl = (path) => { try { return convertFileSrc(path); } catch { return null; } };
+
   async function load(it) {
+    // Video, and very long audio: streamed, so any size plays and memory stays free.
+    if (it.kind === "video" || it.kind === "audio") {
+      const size = (await invoke("file_sizes", { paths: [it.path] }).catch(() => [null]))[0];
+      const url = (it.kind === "video" || size > STREAM_AUDIO) && streamUrl(it.path);
+      if (url) {
+        if (it.url && !it.stream) URL.revokeObjectURL(it.url);
+        Object.assign(it, { url, stream: true, size, err: size == null ? "That file isn't there any more." : null });
+        if (it.kind === "audio") { it.tags = {}; it.wave = "none"; }
+        if (it.node) { const t = it.node.currentTime; it.node.src = url; it.node.load(); it.node.currentTime = t; }
+        return;
+      }
+    }
     try {
       const got = await invoke("read_bytes", { path: it.path });
       const bytes = got instanceof ArrayBuffer ? got : new Uint8Array(got).buffer;
-      if (it.url) URL.revokeObjectURL(it.url);
+      if (it.url && !it.stream) URL.revokeObjectURL(it.url);
+      it.stream = false;
       it.size = bytes.byteLength;
       it.err = null;
       it.url = URL.createObjectURL(new Blob([bytes], { type: MIME[extOf(it.path)] || "application/octet-stream" }));
@@ -333,7 +353,7 @@ export function initMedia(app) {
         it.node?.pause();
         if (it.node) it.node.src = "";
         if (it.font) document.fonts.delete(it.font);
-        if (it.url) URL.revokeObjectURL(it.url);
+        if (it.url && !it.stream) URL.revokeObjectURL(it.url);
       }
       items.delete(k);
       if (shown === k) shown = null;
