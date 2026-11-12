@@ -711,6 +711,39 @@ fn read_bytes_checked(path: &str) -> Res<Vec<u8>> {
     std::fs::read(path).map_err(err)
 }
 
+#[derive(Serialize)]
+struct TextPart {
+    text: String,
+    size: u64,
+}
+
+/// The first or last `max` bytes of a text file too big to open whole, cut at line ends, for a
+/// read-only look. Binary files are refused.
+#[tauri::command(async)]
+fn read_text_part(path: String, end: bool, max: u64) -> Res<TextPart> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(&path).map_err(err)?;
+    let size = f.metadata().map_err(err)?.len();
+    let from = if end { size.saturating_sub(max) } else { 0 };
+    f.seek(SeekFrom::Start(from)).map_err(err)?;
+    let mut buf = Vec::new();
+    f.take(max).read_to_end(&mut buf).map_err(err)?;
+    if buf.iter().take(8000).any(|&b| b == 0) && !(buf.len() > 1 && (buf[0] == 0xFF && buf[1] == 0xFE || buf[0] == 0xFE && buf[1] == 0xFF)) {
+        return Err("This looks like a binary file.".into());
+    }
+    // Whole lines only: drop the partial line at the cut.
+    if end && from > 0 {
+        if let Some(i) = buf.iter().position(|&b| b == b'\n') {
+            buf.drain(..=i);
+        }
+    } else if !end && (buf.len() as u64) < size {
+        if let Some(i) = buf.iter().rposition(|&b| b == b'\n') {
+            buf.truncate(i + 1);
+        }
+    }
+    Ok(TextPart { text: decode_text(buf).map(|(t, _)| t)?, size })
+}
+
 /// The start of a text file, cut at a line end: the table view of a CSV too big to open whole
 /// shows its first rows from this.
 #[tauri::command(async)]
@@ -1714,6 +1747,25 @@ mod tsserver_tests {
         assert!(std::path::Path::new(&got).join("tsserver.js").is_file());
         assert_eq!(std::fs::canonicalize(&got).unwrap(), std::fs::canonicalize(&lib).unwrap());
         let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+#[cfg(test)]
+mod big_file_tests {
+    #[test]
+    fn start_and_end_in_whole_lines() {
+        let p = std::env::temp_dir().join(format!("ledger-big-{}.log", std::process::id()));
+        let text: String = (0..1000).map(|i| format!("line {i}\n")).collect();
+        std::fs::write(&p, &text).unwrap();
+        let path = p.to_string_lossy().to_string();
+        let head = super::read_text_part(path.clone(), false, 100).unwrap();
+        assert_eq!(head.size, text.len() as u64);
+        assert!(head.text.starts_with("line 0\n") && head.text.ends_with('\n') && head.text.len() <= 100);
+        let tail = super::read_text_part(path.clone(), true, 100).unwrap();
+        assert!(tail.text.ends_with("line 999\n") && tail.text.starts_with("line ") && tail.text.len() <= 100);
+        std::fs::write(&p, [1u8, 0, 2, 0, 3]).unwrap();
+        assert!(super::read_text_part(path, false, 100).is_err());
+        let _ = std::fs::remove_file(&p);
     }
 }
 
@@ -2957,6 +3009,7 @@ pub fn run() {
             file_kinds,
             file_sizes,
             read_text_head,
+            read_text_part,
             run_task,
             task_stop,
             task_input,

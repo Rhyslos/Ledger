@@ -40,7 +40,27 @@
         { "path": "**/*.ttf" }, { "path": "**/*.TTF" },
         { "path": "**/*.otf" }, { "path": "**/*.OTF" },
         { "path": "**/*.woff" }, { "path": "**/*.WOFF" },
-        { "path": "**/*.woff2" }, { "path": "**/*.WOFF2" }
+        { "path": "**/*.woff2" }, { "path": "**/*.WOFF2" },
+        { "path": "**/*.pdf" }, { "path": "**/*.PDF" },
+        { "path": "**/*.doc" }, { "path": "**/*.DOC" },
+        { "path": "**/*.docx" }, { "path": "**/*.DOCX" },
+        { "path": "**/*.xls" }, { "path": "**/*.XLS" },
+        { "path": "**/*.xlsx" }, { "path": "**/*.XLSX" },
+        { "path": "**/*.ppt" }, { "path": "**/*.PPT" },
+        { "path": "**/*.pptx" }, { "path": "**/*.PPTX" },
+        { "path": "**/*.odt" }, { "path": "**/*.ODT" },
+        { "path": "**/*.ods" }, { "path": "**/*.ODS" },
+        { "path": "**/*.odp" }, { "path": "**/*.ODP" },
+        { "path": "**/*.rtf" }, { "path": "**/*.RTF" },
+        { "path": "**/*.epub" }, { "path": "**/*.EPUB" },
+        { "path": "**/*.zip" }, { "path": "**/*.ZIP" },
+        { "path": "**/*.7z" }, { "path": "**/*.7Z" },
+        { "path": "**/*.rar" }, { "path": "**/*.RAR" },
+        { "path": "**/*.tar" }, { "path": "**/*.TAR" },
+        { "path": "**/*.tgz" }, { "path": "**/*.TGZ" },
+        { "path": "**/*.gz" }, { "path": "**/*.GZ" },
+        { "path": "**/*.bz2" }, { "path": "**/*.BZ2" },
+        { "path": "**/*.xz" }, { "path": "**/*.XZ" }
       ]
     }
   ]

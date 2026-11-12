@@ -3,12 +3,16 @@
 // (TTF, OTF, WOFF, WOFF2) as sample text. Audio keeps playing while you work in other tabs; the
 // status bar shows what's playing (click it to go back). Space plays and pauses, ← and → skip 5
 // seconds, L loops. Formats the system can't play offer your default app instead.
-import { openPath } from "@tauri-apps/plugin-opener";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 export const AUDIO_EXT = /\.(mp3|wav|wave|ogg|oga|opus|flac|m4a|aac|weba)$/i;
 export const VIDEO_EXT = /\.(mp4|m4v|webm|mov|ogv|mkv)$/i;
 export const FONT_EXT = /\.(ttf|otf|woff2?)$/i;
+// Documents and archives Ledger doesn't show itself: a card with what it is and a button that opens
+// it in the app your system uses (instead of a page of bytes).
+export const DOC_EXT = /\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp|epub|zip|7z|rar|tar|tgz|gz|bz2|xz)$/i;
+const DOC_KIND = { pdf: "PDF document", doc: "Word document", docx: "Word document", xls: "Excel workbook", xlsx: "Excel workbook", ppt: "PowerPoint presentation", pptx: "PowerPoint presentation", odt: "OpenDocument text", ods: "OpenDocument spreadsheet", odp: "OpenDocument presentation", rtf: "Rich text document", epub: "E-book", zip: "ZIP archive", "7z": "7-Zip archive", rar: "RAR archive", tar: "Tar archive", tgz: "Compressed tar archive", gz: "Gzip archive", bz2: "Bzip2 archive", xz: "XZ archive" };
 export const MEDIA_EXT = new RegExp(`(${[AUDIO_EXT, VIDEO_EXT, FONT_EXT].map((r) => r.source.slice(0, -1)).join("|")})$`, "i");
 const MIME = {
   mp3: "audio/mpeg", wav: "audio/wav", wave: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg", opus: "audio/ogg", flac: "audio/flac", m4a: "audio/mp4", aac: "audio/aac", weba: "audio/webm",
@@ -73,7 +77,7 @@ export function initMedia(app) {
   let shown = null;
   const keyOf = (path) => "@media:" + app.norm(path);
   const extOf = (p) => (p.match(/\.([^.]+)$/)?.[1] || "").toLowerCase();
-  const kindOf = (p) => (AUDIO_EXT.test(p) ? "audio" : VIDEO_EXT.test(p) ? "video" : "font");
+  const kindOf = (p) => (AUDIO_EXT.test(p) ? "audio" : VIDEO_EXT.test(p) ? "video" : FONT_EXT.test(p) ? "font" : "doc");
   const sizeText = (n) => (n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB");
 
   // What's playing, in the status bar while you're elsewhere.
@@ -97,6 +101,11 @@ const STREAM_AUDIO = 64 * 1024 * 1024; // bigger audio plays from disk, without 
   const streamUrl = (path) => { try { return convertFileSrc(path); } catch { return null; } };
 
   async function load(it) {
+    if (it.kind === "doc") {
+      it.size = (await invoke("file_sizes", { paths: [it.path] }).catch(() => [null]))[0];
+      it.err = it.size == null ? "That file isn't there any more." : null;
+      return;
+    }
     // Video, and very long audio: streamed, so any size plays and memory stays free.
     if (it.kind === "video" || it.kind === "audio") {
       const size = (await invoke("file_sizes", { paths: [it.path] }).catch(() => [null]))[0];
@@ -178,11 +187,25 @@ const STREAM_AUDIO = 64 * 1024 * 1024; // bigger audio plays from disk, without 
         <span class="sp"></span>
         ${it.kind === "audio" ? `<label class="chk" title="Play it again from the start when it ends (L)"><input type="checkbox" data-act="loop"${it.loop ? " checked" : ""}> Loop</label>
         <select class="btn" data-act="rate" title="Speed" aria-label="Speed">${[0.5, 0.75, 1, 1.25, 1.5, 2].map((r) => `<option value="${r}"${(it.rate || 1) === r ? " selected" : ""}>${r}×</option>`).join("")}</select>` : ""}
-        <button class="btn" data-act="system" title="Open it in the app your system uses for ${esc(extOf(it.path).toUpperCase())} files">Open in default app</button>
+        ${it.kind === "doc" ? "" : `<button class="btn" data-act="system" title="Open it in the app your system uses for ${esc(extOf(it.path).toUpperCase())} files">Open in default app</button>`}
         <button class="btn" data-act="reload" title="Load the file again">Reload</button>
       </div>`;
     let stage;
     if (it.err) stage = `<div class="db-msg db-err">${esc(it.err)}</div>`;
+    else if (it.kind === "doc") {
+      const ext = extOf(it.path);
+      stage = `<div class="media-doc">
+        <div class="media-doc-icon">${app.fileIcon ? app.fileIcon(it.path) : ""}</div>
+        <div class="media-title">${esc(base(it.path))}</div>
+        <div class="media-sub">${esc(DOC_KIND[ext] || ext.toUpperCase() + " file")}${it.size != null ? " · " + sizeText(it.size) : ""}</div>
+        <p class="media-keys">Ledger doesn't show this kind of file itself; the app your system uses for it does.</p>
+        <div class="media-doc-acts">
+          <button class="btn primary" data-act="system">Open in default app</button>
+          <button class="btn" data-act="reveal">Show in File Explorer</button>
+          <button class="btn" data-act="hex">Look at the bytes</button>
+        </div>
+      </div>`;
+    }
     else if (it.kind === "font") {
       const sample = esc(it.sample ?? SAMPLE);
       stage = `<div class="media-font" style="font-family:'${it.family}'">
@@ -207,7 +230,7 @@ const STREAM_AUDIO = 64 * 1024 * 1024; // bigger audio plays from disk, without 
       </div>`;
     }
     el.innerHTML = `<div class="img-view">${bar}<div class="img-stage media-stage" tabindex="0" aria-label="${esc(base(it.path))}">${stage}</div></div>`;
-    if (!it.err && it.kind !== "font") attach(it);
+    if (!it.err && it.kind !== "font" && it.kind !== "doc") attach(it);
   }
 
   /** The <audio> or <video> stays the same element across redraws, so playback carries on. */
@@ -287,6 +310,8 @@ const STREAM_AUDIO = 64 * 1024 * 1024; // bigger audio plays from disk, without 
     else if (a === "loop") { it.loop = ev.target.checked; if (it.node) it.node.loop = it.loop; }
     else if (a === "system") openPath(it.path).catch((e) => app.toast("Couldn't open it: " + (e?.message || e)));
     else if (a === "reload") { it.wave = null; load(it).then(draw); }
+    else if (a === "reveal") revealItemInDir(it.path).catch((e) => app.toast(String(e)));
+    else if (a === "hex") app.openHex?.(it.path);
   });
   el.addEventListener("change", (ev) => {
     const it = items.get(shown);
@@ -363,7 +388,7 @@ const STREAM_AUDIO = 64 * 1024 * 1024; // bigger audio plays from disk, without 
   app.openers.push((path, opts) => {
     const p = String(path);
     if (p.startsWith("@media:")) return openMedia(p.slice(7), opts);
-    if (!opts.asText && MEDIA_EXT.test(p) && !p.startsWith("@")) return openMedia(p, opts);
+    if (!opts.asText && (MEDIA_EXT.test(p) || DOC_EXT.test(p)) && !p.startsWith("@")) return openMedia(p, opts);
     return null;
   });
   app.openMedia = openMedia;

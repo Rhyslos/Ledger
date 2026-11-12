@@ -40,3 +40,9 @@ test("waveform peaks: the lowest and highest sample in each column", () => {
   assert.deepEqual([...peaks([ch], 2)], [-0.25, 0.5, -1, 1]);
   assert.equal(peaks([new Float32Array(0)], 4).length, 8);
 });
+
+test("documents and archives get a card, not the hex view; text formats stay text", async () => {
+  const { DOC_EXT } = await import("../src/media.js");
+  for (const f of ["a.pdf", "B.DOCX", "x.xlsx", "x.pptx", "x.zip", "x.7z", "x.tar.gz", "x.epub"]) assert.ok(DOC_EXT.test(f), f);
+  for (const f of ["x.rtf", "x.txt", "x.md", "x.json", "x.csv", "x.svg"]) assert.ok(!DOC_EXT.test(f), f);
+});
