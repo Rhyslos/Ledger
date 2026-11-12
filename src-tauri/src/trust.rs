@@ -30,6 +30,9 @@ pub fn safe_program(program: &str, args: &[String]) -> bool {
         // Lust's checker and translators only read the program (Lust has no build scripts or macros).
         "lust" => matches!(first, "check" | "lua" | "rust"),
         "dotnet" => first == "--list-sdks" || first == "--version",
+        // Formatting text Ledger hands it (stdin to stdout): rustfmt runs none of the project's
+        // code, only reads rustfmt.toml. Only that exact form.
+        "rustfmt" => args.len() == 4 && args[0] == "--emit" && args[1] == "stdout" && args[2] == "--edition" && args[3].len() == 4 && args[3].bytes().all(|b| b.is_ascii_digit()),
         "git" => true, // goes through git_guard
         _ => false,
     }
@@ -192,6 +195,9 @@ mod tests {
         assert!(!safe_program("lust", &a(&["run", "main.lst"])));
         assert!(!safe_program("node", &a(&["-e", "x"])));
         assert!(!safe_program("cargo", &a(&["test"])));
+        assert!(safe_program("rustfmt", &a(&["--emit", "stdout", "--edition", "2021"])));
+        assert!(!safe_program("rustfmt", &a(&["src/main.rs"])));
+        assert!(!safe_program("rustfmt", &a(&["--emit", "stdout", "--edition", "2021", "--config-path", "x"])));
     }
 
     fn git_in(dir: &Path) -> impl Fn() -> std::process::Command + '_ {

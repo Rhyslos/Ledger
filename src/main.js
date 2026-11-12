@@ -18,6 +18,7 @@ import { initCsv } from "./csv.js";
 import { initHex } from "./hex.js";
 import { initMedia } from "./media.js";
 import { initThread } from "./thread.js";
+import { cargoDiags } from "./rustdiag.js";
 import { initHistory } from "./history.js";
 import { initSearch } from "./search.js";
 import { initEditCommands } from "./editcmds.js";
@@ -415,6 +416,23 @@ initTailwind({
   cacheSet: (key, value) => invoke("cache_set", { key, value }).catch(() => {}),
 });
 
+// Arguments for the program (Run and Debug) and, for debugging, lines it reads from its input:
+// per project (or per file for single files), kept in prefs. "Run and Debug: arguments and input…"
+const runKey = (dir) => norm(dir || S.ctx?.dir || S.root || "");
+const runOpts = (dir) => (prefs.runOpts || {})[runKey(dir)] || {};
+async function editRunOpts() {
+  if (!S.root) { toast("Open a folder first."); return; }
+  const P = await updateCtx();
+  const dir = P?.dir || (S.active ? parent(S.active) : S.root), o = runOpts(dir);
+  const args = await promptText(`Arguments for ${base(dir)} when you Run or Debug it`, o.args || "", 'e.g. --verbose data.txt "two words" (leave empty for none)');
+  if (args == null) return;
+  const input = await promptText("Input for debugging: the lines it reads (a debugged program can't be typed to)", o.input || "", "Separate lines with \\n, e.g. Rhys\\n42 (leave empty for none). Run uses the Input box instead.");
+  if (input == null) return;
+  prefs.runOpts = { ...(prefs.runOpts || {}), [runKey(dir)]: { args: args.trim(), input } };
+  if (!args.trim() && !input) delete prefs.runOpts[runKey(dir)];
+  savePrefs();
+  toast(args.trim() || input ? `${base(dir)} runs with ${args.trim() ? `arguments ${args.trim()}` : "no arguments"}${input ? ` and, when debugging, ${input.split("\\n").length} line${input.split("\\n").length === 1 ? "" : "s"} of input` : ""}.` : `${base(dir)} runs with no arguments.`, 5000);
+}
 const splitArgs = (s) => (String(s || "").match(/"[^"]*"|\S+/g) || []).map((a) => a.replace(/^"|"$/g, ""));
 function serverSpec(id) {
   if (id === "rust") {
@@ -675,6 +693,21 @@ async function goToDefinition(path = S.active, pos) {
 // Formatters that aren't a language server (Prettier for web files): (path, buffer) -> an async
 // function from the text to the formatted text (null when it couldn't), or null for files it skips.
 const formatters = [];
+// Rust without rust-analyzer running: rustfmt itself, on the text as it is in the editor, with the
+// project's edition from Cargo.toml.
+formatters.push((path, b) => {
+  if (b.lang !== "rust" || b.virtual || started(servers.rust)) return null;
+  return async (text) => {
+    const P = await projectFor(path).catch(() => null);
+    const dir = P?.dir || parent(path);
+    let edition = "2021";
+    try { edition = /^\s*edition\s*=\s*"(\d{4})"/m.exec(await invoke("read_file", { path: join(dir, "Cargo.toml") }))?.[1] || edition; } catch {}
+    const r = await invoke("run_capture", { cwd: dir, program: "rustfmt", args: ["--emit", "stdout", "--edition", edition], input: text, timeoutMs: 20000 }).catch((e) => ({ code: -1, out: "", err: String(e) }));
+    if (r.code === 0 && r.out) return r.out;
+    toast(/not found|No such file|cannot find/i.test(r.err || "") ? "rustfmt isn't installed (rustup component add rustfmt)." : "rustfmt couldn't format it: " + ((r.err || "").split("\n").find((l) => /error/i.test(l)) || "fix the syntax errors first."), 6000);
+    return null;
+  };
+});
 const formatterFor = (path, b) => (b && !b.ro ? formatters.map((f) => f(path, b)).find(Boolean) : null);
 /** The changes from `a` to `b` as small edits, so the cursor, bookmarks and folds stay where they were. */
 function smallChanges(a, b) {
@@ -2600,9 +2633,9 @@ function taskSteps(action, P = S.ctx) {
   }
   const nodeFile = () => {
     const b = S.bufs.get(S.active);
-    return b && !b.virtual && (b.lang === "javascript" || b.lang === "typescript") ? { label: "node " + base(S.active), program: "node", args: [base(S.active)], cwd: parent(S.active), input: true } : null;
+    return b && !b.virtual && (b.lang === "javascript" || b.lang === "typescript") ? { label: "node " + base(S.active), program: "node", args: [base(S.active), ...splitArgs(runOpts(parent(S.active)).args)], cwd: parent(S.active), input: true } : null;
   };
-  if (kind === "lua") return action === "run" ? [{ label: "lua " + base(S.active), program: settings.lua || "lua", args: [base(S.active)], cwd: parent(S.active), input: true }] : null;
+  if (kind === "lua") return action === "run" ? [{ label: "lua " + base(S.active), program: settings.lua || "lua", args: [base(S.active), ...splitArgs(runOpts(parent(S.active)).args)], cwd: parent(S.active), input: true }] : null;
   if (kind === "nodefile") return action === "run" ? [nodeFile()] : null;
   if (kind === "node") {
     const pm = P.pm || "npm", has = (n) => P.scripts?.includes(n);
@@ -2627,14 +2660,15 @@ function taskSteps(action, P = S.ctx) {
   const dotOpts = [...(D.config && D.config !== "Debug" ? ["-c", D.config] : []), ...(D.framework ? ["-f", D.framework] : [])];
   const dotBuild = { label: "dotnet build", program: "dotnet", args: ["build", ...(dotTarget ? [dotTarget] : []), "-nologo", "-clp:NoSummary", ...dotOpts], cwd };
   const runProj = D.startup || P.csproj;
+  const progArgs = splitArgs(runOpts(P.dir).args); // after --: the program's, not dotnet's or cargo's
   const dotRun = D.watch
     ? { label: "dotnet watch", program: "dotnet", args: ["watch", ...(runProj ? ["--project", runProj] : []), "run", ...dotOpts, ...(D.profile ? ["--launch-profile", D.profile] : [])], cwd, input: true }
-    : { label: "dotnet run", program: "dotnet", args: ["run", ...(runProj ? ["--project", runProj] : []), ...dotOpts, ...(D.profile ? ["--launch-profile", D.profile] : [])], cwd, input: true };
+    : { label: "dotnet run", program: "dotnet", args: ["run", ...(runProj ? ["--project", runProj] : []), ...dotOpts, ...(D.profile ? ["--launch-profile", D.profile] : []), ...(progArgs.length ? ["--", ...progArgs] : [])], cwd, input: true };
   const cargo = (sub, input) => ({ label: "cargo " + sub, program: "cargo", args: [sub], cwd, input });
   const godotPlay = (scene) => ({ label: scene ? "Play " + base(scene) : "Play", program: settings.godot, args: ["--path", cwd, ...(scene ? [scene] : [])], cwd, godot: true });
   const scene = S.active && /\.tscn$/i.test(S.active) && isUnder(S.active, cwd) ? "res://" + norm(S.active).slice(cwd.length + 1) : null;
   const T = {
-    rust: { run: [cargo("run", true)], build: [cargo("build")], check: [cargo("check")], test: [cargo("test", true)], lint: [cargo("clippy")] },
+    rust: { run: [{ ...cargo("run", true), args: ["run", ...(progArgs.length ? ["--", ...progArgs] : [])] }], build: [cargo("build")], check: [cargo("check")], test: [cargo("test", true)], lint: [cargo("clippy")] },
     dotnet: {
       run: runProj || !P.sln ? [dotRun] : null,
       build: [dotBuild], check: [dotBuild],
@@ -2751,7 +2785,7 @@ async function startStep(step) {
   S.runLabel = step.label;
   S.runDir = cwd;
   S.runInput = !!step.input;
-  const show = (a) => (a === cwd ? "." : isAbs(a) && isUnder(norm(a), cwd) ? norm(a).slice(cwd.length + 1) : a);
+  const show = (a) => { const t = a === cwd ? "." : isAbs(a) && isUnder(norm(a), cwd) ? norm(a).slice(cwd.length + 1) : a; return /\s/.test(t) || t === "" ? `"${t}"` : t; }; // as you'd type it
   const shown = `${step.godot ? base(norm(step.program)) : step.program} ${step.args.map(show).join(" ")}`;
   appendOut(`<span class="cmd">$ ${esc(shown)}${cwd && cwd !== S.root ? `   <span class="where">in ${esc(S.root && isUnder(cwd, S.root) ? rel(cwd) : cwd)}</span>` : ""}</span>`);
   renderStatus();
@@ -2813,6 +2847,21 @@ function onLine(line) {
 }
 // Other modules watching program output (build errors, "Now listening on: http://…").
 const outputHooks = [], taskDoneHooks = [];
+// cargo check / build / clippy / test / run: their errors and warnings go to Problems and the
+// editor, so Rust shows them even without rust-analyzer (its own, fresher list wins per file).
+let cargoRun = null, cargoDir = null;
+outputHooks.push((text, label, dir) => {
+  if (!/^cargo (check|build|clippy|test|run)\b/.test(label || "")) return;
+  if (!cargoRun) { cargoRun = cargoDiags(); cargoDir = dir; }
+  cargoRun.line(text);
+});
+taskDoneHooks.push((label) => {
+  if (!/^cargo (check|build|clippy|test|run)\b/.test(label || "") || !cargoRun) { cargoRun = null; return; }
+  const map = new Map();
+  for (const [rel, list] of cargoRun.take()) map.set(isAbs(rel) ? norm(rel) : norm(join(cargoDir || S.ctx?.dir || S.root, rel)), list);
+  cargoRun = null;
+  setBuildProblems(map);
+});
 listen("task-done", (e) => {
   if (e.payload.run !== S.run) return;
   const code = e.payload.run === S.stopped ? null : e.payload.code, secs = ((performance.now() - S.runStart) / 1000).toFixed(1);
@@ -2860,7 +2909,7 @@ function endInput() {
 }
 $("bEndInput").onclick = endInput;
 function focusInput() {
-  if (!S.running || !S.runInput) { toast("Nothing is running that reads input."); return; }
+  if (!S.running || !S.runInput) { toast(debug?.active ? "A program being debugged can't be typed to. Give it the lines it reads with “Run and Debug: arguments and input…” in the command palette, then debug again." : "Nothing is running that reads input.", 7000); return; }
   showPanel("output");
   $("stdinIn").focus();
 }
@@ -3491,6 +3540,7 @@ C("task.run", "Run / Play (Continue while debugging)", "F5", () => (debug?.pause
 C("task.stop", "Stop (the debugger, or the running task)", "Shift+F5", () => (debug?.active ? debug.stop() : stopTask()));
 C("task.build", "Build", "Ctrl+Shift+B", () => runAction("build"));
 C("task.test", "Run tests", "Ctrl+Alt+T", () => runAction("test"));
+C("run.options", "Run and Debug: arguments and input for the program…", [], editRunOpts, { alias: "args argv command line parameters stdin input debug" });
 C("task.check", "Check for mistakes (cargo check, lust check, or the project's lint)", "Ctrl+Alt+C", () => runAction("check"));
 C("task.lint", "Clippy (Rust)", [], () => runAction("lint"));
 C("app.update", "Check for updates", [], () => updater?.check()?.catch(() => {}));
@@ -4025,7 +4075,7 @@ const app = {
   showPanel, focusPanel, focusZone, currentZone, showSideView, sideViews, get sideView() { return sideView; },
   openFile, openVirtual, activate, addTab, keepTab, save, saveAll, startSteps, appendOut, renderTabs, renderMain, renderStatus, scheduleUi,
   dispatchBuf, serverOf, needServer, syncDoc, renderMd, hl, norm, rel, base, parent, join, isUnder, isAbs, esc, splitArgs,
-  importInto, lspHooks, dotnetHooks, outputHooks, taskDoneHooks, setBuildProblems, highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
+  importInto, runOpts, splitArgs, lspHooks, dotnetHooks, outputHooks, taskDoneHooks, setBuildProblems, highlightInto, loadFiles, fileIcon: (p) => (fileIcons() ? iconHtml(p) : '<span class="dot"></span>'), pages, palModes, extraExt, folderHooks, editorTheme: theme, renderTreeSoon: scheduleUi, showMenu, reloadClean, refreshTree, activeHooks, saveHooks, readyHooks, applyWorkspaceEdit, closeInfo, setInfo: showInfoAt, bufListeners, decorationCopiers, focusListeners, settingHooks, statusItems: [], scrollMarks: [], openers,
   cwd: () => S.ctx?.dir || S.root || "",
   trusted: () => trusted(),
   setProblems, taskSteps, handleArgs, setTrust, reconfigureExtras, checkUpdate: () => updater?.check(),
