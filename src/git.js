@@ -349,6 +349,60 @@ export function initGit(app) {
   });
   app.openDiff = openDiff;
 
+  // ---------- Add to .gitignore (explorer right-click) ----------
+  /** A .gitignore line that matches exactly this path: anchored at the top, folders ending in /,
+   *  and the characters .gitignore treats specially escaped. */
+  const ignoreLine = (rel, isDir) => "/" + rel.replace(/[\\*?[\]!#]/g, (c) => "\\" + c).replace(/ $/, "\\ ") + (isDir ? "/" : "");
+  app.ignoreLine = ignoreLine;
+  /** Adds a path, or a pattern like *.mp3, to the repository's .gitignore (the open folder's when
+   *  it isn't a repository yet). A tracked file is still tracked after that, so Ledger offers to
+   *  stop tracking it too; the file itself stays where it is. */
+  async function addToGitignore(path, isDir, pattern = null) {
+    await refresh();
+    const top = G.root || S.root;
+    if (!top || !app.isUnder(path, top)) { app.toast("That isn't inside this folder."); return; }
+    const rel = path.slice(top.length + 1);
+    const line = pattern || ignoreLine(rel, isDir);
+    const file = top + "/.gitignore";
+    const b = S.bufs.get(file);
+    let text = b ? b.state.doc.toString() : "";
+    if (!b) { try { text = await invoke("read_file", { path: file }); } catch { text = ""; } }
+    if (text.split(/\r?\n/).some((l) => l.trim() === line)) { app.toast(`${line} is already in .gitignore.`); return; }
+    // Ignored already by a broader rule, so a new line would change nothing.
+    if (!pattern && G.ok) {
+      const r = await git(["check-ignore", "-v", "--", rel]).catch(() => null);
+      if (r?.code === 0) { const src = r.out.split("\t")[0]; app.toast(`${app.base(path)} is already ignored (${src.replace(/^\.gitignore:/, ".gitignore line ").replace(/:([^:]*)$/, ": $1")}).`, 5000); return; }
+    }
+    const nl = /\r\n/.test(text) ? "\r\n" : "\n";
+    const add = (text && !/\n$/.test(text) ? nl : "") + line + nl;
+    try {
+      if (b) {
+        app.dispatchBuf(file, { changes: { from: b.state.doc.length, insert: add.replace(/\r\n/g, "\n") } });
+        await app.save(file);
+      } else await invoke("write_file", { path: file, contents: text + add });
+    } catch (e) { app.toast("Couldn't write .gitignore: " + e); return; }
+    // Already in Git: ignoring doesn't stop it being tracked.
+    let untracked = "";
+    if (G.ok) {
+      const args = pattern ? ["ls-files", "-ci", "--exclude-standard"] : ["ls-files", "--", rel];
+      const t = await git(args).catch(() => null);
+      const tracked = (t?.code === 0 ? t.out.split("\n").filter(Boolean) : []);
+      if (tracked.length) {
+        const what = pattern ? `${tracked.length} file${tracked.length === 1 ? "" : "s"} matching ${line} ${tracked.length === 1 ? "is" : "are"}` : `${app.base(path)} ${isDir ? "has files that are" : "is"}`;
+        const c = await app.choose(`${what} already in Git, so Git keeps tracking changes to ${tracked.length === 1 && !isDir ? "it" : "them"}. Stop tracking ${tracked.length === 1 && !isDir ? "it" : "them"}? ${tracked.length === 1 && !isDir ? "The file stays" : "The files stay"} on your disk; the next commit takes ${tracked.length === 1 && !isDir ? "it" : "them"} out of the repository.`, ["Stop tracking", "Keep tracking"]);
+        if (c === "Stop tracking") {
+          const r = await git(["rm", "-r", "--cached", "--quiet", "--", ...(pattern ? tracked : [rel])]).catch((e) => ({ code: 1, err: String(e) }));
+          untracked = r.code === 0 ? " and stopped tracking it" + (tracked.length === 1 ? "" : ` (${tracked.length} files)`) : "";
+          if (r.code !== 0) app.toast("Couldn't stop tracking: " + (r.err || r.out || "").trim(), 6000);
+        }
+      }
+    }
+    await refresh();
+    app.renderTreeSoon?.();
+    app.toast(`Added ${line} to .gitignore${untracked}.${G.ok ? "" : " (This folder isn't a Git repository yet; it applies once it is.)"}`, 4000);
+  }
+  app.addToGitignore = addToGitignore;
+
   // ---------- source control view ----------
   let rowsSeq = 0;
   function render() {
