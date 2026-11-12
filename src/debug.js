@@ -11,7 +11,9 @@ if (import.meta.env.VITE_TEST) import("./win.js").then(({ winLabel }) => {
   let last = null; // the script already there at startup is not re-run
   setInterval(async () => {
     let src = "";
-    try { src = await invoke("read_file", { path: `/tmp/ledger-eval-${winLabel}.js` }); } catch { if (last === null) last = ""; return; }
+    // Several Ledgers side by side: each also reads /tmp/ledger-eval-<window>-<folder name>.js.
+    const root = window.__app?.S?.root, mine = root ? `/tmp/ledger-eval-${winLabel}-${root.split("/").pop()}.js` : null;
+    try { src = await invoke("read_file", { path: mine || `/tmp/ledger-eval-${winLabel}.js` }); } catch { if (last === null) last = ""; return; }
     if (last === null) { last = src; return; }
     if (src === last) return;
     last = src;
