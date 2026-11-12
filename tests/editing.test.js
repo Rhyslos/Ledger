@@ -153,3 +153,11 @@ test("Go Live runs the dev server for Vite and friends, and serves plain sites i
   assert.ok(!needsDevServer({ dependencies: { express: "5" } }));
   assert.ok(!needsDevServer(null));
 });
+
+test("Qwik projects install Vite 7, which Qwik supports (the template asks for 8)", () => {
+  const steps = createSteps({ kind: "vite", template: "qwik", ts: true, tailwind: false, name: "q", dir: "/x" });
+  assert.deepEqual(steps[1].args, ["install", "--save-dev", "vite@^7"]);
+  const tw = createSteps({ kind: "vite", template: "qwik", ts: true, tailwind: true, name: "q", dir: "/x" });
+  assert.deepEqual(tw[1].args, ["install", "--save-dev", "vite@^7", "tailwindcss", "@tailwindcss/vite"]);
+  assert.deepEqual(createSteps({ kind: "vite", template: "react", ts: true, tailwind: false, name: "r", dir: "/x" })[1].args, ["install"]);
+});

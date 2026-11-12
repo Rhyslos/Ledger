@@ -34,3 +34,14 @@ test("a dev server's address stays one link when its port is coloured differentl
   // Colours after the address carry on as before.
   assert.match(ansiToHtml("\x1b[36mhttp://localhost:\x1b[1m3000\x1b[22m\x1b[39m ready \x1b[31mred\x1b[39m"), /<\/a><\/span> ready <span class="a-31">red<\/span>/);
 });
+
+test("TypeScript and Vitest locations are clickable even when their parts are coloured apart", () => {
+  const tsc = ansiToHtml("\x1b[96msrc/main.ts\x1b[0m:\x1b[93m3\x1b[0m:\x1b[93m7\x1b[0m - \x1b[91merror\x1b[0m TS2322");
+  assert.match(tsc, /<a data-file="src\/main\.ts" data-line="3" data-col="7"[^>]*>src\/main\.ts:3:7<\/a>/);
+  assert.match(tsc, /<span class="a-91">error<\/span>/);
+  assert.match(ansiToHtml(" \x1b[31m❯\x1b[39m src/a.test.ts\x1b[2m:\x1b[22m\x1b[2m12:5\x1b[22m"), /data-file="src\/a\.test\.ts" data-line="12" data-col="5"/);
+  // tsc without colours: src/main.ts(3,7): error TS…
+  assert.match(ansiToHtml("src/main.ts(3,7): error TS2322: Type"), /data-file="src\/main\.ts" data-line="3" data-col="7"/);
+  // Ordinary coloured words are left alone.
+  assert.equal(ansiToHtml("\x1b[1m\x1b[31mBold\x1b[39m text\x1b[22m"), '<span class="a-b a-31">Bold</span><span class="a-b"> text</span>');
+});

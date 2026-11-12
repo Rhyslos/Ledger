@@ -1109,6 +1109,12 @@ fn file_stats(paths: Vec<String>) -> Vec<Option<f64>> {
         .collect()
 }
 
+/// Each file's size in bytes (null when it's missing): the media tab shows it for files it streams.
+#[tauri::command(async)]
+fn file_sizes(paths: Vec<String>) -> Vec<Option<u64>> {
+    paths.iter().map(|p| std::fs::metadata(p).ok().map(|m| m.len())).collect()
+}
+
 /// "dir", "file", or "" (missing) for each path: what was dropped on the window.
 #[tauri::command(async)]
 fn file_kinds(paths: Vec<String>) -> Vec<&'static str> {
@@ -2929,6 +2935,7 @@ pub fn run() {
             search_text,
             file_stats,
             file_kinds,
+            file_sizes,
             run_task,
             task_stop,
             task_input,
