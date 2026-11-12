@@ -17,6 +17,7 @@ import { initTodo } from "./todo.js";
 import { initCsv } from "./csv.js";
 import { initHex } from "./hex.js";
 import { initMedia } from "./media.js";
+import { initThread } from "./thread.js";
 import { initHistory } from "./history.js";
 import { initSearch } from "./search.js";
 import { initEditCommands } from "./editcmds.js";
@@ -2008,6 +2009,8 @@ function treeMenu(p, isDir, x, y) {
   if (p) items.push("-", { label: "Cut", hint: "Ctrl X", run: () => clipTree(p, true) }, { label: "Copy", hint: "Ctrl C", run: () => clipTree(p, false) });
   if (treeClip) items.push({ label: `Paste ${base(treeClip.path)}`, hint: "Ctrl V", run: () => pasteTree(dirOf) });
   if (p) items.push({ label: "Duplicate", run: () => duplicatePath(p) }, "-", { label: "Rename…", hint: "F2", run: () => renamePath(p) }, { label: "Move to Recycle Bin", hint: "Delete", danger: true, run: () => deletePath(p) }, "-",
+    { label: "Add to .gitignore", run: () => app.addToGitignore?.(p, isDir) },
+    ...(!isDir && /\.[^./]+$/.test(base(p)) && !/^\.[^.]+$/.test(base(p)) ? [{ label: `Add all *${base(p).match(/\.[^.]+$/)[0]} files to .gitignore`, run: () => app.addToGitignore?.(p, false, "*" + base(p).match(/\.[^.]+$/)[0]) }] : []), "-",
     { label: "Copy path", run: () => copy(/^[A-Za-z]:/.test(p) ? p.replace(/\//g, "\\") : p) }, { label: "Copy relative path", run: () => copy(rel(p)) },
     { label: "Show in File Explorer", run: () => revealItemInDir(p).catch((e) => toast(String(e))) });
   else items.push("-", { label: "Refresh", run: refreshTree });
@@ -2365,7 +2368,7 @@ function renderWelcome() {
     <section><h2>Getting around</h2><div class="keys">${[
       ["settings.open", "Settings"], ["file.goto", "Go to file"], ["palette", "All commands and their keys"], ["focus.next", "Move between explorer, editor, panel and status bar"],
       ["focus.explorer", "Explorer: arrows, Enter, F2 rename, Delete"], ["task.run", "Run, or Play in Godot projects"], ["task.build", "Build"], ["problems.next", "Next problem"],
-      ["editor.definition", "Go to definition"], ["editor.references", "Find all references"], ["editor.info", "Show info at the cursor"], ["editor.actions", "Quick fixes"], ["nav.back", "Go back"],
+      ["editor.definition", "Go to definition"], ["editor.references", "Find all references"], ["nav.redThread", "Red Thread: follow where it's used"], ["editor.info", "Show info at the cursor"], ["editor.actions", "Quick fixes"], ["nav.back", "Go back"],
       ["debug.toggleBreakpoint", "Breakpoint on this line"], ["debug.start", "Start debugging"], ["terminal.toggle", "Terminal"], ["git.view", "Source control (Git)"], ["outline.show", "Outline of this file"], ["editor.split", "Split the editor"], ["window.new", "New window"],
     ].map(([id, d]) => `<kbd>${k(id) || "none"}</kbd><span>${d}</span>`).join("")}</div></section>
   </div>`;
@@ -4081,6 +4084,7 @@ async function boot() {
   initCsv(app);
   initHex(app);
   initMedia(app);
+  initThread(app);
   initDrops();
   outputHooks.push(devLiveHook);
   initHistory(app);
