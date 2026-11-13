@@ -23,8 +23,8 @@ export const PIECES = {
   key: { doc: "A keyboard shortcut: its block runs when the keys are pressed, while it's in the view. Ctrl is Cmd on a Mac.", example: "key \"ctrl+s\" { save(); }" },
   textarea: { doc: "A text box with several lines, bound to a string field. Enter starts a new line; enter { } runs on Ctrl+Enter.", example: "textarea notes [height 160];" },
   dropdown: { doc: "Shows what's chosen and opens a list to choose from: a state's options, or a list of text after in.", example: "dropdown size in [\"Small\", \"Large\"];" },
-  menu: { doc: "A word that opens a list of items. A row of menus makes a menu bar.", example: "menu \"File\" { item \"Open\" { … } }" },
-  item: { doc: "A row of a menu: its block runs when it's chosen.", example: "item \"Save\" [disabled saved] { save(); }" },
+  menu: { doc: "A word that opens a list of items. A row of menus makes a menu bar. With no name, written right after a piece, it's that piece's right-click menu.", example: "menu \"File\" { item \"Open\" { … } }" },
+  item: { doc: "A row of a menu (or a tray's menu): its block runs when it's chosen.", example: "item \"Save\" [disabled saved] { save(); }" },
   divider: { doc: "A line between a menu's items.", example: "divider;" },
   dialog: { doc: "Pops up in the middle of the window while its bool is true. Escape or a click outside closes it.", example: "dialog confirming { … }" },
   grid: { doc: "Puts pieces in columns, then onto the next row, like cards. columns 3, or cell 180 to fit as many as there's room for.", example: "grid [cell 180] { … }" },
@@ -37,10 +37,22 @@ export const PIECES = {
   box: { doc: "A rectangle in a canvas. A colour word fills it; a { } runs when it's clicked.", example: "box [x 10, y 20, width 40, height 60, blue];" },
   circle: { doc: "A circle in a canvas, around x and y.", example: "circle [x 150, y 60, radius 20, red];" },
   line: { doc: "A line in a canvas, from x, y to toX, toY.", example: "line [x 0, y 100, toX 300, toY 20, thick 2];" },
+  switch: { doc: "An on and off switch for a bool field, for settings that take effect straight away. Words after the field go beside it.", example: "switch sound \"Sound\";" },
+  radio: { doc: "Every choice at once, each with a round button: a state's options, or a list of text after in.", example: "radio size;" },
+  number: { doc: "A box for an int or a float, with up and down arrows. The field only ever holds a number that fits min and max.", example: "number count [min 0, max 99, step 1];" },
+  icon: { doc: "A small picture from Lust's own icon set, in the text's colour, sharp at any size.", example: "icon \"star\" [size 18, yellow6];" },
+  table: { doc: "A row for each item, in columns with a header each. Click a header to sort; drag its edge to resize. Only the rows on screen are made, so 100,000 rows stay quick. open { } runs on double-click or Enter.", example: "table (Person p in people) [select chosen] { column \"Name\" p.name; }" },
+  list: { doc: "A long scrolling column of same-height rows, made only while they're on screen.", example: "list (Item i in items) [rowHeight 32] { text i.name; }" },
+  datePicker: { doc: "A box for a date, bound to a string like \"2026-11-13\", with a calendar that opens below it. Weeks start on Monday.", example: "datePicker due [placeholder \"When?\"];" },
+  colourPicker: { doc: "A button showing a colour field, opening a picker with a colour square, a hue strip, a hex box and swatches.", example: "colourPicker tint [alpha];" },
+  window: { doc: "A real second window, open while its bool is true. It shares the program's data. Takes no room where it's written.", example: "window showingSettings [title \"Settings\"] { … }" },
+  drop: { doc: "Runs when files are dropped on the window, given their paths. Takes no room.", example: "drop (string array paths) { … }" },
+  toast: { doc: "A statement, not a piece: written in a block a view runs, it shows a small message in the window's corner that fades after about 4 seconds.", example: "toast \"Saved\" [green, icon \"check\"];" },
+  tray: { doc: "An icon in the Windows tray, with a menu of items. click { } runs on a left click. Does nothing on other systems.", example: "tray [icon \"bell\", tip \"Notes\"] { item \"Quit\" { App:quit(); } }" },
 };
 
 // The view itself: its [ ] is the window's settings.
-export const VIEW = { doc: "What the screen shows. Its [ ] holds the window's settings: title, width, height, minWidth, minHeight and background.", example: "view [title \"To do\", width 420, height 600] { … }" };
+export const VIEW = { doc: "What the screen shows. Its [ ] holds the window's settings: title, width, height, minWidth, minHeight, background, dark, font, fullscreen and visible. close { } after it runs instead of ending the program when the X is clicked.", example: "view [title \"To do\", width 420, height 600] { … }" };
 
 // ----- styles -----
 // Each style word:
@@ -125,10 +137,30 @@ export const STYLES = [
   { name: "toY", takes: "number", on: "line", doc: "Where a line goes to, from the top.", example: "line [x 0, y 0, toX 100, toY 50]" },
   { name: "radius", takes: "number", on: "circle", doc: "How big a circle is, from its middle to its edge.", example: "circle [x 50, y 50, radius 20]" },
   { name: "thick", takes: "number", on: "line", doc: "How thick a line is.", example: "thick 2" },
+  // tables and lists
+  { name: "select", takes: "text", on: "table list", doc: "The field that holds the picked row: the item itself, or its key for a cMap or database table.", example: "select chosen" },
+  { name: "rowHeight", takes: "number", on: "table list", doc: "How tall every row is.", example: "rowHeight 32" },
+  { name: "stripes", takes: "none", on: "table", doc: "Every other row a little darker, to follow rows across.", example: "table (…) [stripes]" },
+  { name: "reorder", takes: "none", on: "table list", doc: "Rows can be dragged to new places (and moved with Alt+Up and Alt+Down); the array is reordered too.", example: "list (…) [reorder]" },
+  { name: "sort", takes: "text", on: "column", doc: "What a column of pieces sorts by when its header is clicked.", example: "column \"\" [sort p.age] { … }" },
+  // number boxes, date and colour pickers, radios, icons
+  { name: "min", takes: "number text", on: "number datePicker", doc: "The lowest number, or the earliest date, that can be chosen.", example: "min 0, min \"2026-01-01\"" },
+  { name: "max", takes: "number text", on: "number datePicker", doc: "The highest number, or the latest date, that can be chosen.", example: "max 99, max \"2026-12-31\"" },
+  { name: "alpha", takes: "none", on: "colourPicker", doc: "Adds a strip for how see-through the colour is.", example: "colourPicker glass [alpha]" },
+  { name: "swatches", takes: "text", on: "colourPicker", doc: "The ready-made colours to choose from, instead of Lust's own.", example: "swatches [brand, accent]" },
+  { name: "across", takes: "none", on: "radio", doc: "Puts the choices side by side instead of one under another.", example: "radio size [across]" },
+  { name: "icon", takes: "text", on: "button toast tray", doc: "An icon from Lust's own set, on a button, a toast or the tray.", example: "button \"Delete\" [icon \"trash\"]" },
+  { name: "picture", takes: "text", on: "tray", doc: "A picture file for the tray icon, instead of one of Lust's icons.", example: "picture \"tray.png\"" },
+  { name: "seconds", takes: "number", on: "toast", doc: "How long a toast stays before it fades.", example: "seconds 8" },
+  // screen readers
+  { name: "label", takes: "text", on: "pieces", doc: "What a screen reader says for the piece, for icon-only buttons and pictures.", example: "label \"Delete the note\"" },
   // off
   { name: "disabled", takes: "none bool", on: "pieces", doc: "Greys the piece out and stops it being clicked, typed in or reached with Tab.", example: "disabled, disabled name == \"\"" },
   // the window
-  { name: "title", takes: "text", on: "view", doc: "The window's title.", example: "title \"To do\"" },
+  { name: "title", takes: "text", on: "view window", doc: "The window's title.", example: "title \"To do\"" },
+  { name: "fullscreen", takes: "bool", on: "view window", doc: "Fills the screen with no edges while the bool is true. Add key \"f11\" to switch it.", example: "fullscreen isFull" },
+  { name: "visible", takes: "bool", on: "view", doc: "False hides the main window without ending the program, for a tray app.", example: "visible shown" },
+  { name: "escape", takes: "none", on: "window", doc: "Escape closes this second window.", example: "window help [escape]" },
 ];
 
 // ----- colours -----
@@ -162,7 +194,7 @@ export function fits(s, kind, piece) {
   const on = onList(s);
   if (kind === "view") return on.includes("view");
   if (on.includes("pieces")) return true;
-  if (kind === "style") return !on.every((p) => p === "view"); // a named style can be for any piece
+  if (kind === "style") return !on.every((p) => p === "view" || p === "window"); // a named style can be for any piece, not a window
   return kind === "piece" && on.includes(piece);
 }
 
