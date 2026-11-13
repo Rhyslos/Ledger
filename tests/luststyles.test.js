@@ -21,8 +21,8 @@ test("the table is complete and consistent", () => {
     assert.ok(s.doc && s.example, s.name + " has a doc and an example");
   }
   // Every word Lust knows today (LUST.md section 17, check.rs check_styles).
-  for (const w of "pad padX padY padTop padRight padBottom padLeft gap width height grow minWidth maxWidth minHeight maxHeight size tiny small large huge weight bold muted strike nowrap color background subtle round pill border borderWidth shadow opacity left center right top middle bottom spread hover placeholder from to step cover disabled title tip dark font animate columns cell down open x y toX toY radius thick".split(" ")) assert.ok(STYLE[w], w);
-  for (const p of "column row stack scroll space text button input textarea checkbox slider image every key dropdown menu item divider dialog grid split tabs tab branch progress canvas box circle line".split(" ")) assert.ok(PIECES[p], p);
+  for (const w of "pad padX padY padTop padRight padBottom padLeft gap width height grow minWidth maxWidth minHeight maxHeight size tiny small large huge weight bold muted strike nowrap color background subtle round pill border borderWidth shadow opacity left center right top middle bottom spread hover placeholder from to step cover disabled title tip dark font animate columns cell down open x y toX toY radius thick select rowHeight stripes reorder sort min max alpha swatches across icon picture seconds label fullscreen visible escape".split(" ")) assert.ok(STYLE[w], w);
+  for (const p of "column row stack scroll space text button input textarea checkbox slider image every key dropdown menu item divider dialog grid split tabs tab branch progress canvas box circle line switch radio number icon table list datePicker colourPicker window drop tray toast".split(" ")) assert.ok(PIECES[p], p);
   assert.equal(Object.keys(COLOURS).length, 2 + 9 + 9 + 9 * 9);
   for (const hex of Object.values(COLOURS)) assert.match(hex, /^#[0-9a-f]{6}$/);
   assert.equal(COLOURS.blue7, "#1c7ed6");
@@ -74,7 +74,7 @@ test("inside a piece's [ ]", () => {
 test("the window's [ ] has only the window's settings", () => {
   const c = cx('view [title "Hi", |');
   assert.equal(c.kind, "view");
-  assert.deepEqual(labels('view [title "Hi", |').sort(), ["background", "dark", "font", "height", "minHeight", "minWidth", "title", "width"]);
+  assert.deepEqual(labels('view [title "Hi", |').sort(), ["background", "dark", "font", "fullscreen", "height", "minHeight", "minWidth", "title", "visible", "width"]);
   assert.ok(!labels("view [|").includes("blue")); // no colour words on their own
   assert.ok(!labels("column [|").includes("title"));
 });
@@ -94,6 +94,16 @@ test("piece-only words go only on their piece", () => {
     for (const w of ["pad", "gap", "round", "background", "hover", "disabled", "blue", "gray3"]) assert.ok(l.includes(w), `${w} in ${src}`);
     assert.ok(!l.includes("title"), "no title in " + src);
   }
+  // the new pieces' own words
+  for (const w of ["select", "rowHeight", "stripes", "reorder"]) assert.ok(labels("table (Person p in people) [|").includes(w), w);
+  assert.ok(labels("list (Item i in items) [|").includes("rowHeight"));
+  assert.ok(!labels("row [|").includes("stripes"));
+  assert.ok(labels("number count [|").includes("min"));
+  assert.ok(labels("datePicker due [|").includes("max"));
+  assert.ok(labels("colourPicker tint [|").includes("alpha"));
+  assert.ok(labels("radio size [|").includes("across"));
+  for (const w of ["title", "fullscreen", "escape"]) assert.ok(labels("window help [|").includes(w), w);
+  assert.ok(labels("text name [|").includes("label"));
   // a named style can be for any piece
   assert.ok(labels("style field = [|").includes("placeholder"));
   assert.ok(!labels("TodoRow [|").includes("placeholder"));

@@ -130,11 +130,15 @@ const godotResource = {
 // In a view, the pieces of the screen (column, text, button…) share the classes' blue, since your own
 // pieces are classes too, and the style words in [ ] are muted like types.
 const LUST_CONTROL = "is then or either check when loop stop skip return try error like keep enter send on tween";
+// Blocks written after a piece, like enter { }: open { } on a table's row, menu { } for right-clicks,
+// a canvas's press, drag, release and hover, the view's close { } and a tray's click { }.
+// Coloured as flow only when a block or ( ) follows, so fields with these names stay plain.
+const LUST_ATTACHED = "open menu press drag release hover close click";
 const LUST_DEFINE = "class object node assembly component event schema database route method hook has new create lock";
 const LUST_MODULE = "fetch get pass end save load saved lua view style native";
 const LUST_TYPES = "int int8 int16 int32 uint8 uint16 uint32 float string bool array cMap map vec2 vec3 rotation colour entity";
 const LUST_BUILTINS = "print wait ask";
-const LUST_OBJECTS = "Maths Files Time Json Web Random Colour Rotation Ease";
+const LUST_OBJECTS = "Maths Files Time Json Web Random Colour Rotation Ease App";
 // The pieces of a view, its style words and its colours live in luststyles.js, with their explanations.
 const LUST_PIECES = Object.keys(PIECES).join(" ");
 const LUST_STYLES = [...STYLES.map((s) => s.name), "fill"].join(" ");
@@ -148,6 +152,7 @@ const LUST_LIB = {
   Colour: ["hex(text)"],
   Rotation: ["toward(direction)", "around(axis, degrees)"],
   Ease: ["apply(ease, t)"],
+  App: ["quit()", "notify(title, body)"],
   Files: ["read(path)", "write(path, text)", "append(path, text)", "exists(path)", "remove(path)", "list(folder)", "makeFolder(path)", "chooseOpen(title, types)", "chooseSave(title, name)", "chooseFolder(title)"],
   Time: ["now()", "clock()", "date()", "time()", "addDays(date, n)", "daysBetween(from, to)", "weekday(date)", "isDate(text)"],
   Json: ["write(value)", "pretty(value)", "read(text)"],
@@ -174,7 +179,7 @@ function lustMembers(ctx) {
   return { from: val.from + at + 1, options: val.text[at] === "." ? CONVERT_OPTIONS : VALUE_OPTIONS, validFor: /^\w*$/ };
 }
 
-const LK = { control: lustSet(LUST_CONTROL), define: lustSet(LUST_DEFINE), module: lustSet(LUST_MODULE), types: lustSet(LUST_TYPES), builtins: lustSet(LUST_BUILTINS), objects: lustSet(LUST_OBJECTS), pieces: lustSet(LUST_PIECES) };
+const LK = { control: lustSet(LUST_CONTROL), define: lustSet(LUST_DEFINE), module: lustSet(LUST_MODULE), types: lustSet(LUST_TYPES), builtins: lustSet(LUST_BUILTINS), objects: lustSet(LUST_OBJECTS), pieces: lustSet(LUST_PIECES), attached: lustSet(LUST_ATTACHED) };
 
 const LT = {
   structure: Tag.define(),  // class object node state has method hook new fetch get pass end …
@@ -262,6 +267,7 @@ const lustMode = {
       // A route's get, post, put and delete, and get "file":thing, are followed by a path.
       if (["get", "post", "put", "delete"].includes(word) && stream.match(/^\s*"/, false)) return "lustStructure";
       if (LK.control.has(word)) return "lustFlow";
+      if (LK.attached.has(word) && stream.match(/^\s*[{(]/, false)) return "lustFlow";
       if (LK.define.has(word)) {
         st.def = word === "class" || word === "schema" ? "type" : ["object", "node", "assembly", "database"].includes(word) ? "obj" : word === "method" ? "fn" : null;
         return "lustStructure";
@@ -367,6 +373,19 @@ const lustCompletions = completeFromList([
   snip("input ${name} [placeholder \"${Your name}\"];", { label: "input", detail: "a text box bound to a field", type: "keyword" }),
   snip("checkbox ${done};", { label: "checkbox", detail: "ticks a bool field", type: "keyword" }),
   snip("slider ${volume} [from ${0}, to ${100}];", { label: "slider", detail: "drags a number field", type: "keyword" }),
+  snip("switch ${sound} \"${Sound}\";", { label: "switch", detail: "an on and off switch for a bool field", type: "keyword" }),
+  snip("radio ${size};", { label: "radio", detail: "every choice at once, one picked", type: "keyword" }),
+  snip("number ${count} [min ${0}, max ${99}, step ${1}];", { label: "number", detail: "a box for an int or float, with arrows", type: "keyword" }),
+  snip("icon \"${star}\" [size ${18}];", { label: "icon", detail: "a small picture from Lust's own set", type: "keyword" }),
+  snip("table (${Person} ${p} in ${people}) [select ${chosen}, height ${300}] {\n\tcolumn \"${Name}\" ${p.name};\n\tcolumn \"${Age}\" ${p.age};\n} open {\n\t${}\n}", { label: "table", detail: "rows in sortable columns, quick with 100k rows", type: "keyword" }),
+  snip("list (${Item} ${i} in ${items}) [rowHeight ${32}, select ${chosen}] {\n\ttext ${i.name};\n}", { label: "list", detail: "a long scrolling list, quick with 100k rows", type: "keyword" }),
+  snip("datePicker ${due} [placeholder \"${When?}\"];", { label: "datePicker", detail: "a box and calendar for a date string", type: "keyword" }),
+  snip("colourPicker ${tint};", { label: "colourPicker", detail: "chooses a colour field", type: "keyword" }),
+  snip("window ${showingSettings} [title \"${Settings}\", width ${400}, height ${300}] {\n\t${}\n}", { label: "window", detail: "a second window, open while the bool is true", type: "keyword" }),
+  snip("drop (string array ${paths}) {\n\t${}\n}", { label: "drop", detail: "files dropped on the window", type: "keyword" }),
+  snip("tray [icon \"${bell}\", tip \"${My app}\"] {\n\titem \"${Show}\" { ${shown = true;} }\n\titem \"Quit\" { App:quit(); }\n} click {\n\t${}\n}", { label: "tray", detail: "an icon in the Windows tray (Windows only)", type: "keyword" }),
+  snip("toast \"${Saved}\";", { label: "toast", detail: "a small message that fades", type: "keyword" }),
+  snip("menu {\n\titem \"${Delete}\" { ${} }\n}", { label: "menu (right-click)", detail: "written right after a piece", type: "keyword" }),
   snip("image \"${picture.png}\" [width ${120}];", { label: "image", detail: "a PNG or JPEG", type: "keyword" }),
   snip("every ${1.0} {\n\t${}\n}", { label: "every", detail: "runs again and again while shown", type: "keyword" }),
   snip("style ${card} = [${pad 16, round, shadow}];", { label: "style", detail: "a named set of styles", type: "keyword" }),
