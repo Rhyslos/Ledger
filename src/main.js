@@ -53,7 +53,7 @@ import { Lsp, norm, uriToPath, pathToUri, toOffset, toPos, severity, unsnippet, 
 import { ansiToHtml, esc } from "./ansi.js";
 import { LANGS, langOf, dotOf, fenceLanguage } from "./langs.js";
 import { Keymap, keyString } from "./keys.js";
-import { settings, DEFAULTS, loadSettings, setSetting, initSettings, settingsHtml, applySettingsFind, wireSettings, isRecording, refreshSettingsTools, openInBrowser, INSTALLS, INSTALL_FOR, installTool } from "./settings.js";
+import { settings, DEFAULTS, loadSettings, setSetting, initSettings, settingsHtml, applySettingsFind, wireSettings, isRecording, refreshSettingsTools, openInBrowser, browserApp, INSTALLS, INSTALL_FOR, installTool } from "./settings.js";
 import { APP_NAME } from "./app.js";
 import { bracketColors, indentGuides, stickyScroll } from "./editorx.js";
 import { followBottom } from "./follow.js";
@@ -3656,6 +3656,14 @@ C("app.update", "Check for updates", [], () => updater?.check()?.catch(() => {})
 C("panel.dock", "Move the panel (terminal, output) to the right or the bottom", [], togglePanelDock);
 C("lust.lua", "Lust: show the Lua this file turns into", [], () => runAction("lua"));
 C("lust.rust", "Lust: show the Rust this file turns into (.lst)", [], () => runAction("rust"));
+// The guides open in the browser (they're carried inside Ledger, so they work offline).
+const GUIDE_NAMES = { lust: "Lust language guide", ledger: "Ledger user guide" };
+async function openGuide(name) {
+  try { await invoke("open_guide", { name, browser: browserApp() || null }); toast(`The ${GUIDE_NAMES[name]} is opening in your browser.`); }
+  catch (e) { toast(`Couldn't open the ${GUIDE_NAMES[name]}: ${e}`, 6000); }
+}
+C("docs.lust", "Docs: Lust language guide (in your browser)", [], () => openGuide("lust"), { alias: "help manual reference syntax documentation guide rulebook how lust" });
+C("docs.ledger", "Docs: Ledger user guide (in your browser)", [], () => openGuide("ledger"), { alias: "help manual documentation guide shortcuts keys how" });
 C("view.zen", "Toggle zen mode (just the editor, full screen)", "Ctrl+Alt+Z", toggleZen);
 C("big.end", "Big file: show the end (read-only)", [], () => { const b = S.bufs.get(S.active); if (b?.bigPath) openBig(b.bigPath, true); else toast("This is for files too big to edit: open one and choose “Read it”."); }, { alias: "log tail last lines" });
 C("big.start", "Big file: show the start (read-only)", [], () => { const b = S.bufs.get(S.active); if (b?.bigPath) openBig(b.bigPath, false); else toast("This is for files too big to edit: open one and choose “Read it”."); }, { alias: "log head first lines" });

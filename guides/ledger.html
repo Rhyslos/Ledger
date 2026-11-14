@@ -1,0 +1,569 @@
+<section class="chapter" id="welcome">
+<h1><span class="logo" aria-hidden="true"></span>Ledger User Guide</h1>
+<p class="lead">Ledger is a code editor for Rust, C#, Godot, web projects, Lua and Lust. This guide walks through every part of it, with the keys for each. Everything in Ledger can be done from the keyboard.</p>
+<p>Use the search box at the top (press <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd>) to find anything, or pick a chapter on the left. Every heading has its own link: point at it and click the hash sign beside it to copy where it is.</p>
+<div class="note">
+<p><strong>Ledger has no AI in it, and never will.</strong> No assistant, no chat panel, no generated code, nothing sent off to a model. What's in your files is what you wrote.</p>
+</div>
+<p>To open this guide again, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong>. The <a href="lust.html#welcome">Lust language guide</a> opens the same way.</p>
+
+<h3 id="the-short-version">The short version</h3>
+<ol class="steps">
+<li>Press <kbd>Ctrl</kbd>+<kbd>O</kbd> to open a project folder, or run <strong>New project</strong> from the command list (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>).</li>
+<li>If Ledger asks whether you trust the folder, say yes for your own code. See <a href="#trust">Trusting a folder</a>.</li>
+<li>Open files with <kbd>Ctrl</kbd>+<kbd>E</kbd> (type part of a name), and press <kbd>F5</kbd> to run. Type into the <strong>Input</strong> box under the output when the program asks for something.</li>
+<li>Mistakes show as squiggles and in Problems; <kbd>F8</kbd> goes to the next one. <kbd>F12</kbd> goes to a definition, <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>F12</kbd> follows everywhere something is used.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> lists every command with its key. <kbd>Ctrl</kbd>+<kbd>P</kbd> opens Settings.</li>
+</ol>
+
+<h3 id="quick-reference">Quick reference</h3>
+<div class="cards">
+<a href="#command-list"><strong>All commands</strong><kbd>Ctrl Shift P</kbd> or <kbd>F1</kbd></a>
+<a href="#goto-file"><strong>Go to file</strong><kbd>Ctrl E</kbd>, then <code>@</code> for symbols, <code>file:line</code> for a line</a>
+<a href="#run"><strong>Run / stop</strong><kbd>F5</kbd> / <kbd>Shift F5</kbd>, input with <kbd>Ctrl I</kbd></a>
+<a href="#red-thread"><strong>Red Thread</strong><kbd>Shift Alt F12</kbd>: follow everywhere it's used</a>
+<a href="#search"><strong>Search in files</strong><kbd>Ctrl Shift F</kbd>, replace with <kbd>Ctrl Shift H</kbd></a>
+<a href="#debugging"><strong>Debug</strong><kbd>Shift F9</kbd>, breakpoint <kbd>F9</kbd>, step <kbd>F10</kbd> <kbd>F11</kbd></a>
+<a href="#git"><strong>Git</strong><kbd>Ctrl Shift G</kbd>: stage, commit, push</a>
+<a href="#shortcuts"><strong>Every shortcut</strong>in one place</a>
+</div>
+</section>
+
+<section class="chapter" id="getting-started">
+<h2>Getting started</h2>
+
+<section id="install">
+<h3>Installing and updates</h3>
+<ul>
+<li><strong>The installer</strong> (<code>Ledger_…_x64-setup.exe</code>) installs Ledger for you alone, with no administrator rights, and adds a Start menu entry, the <code>ledger</code> command and <strong>Open with Ledger</strong> in File Explorer's right-click menu. It makes <code>.lst</code>, <code>.lsc</code>, <code>.lql</code> and <code>.lust</code> files open in Ledger with their own icons.</li>
+<li><strong><code>Ledger-portable.exe</code></strong> runs from anywhere and needs nothing else on Windows 11.</li>
+<li><strong>Updates:</strong> when Ledger starts, a small window checks for a new version first. <strong>Update now</strong> downloads, installs and starts the new Ledger; <strong>Later</strong> (or <kbd>Esc</kbd>) opens Ledger as it is. The check gives up after 8 seconds, so being offline never holds Ledger back. Settings › Updates turns it off; Ledger then checks once it's open and shows <strong>Restart to update</strong>. Updates are signed, and an unsigned one is refused.</li>
+</ul>
+</section>
+
+<section id="open-folder">
+<h3>Opening a folder</h3>
+<p>Each window has one folder open. Press <kbd>Ctrl</kbd>+<kbd>O</kbd>, or pick a recent folder on the start page. Open a project folder (with <code>Cargo.toml</code>, a <code>.sln</code> or <code>.csproj</code>, <code>project.godot</code>, <code>package.json</code> or <code>main.lst</code>), or a folder that holds several projects, like a course folder with one project per lesson.</p>
+<ul>
+<li><strong>Run, Build and Test always use the project of the file you have open.</strong> Its name shows at the left of the status bar.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> opens another window (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd> on a recent folder), each with its own program, language servers, debugger and terminals. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> closes a window.</li>
+<li>From a terminal: <code>Ledger.exe C:\Games\MyGame --goto C:\Games\MyGame\Player.cs:42</code>.</li>
+</ul>
+</section>
+
+<section id="trust">
+<h3>Trusting a folder (restricted mode)</h3>
+<p>Opening a downloaded project shouldn't run its code. The first time Ledger opens a folder with a project or a Git repository in it, it asks whether you trust the code. Until you do, the folder is in <strong>restricted mode</strong>, shown as <strong>Restricted</strong> in the status bar (click it to trust the folder).</p>
+<ul>
+<li>You can read, edit, search, format and commit as usual. HTML, CSS, JSON and TypeScript help work, with the computer's own TypeScript.</li>
+<li>Run, Build, Test and Debug ask for trust first, since they run the project's code.</li>
+<li>Rust, C# and Lua analysis wait, since their servers run the project's build scripts and plugins.</li>
+<li>Git runs with the repository's hooks switched off.</li>
+<li><strong>Lust checking works in restricted mode</strong>, since <code>lust check</code> only reads the code.</li>
+<li>Projects you make in Ledger are trusted. <strong>Trust this folder, or go back to restricted mode</strong> in the command list changes your answer.</li>
+</ul>
+</section>
+
+<section id="new-project">
+<h3>Making a new project</h3>
+<p>Run <strong>New project</strong> from the command list. With a folder open, Ledger asks whether the project goes inside it (a course folder, say) or somewhere else.</p>
+<table>
+<thead><tr><th>Kind</th><th>What you get</th></tr></thead>
+<tbody>
+<tr><td>Website</td><td>An HTML, CSS and JavaScript page to serve with <a href="#web">Go Live</a></td></tr>
+<tr><td>React, Vue, Svelte, Preact, Solid, Lit, Qwik, vanilla (Vite), Next.js</td><td>Through their own create commands, in TypeScript or JavaScript, with Tailwind if you want it</td></tr>
+<tr><td>TypeScript program</td><td>Plain TypeScript on Node.js: <code>tsc</code> turns <code>src/</code> into <code>dist/</code> and node runs it</td></tr>
+<tr><td>Node.js, Lua</td><td>A program to run with <kbd>F5</kbd></td></tr>
+<tr><td>Lust program, LustScript</td><td>A <code>main.lst</code> (or <code>.lsc</code>); a Lust program can start with a window and a piece in <code>ui/</code></td></tr>
+<tr><td>Rust</td><td>A <code>cargo</code> program or library</td></tr>
+<tr><td>C#</td><td>Any dotnet template: console, class library, Web API, Blazor, MVC, worker, WPF, test projects and more</td></tr>
+</tbody>
+</table>
+<div class="tip"><p><strong>Barebones or the template's files.</strong> For Vite and Next.js projects, Ledger asks <em>Start with the template's files?</em> <strong>Barebones</strong> is just the setup and an empty page, with no logos, counter or starter styles; the other choice keeps the template's starter page. Ledger remembers which you picked last.</p></div>
+<p>Starting a Git repository for a project writes a <code>.gitignore</code> that fits what's in it (<code>target</code>, <code>bin</code>/<code>obj</code>, <code>node_modules</code> and so on).</p>
+</section>
+</section>
+
+<section class="chapter" id="window">
+<h2>The window at a glance</h2>
+<p>A side bar on the left, open files as tabs, the editor, a panel at the bottom for output, problems and terminals, and a thin status bar along the bottom (or the top).</p>
+
+<section id="command-list">
+<h3>The command list</h3>
+<p><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> (or <kbd>F1</kbd>) lists every command with its shortcut. Type a few letters of what you want; commands also answer to other words for the same thing ("usages" finds Red Thread, "args" finds the run options). Every shortcut can be changed in Settings › Keyboard shortcuts.</p>
+<p>In dialogs, the arrows move and <kbd>Enter</kbd> picks; in short choice dialogs the number keys pick directly.</p>
+</section>
+
+<section id="side-bar">
+<h3>The side bar</h3>
+<table>
+<thead><tr><th>View</th><th>Key</th><th>Shows</th></tr></thead>
+<tbody>
+<tr><td>Files</td><td><kbd>Ctrl Shift E</kbd></td><td>The explorer: the folder's files</td></tr>
+<tr><td>Search</td><td><kbd>Ctrl Shift F</kbd></td><td>Search and replace in files</td></tr>
+<tr><td>Source control</td><td><kbd>Ctrl Shift G</kbd></td><td>Git: changes, commits, branches, stashes</td></tr>
+<tr><td>Debug</td><td><kbd>Ctrl Shift D</kbd></td><td>Variables, watches, call stack while debugging</td></tr>
+<tr><td>Solution</td><td></td><td>.NET projects, packages and references (with .NET projects)</td></tr>
+</tbody>
+</table>
+<p><kbd>Ctrl</kbd>+<kbd>B</kbd> shows or hides it. <kbd>F6</kbd> and <kbd>Shift</kbd>+<kbd>F6</kbd> move between the explorer, editor, panel and status bar; <kbd>Esc</kbd> goes back to the editor.</p>
+</section>
+
+<section id="panel">
+<h3>The panel</h3>
+<p>The bottom panel holds <strong>Output</strong> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd>), <strong>Problems</strong> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>), <strong>Terminal</strong> (<kbd>Ctrl</kbd>+<kbd>`</kbd>), <strong>Tests</strong>, <strong>TODO</strong> and the debug console. <kbd>Ctrl</kbd>+<kbd>J</kbd> shows or hides it.</p>
+</section>
+
+<section id="status-bar">
+<h3>The status bar</h3>
+<ul>
+<li>At the left: the project of the open file, the Git branch (click to switch), and <strong>Restricted</strong> when the folder isn't trusted.</li>
+<li>The language servers: one with a warning or error shows it in colour; click it to read why. A missing server is red, with a button to its setting.</li>
+<li>Line and column, indentation (click to change it for this file), the file's encoding, and <strong>Go Live</strong> for web folders.</li>
+<li>For .NET: the startup project, Debug or Release, the framework, the launch profile and <code>dotnet watch</code>.</li>
+<li>While audio plays, what's playing (click to go back to it).</li>
+</ul>
+</section>
+
+<section id="settings">
+<h3>Settings</h3>
+<p><kbd>Ctrl</kbd>+<kbd>P</kbd> opens Settings, with a search box at the top. Among them:</p>
+<ul>
+<li><strong>Appearance:</strong> light, dark or matching Windows; quiet code colours (a few) or colourful ones; fonts and sizes; the status bar along the bottom or the top; file icons.</li>
+<li><strong>Editor and Editing:</strong> tab size, wrapping, format on save, auto save, the minimap, sticky scroll, type hints, whether <kbd>Tab</kbd> takes the highlighted suggestion, your snippets, and the explorer following the open file.</li>
+<li><strong>Markdown:</strong> whether Markdown files open as the editor, the preview, or both side by side.</li>
+<li><strong>Web:</strong> the browser (Windows default, Chrome, Edge, Firefox, Brave, or another program) and Live Server's port.</li>
+<li><strong>Languages, C# and .NET, Lust, Godot, Debugging:</strong> one-click installs and the paths to your own tools.</li>
+<li><strong>Keyboard shortcuts:</strong> change any command's keys.</li>
+<li><strong>Git, Updates, Windows:</strong> blame, update checks, and Open with Ledger in File Explorer.</li>
+</ul>
+<p>The editor's own keys (<kbd>Ctrl</kbd>+<kbd>Z</kbd>, <kbd>Ctrl</kbd>+<kbd>D</kbd>, <kbd>Ctrl</kbd>+<kbd>/</kbd> and the like) are fixed. <kbd>Ctrl</kbd>+<kbd>+</kbd>, <kbd>Ctrl</kbd>+<kbd>-</kbd> and <kbd>Ctrl</kbd>+<kbd>0</kbd> change the editor's text size.</p>
+</section>
+</section>
+
+<section class="chapter" id="files">
+<h2>Files</h2>
+
+<section id="explorer">
+<h3>The explorer</h3>
+<ul>
+<li><strong>Keys:</strong> the arrows move, Right and Left open and close folders, <kbd>Enter</kbd> opens, <kbd>Space</kbd> (or a click) shows the file in a preview tab and stays in the explorer, <kbd>F2</kbd> renames, <kbd>Delete</kbd> moves to the Recycle Bin, <kbd>Ctrl</kbd>+<kbd>X</kbd>/<kbd>C</kbd>/<kbd>V</kbd> move and copy files, <kbd>Shift</kbd>+<kbd>F10</kbd> opens the menu, and typing jumps to a name.</li>
+<li><strong>New files and folders:</strong> <kbd>Ctrl</kbd>+<kbd>N</kbd> and <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd>. Dragging files from File Explorer onto a folder copies them in.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> shows the current file in the explorer. Changed files are coloured by Git, and folders with problems show how many.</li>
+<li><strong>Folder icons follow what's inside:</strong> a folder of only audio files gets an audio folder icon in the audio colour, one of videos a video icon, and the same for pictures and fonts.</li>
+</ul>
+</section>
+
+<section id="gitignore">
+<h3>Add to .gitignore</h3>
+<p>Right-click any file or folder in the explorer and choose <strong>Add to .gitignore</strong>. For a file there's also <strong>Add all *.ext files to .gitignore</strong>, for every file of that kind. Ledger adds the line to the project's <code>.gitignore</code> (making one if there isn't one), and the file drops out of Source control.</p>
+</section>
+
+<section id="tabs">
+<h3>Tabs</h3>
+<ul>
+<li>Clicking through files in the explorer reuses one <strong>preview tab</strong> (in italics) until you edit, save or pin it. Diffs, the CSV table and the hex view open the same way.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Tab</kbd> and <kbd>Ctrl</kbd>+<kbd>PageDown</kbd>/<kbd>PageUp</kbd> go to the next and previous tab; <kbd>Ctrl</kbd>+<kbd>1</kbd> to <kbd>Ctrl</kbd>+<kbd>9</kbd> to a tab (9 is the last).</li>
+<li><kbd>Ctrl</kbd>+<kbd>W</kbd> closes a tab, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> reopens it.</li>
+<li>Right-click a tab to pin it, copy its path, show it in the explorer, open it to the side, or close the tabs to its right, the saved ones or all of them.</li>
+<li>When there are more tabs than fit, the edges fade and a list of every open tab sits at the right end.</li>
+<li><kbd>Ctrl</kbd>+<kbd>\</kbd> splits the editor (again: switch side); <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>\</kbd> closes the split.</li>
+</ul>
+</section>
+
+<section id="media">
+<h3>Music, video, pictures and other files</h3>
+<ul>
+<li><strong>Audio</strong> (MP3, WAV, OGG, Opus, FLAC, M4A, AAC) opens in its own tab with a waveform to click or drag through. It keeps playing while you work in other tabs, and the status bar shows what's playing. <kbd>Space</kbd> plays and pauses, <kbd>←</kbd> and <kbd>→</kbd> skip 5 seconds, <kbd>L</kbd> loops.</li>
+<li><strong>Video</strong> (MP4, WebM, MOV, OGV, and MKV where Windows can play it) plays in a tab too.</li>
+<li><strong>Fonts</strong> (TTF, OTF, WOFF, WOFF2) show as sample text.</li>
+<li><strong>Pictures</strong> (PNG, JPEG, GIF, WebP, SVG, AVIF, BMP, ICO) open in a viewer with zoom, a checkerboard behind see-through parts, and a pixel-art mode; SVGs can be edited as code.</li>
+<li><strong>Documents and archives</strong> (PDF, Word, Excel, PowerPoint, ZIP and the like) show a card saying what they are, with a button to open them in the app Windows uses.</li>
+<li><strong>Databases</strong> (<code>.db</code>, <code>.sqlite</code>) open in a tab with tables, sorting, filters, a SQL tab and editing with review. Right-click in the explorer for a new SQLite database.</li>
+<li><strong>CSV and TSV</strong> files colour each column; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> shows them as a table with sorting and a filter.</li>
+<li><strong>Binary files</strong> open in a hex view; right-click any file for <strong>Open as hex</strong>.</li>
+<li><strong>Files too big to edit</strong> (over 8 MB: logs, data dumps) can be read, their first or last 4 MB, read-only; <strong>Big file: show the end</strong> and <strong>show the start</strong> switch.</li>
+</ul>
+</section>
+
+<section id="markdown">
+<h3>Markdown preview</h3>
+<ul>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> shows the preview <strong>instead of</strong> the source, so you don't read the same file twice; the same keys go back to the source. Your place is kept across the switch.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>V</kbd> shows the preview <strong>beside</strong> the source, updating as you type.</li>
+<li>Settings › Markdown picks how a Markdown file opens the first time: in the editor, as the preview, or with both.</li>
+</ul>
+</section>
+
+<section id="history">
+<h3>Local history and encodings</h3>
+<ul>
+<li><strong>Every save keeps a copy</strong> (the last 50 per file, in Ledger's own folder, not your project), plus the file as it was before you started editing. <strong>Local history: this file's saved versions</strong> (or right-click a file) shows any of them next to the file now, with <strong>Restore this version</strong>. It works in folders without Git.</li>
+<li><strong>Encodings:</strong> UTF-8, UTF-16 and old Windows-1252 files open and save in the encoding they came in, shown in the status bar; <strong>Convert this file to UTF-8</strong> switches. Files with a byte-order mark or Windows line endings keep them.</li>
+<li>A file you're editing that changes on disk gets a warning.</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="editing">
+<h2>Editing</h2>
+
+<section id="completion">
+<h3>Completion and info</h3>
+<ul>
+<li>Suggestions show as you type; <kbd>Ctrl</kbd>+<kbd>Space</kbd> asks for them. <strong><kbd>Tab</kbd> or <kbd>Enter</kbd> takes the highlighted one</strong> and fills in the word. (Settings › Editing can make <kbd>Tab</kbd> always indent instead.)</li>
+<li>When a language's server isn't running, Ledger still suggests the words already in the file.</li>
+<li><kbd>Ctrl</kbd>+<kbd>K</kbd> shows info at the cursor (type, docs, errors); <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> shows parameter hints. <kbd>Ctrl</kbd>+<kbd>.</kbd> offers quick fixes and refactors.</li>
+<li><strong>Type hints</strong> (like <code>count: usize</code>) show in grey and aren't part of your file. <strong>Toggle type hints</strong> turns them off.</li>
+</ul>
+</section>
+
+<section id="cursors">
+<h3>Selecting and multiple cursors</h3>
+<ul>
+<li><kbd>Ctrl</kbd>+<kbd>L</kbd> selects the line; <kbd>Ctrl</kbd>+<kbd>D</kbd> adds the next match of the selection; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> selects every match.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Up</kbd>/<kbd>Down</kbd> add a cursor above or below.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line above; <kbd>Ctrl</kbd>+<kbd>/</kbd> comments lines out; <kbd>Alt</kbd>+<kbd>Z</kbd> wraps long lines.</li>
+<li>The command list sorts, de-duplicates and changes the case of lines.</li>
+</ul>
+</section>
+
+<section id="find">
+<h3>Find and replace in the file</h3>
+<p><kbd>Ctrl</kbd>+<kbd>F</kbd> finds, <kbd>Ctrl</kbd>+<kbd>H</kbd> replaces (<kbd>Tab</kbd> goes from the find box to the replace box). Match case, whole word and regular expressions are buttons on the bar, which says "3 of 20". <kbd>Ctrl</kbd>+<kbd>G</kbd> goes to a line.</p>
+</section>
+
+<section id="search">
+<h3>Search in files</h3>
+<p><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> searches the whole folder, with match case, whole word, regular expressions, and files to include and leave out. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd> replaces in files, with a preview first; replace one match or one file from its hover buttons, or leave it out. Unsaved changes in open files are searched as they are.</p>
+</section>
+
+<section id="formatting">
+<h3>Formatting and indentation</h3>
+<ul>
+<li><kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>F</kbd> formats the file (or on save, in Settings). Web files use the project's own Prettier, or Ledger's built-in one. Rust uses rustfmt, C# <code>dotnet format</code>.</li>
+<li>Each file is indented the way it already is (2 spaces, 4, tabs), shown in the status bar; click it to change it. A C# project's <code>.editorconfig</code> is followed.</li>
+</ul>
+</section>
+
+<section id="snippets">
+<h3>Snippets and Emmet</h3>
+<ul>
+<li><strong>Snippets</strong> come in the suggestion list (<code>prop</code>, <code>ctor</code>, <code>foreach</code> in C#; a snippet for each Lust piece, and more). <kbd>Tab</kbd> moves to the next place to fill in. Add your own per language in Settings › Editing › Edit snippets.</li>
+<li><strong>Emmet</strong> in HTML, JSX and CSS: type <code>ul&gt;li.item*3</code>, <code>div.card&gt;h2+p</code>, <code>!</code> for a whole page, or <code>m10</code>, <code>df</code> in CSS, then <kbd>Tab</kbd>. The suggestion list shows what it becomes.</li>
+</ul>
+</section>
+
+<section id="colours">
+<h3>Colours</h3>
+<p>Every colour in code (<code>#hex</code>, <code>rgb()</code>, <code>hsl()</code>, Godot's <code>Color()</code>, Lust's colour words) gets a small swatch. Click it for a colour wheel or hexagon grid, an alpha slider, Hex and RGB fields, the colours already in the file and your saved colours; the code changes as you pick, written the way it was. <strong>Pick a colour</strong> puts a new one at the cursor.</p>
+</section>
+
+<section id="view-helpers">
+<h3>Bookmarks, minimap, Zen and more</h3>
+<ul>
+<li><strong>Bookmarks:</strong> <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>K</kbd> marks a line, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd> and <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>J</kbd> go to the next and previous; <strong>Bookmarks: list</strong> shows them all. They're kept for next time.</li>
+<li><strong>The minimap</strong> at the right edge is a small picture of the file; click to jump, drag to scroll. Errors and Git changes show on it.</li>
+<li><strong>The overview ruler</strong> marks errors, search matches, Git changes and bookmarks along the scrollbar.</li>
+<li><strong>Zen mode</strong> (<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Z</kbd>) hides everything but the editor and goes full screen.</li>
+<li><strong>TODO panel:</strong> every <code>TODO</code>, <code>FIXME</code>, <code>HACK</code>, <code>XXX</code> and <code>BUG</code> comment in the folder.</li>
+<li>Folding, coloured bracket pairs, indent guides, and sticky scroll (the line opening the current function stays pinned at the top).</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="getting-around">
+<h2>Getting around</h2>
+
+<section id="goto-file">
+<h3>Go to file</h3>
+<p><kbd>Ctrl</kbd>+<kbd>E</kbd> opens any file by typing part of its name, recent files first. Type <code>@</code> or <code>#</code> to search symbols instead, and <code>file:line</code> to jump to a line.</p>
+</section>
+
+<section id="definition">
+<h3>Definitions and references</h3>
+<ul>
+<li><kbd>F12</kbd> (or <kbd>Ctrl</kbd>+click) goes to where something is defined; <kbd>Shift</kbd>+<kbd>F12</kbd> lists every use of it.</li>
+<li><kbd>F2</kbd> renames it everywhere.</li>
+<li><kbd>Alt</kbd>+<kbd>Left</kbd> and <kbd>Alt</kbd>+<kbd>Right</kbd> go back and forward through your jumps.</li>
+<li>C# adds go to implementation (<kbd>Ctrl</kbd>+<kbd>F12</kbd>), type definition, callers (<kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>H</kbd>), and base and derived types.</li>
+</ul>
+</section>
+
+<section id="red-thread">
+<h3>Red Thread: follow where it's used</h3>
+<p>Red Thread shows everywhere a piece of code is used, and everywhere <em>those</em> places are used, as columns side by side. It's for exploring: open it, follow the thread, close it.</p>
+<ol class="steps">
+<li>Put the cursor on anything (a variable, a function, a class, a method) and press <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>F12</kbd>.</li>
+<li>The first column is its definition and every place that uses it, grouped by file, each with the function or class it sits in.</li>
+<li>Pick one, and a column slides in to the right: that function's code with the use marked, and everywhere <em>it</em> is used. Keep pulling the thread; a red line joins each pick to where it leads.</li>
+<li>Double-click a place (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>) to open it in the editor.</li>
+</ol>
+<p>Nothing is saved: close the tab and the thread is gone. The language servers answer, so a use is a real use; for a language with no server (Lust, say), the uses are matches of the name, and say so.</p>
+</section>
+
+<section id="outline">
+<h3>Outline and symbols</h3>
+<p><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> lists the open file's classes, functions and the rest (a Markdown file's headings). <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>O</kbd> searches symbols across the whole folder.</p>
+</section>
+</section>
+
+<section class="chapter" id="running">
+<h2>Running, building and testing</h2>
+
+<section id="run">
+<h3>Run and stop</h3>
+<ul>
+<li><kbd>F5</kbd> runs the project of the open file: <code>cargo run</code>, <code>dotnet run</code>, the <code>dev</code> or <code>start</code> script, <code>node</code>, <code>lua</code>, <code>lust run</code>, or Godot's Play. Running saves all open files first.</li>
+<li><kbd>Shift</kbd>+<kbd>F5</kbd> stops it, endless loops and the programs it started included. While a program runs, the Stop button shows how long it has been going.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> builds, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd> runs the tests, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> checks (Rust, Lust). <strong>Scripts…</strong> runs any <code>package.json</code> script.</li>
+<li>Only one thing runs at a time. Starting another while one runs asks first, with <strong>Keep it running</strong> as the default.</li>
+<li>Links in the output (<code>file:line</code>, and <code>localhost:5173</code> with its port) are clickable.</li>
+</ul>
+</section>
+
+<section id="input-box">
+<h3>Typing to your program</h3>
+<p>While your program runs, an <strong>Input</strong> box appears under the output. Type a line and press <kbd>Enter</kbd>, and it reaches <code>read_line</code>, <code>Console.ReadLine</code>, Lust's <code>ask</code> and the like. <kbd>Ctrl</kbd>+<kbd>I</kbd> jumps to it; <strong>End input</strong> closes the program's input. Programs run without a console window.</p>
+</section>
+
+<section id="run-options">
+<h3>Arguments and input</h3>
+<p><strong>Run and Debug: arguments and input for the program…</strong> (in the command list) sets the arguments a project gets when you Run or Debug it, like <code>--verbose data.txt "two words"</code>, and the lines a debugged program reads (a program started by the debugger can't be typed to). They're kept per project.</p>
+</section>
+
+<section id="problems">
+<h3>Problems and output</h3>
+<ul>
+<li>Errors and warnings from the language servers and from builds (cargo, dotnet, <code>lust check</code>) go to Problems (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>) and into the editor as squiggles.</li>
+<li><kbd>F8</kbd> and <kbd>Shift</kbd>+<kbd>F8</kbd> go to the next and previous problem, with its message.</li>
+<li>The output keeps up with the program while you're at the bottom; scroll up to read and it stays put, and scrolling back down follows again. Output and error lines come in the order the program printed them.</li>
+<li>A build that finishes but didn't quite work (a package restore that failed, say) shows a warning instead of a green Finished.</li>
+</ul>
+</section>
+
+<section id="tests">
+<h3>The Tests panel</h3>
+<ul>
+<li>Finds Rust, C# and Lust tests. Run all of them, the failed ones, a file, or one test; the output shows live with a Stop button.</li>
+<li>Each failure shows its message and line, and results are marked next to each test in the editor. ▶ Run test and Debug sit above each Rust and C# test and above <code>main</code>.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F10</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> run or debug the test at the cursor.</li>
+<li>Filter by name or category (<code>Category=Fast</code>). <strong>Coverage</strong> runs the C# tests with coverlet and marks the lines that ran. <strong>Tests: create a test for this file</strong> gets you started.</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="debugging">
+<h2>Debugging</h2>
+<ul>
+<li><kbd>F9</kbd> sets a breakpoint on the line; <kbd>Shift</kbd>+<kbd>F9</kbd> starts debugging; <kbd>F5</kbd> continues; <kbd>F10</kbd>, <kbd>F11</kbd> and <kbd>Shift</kbd>+<kbd>F11</kbd> step over, into and out; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F5</kbd> restarts; <kbd>Pause</kbd> pauses; <kbd>Shift</kbd>+<kbd>F5</kbd> stops.</li>
+<li>The Debug view (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>) shows variables, watches and the call stack, with a debug console in the panel.</li>
+<li><strong>Debug: pause on exceptions</strong> picks when to stop: when nothing catches them (the default, and on Rust panics), whenever one is thrown, or never.</li>
+<li><strong>Debug: attach to a running program</strong> picks a process.</li>
+<li>Rust uses codelldb, C# and Godot use netcoredbg; Ledger offers to download them the first time you need them.</li>
+<li>A debugged program can't be typed to: set its input in <a href="#run-options">Arguments and input</a>.</li>
+</ul>
+</section>
+
+<section class="chapter" id="languages">
+<h2>Languages</h2>
+<p>Settings › Languages installs Node.js, Lua, Rust, the .NET SDK, Git, Lust and the language servers with one click, and shows which tools it found.</p>
+
+<section id="rust">
+<h3>Rust</h3>
+<p>Run, check, test and Clippy with cargo; live errors, completions, hover docs, go to definition, rename, quick fixes and rustfmt through rust-analyzer (<code>rustup component add rust-analyzer rust-src</code>, or the button in Settings). Errors from cargo go to Problems even without rust-analyzer. In <code>Cargo.toml</code>, the newest version of each package shows at the end of its line; click it to update.</p>
+</section>
+
+<section id="csharp">
+<h3>C# and .NET</h3>
+<ul>
+<li>Build, run and test with dotnet, and the editor features through csharp-ls or Microsoft's Roslyn (Settings › C# and .NET).</li>
+<li><strong>The Solution view</strong> lists the projects with their packages, references, frameworks and launch profiles. Right-click a project to run, build, test, clean or publish it, set it as the startup project, manage its NuGet packages or add a reference; <strong>+</strong> makes a new project from any template.</li>
+<li><strong>NuGet:</strong> a page per project to search, install, update and remove packages, and list known vulnerabilities.</li>
+<li><strong>ASP.NET Core and EF Core:</strong> user secrets, the HTTPS development certificate, <code>.http</code> files with ▶ Send request, EF migrations, and <strong>C#: publish…</strong>.</li>
+<li>Go to definition reaches into NuGet packages and the framework, through Source Link or decompiled, read-only.</li>
+</ul>
+</section>
+
+<section id="web">
+<h3>Web projects and Go Live</h3>
+<ul>
+<li>HTML, CSS (SCSS, Less), JavaScript and TypeScript with React: completions, errors and go to definition through the TypeScript, HTML, CSS and JSON servers. Tailwind classes complete with colour swatches.</li>
+<li><code>package.json</code> projects run their <code>dev</code>/<code>start</code> script with <kbd>F5</kbd>; Build, Test and Lint use their scripts. A single <code>.js</code> or <code>.ts</code> file runs with Node. ESLint's problems link to the right file and line.</li>
+<li><strong>Go Live</strong> in the status bar serves the folder and reloads the browser on save (CSS changes swap in without a reload). Settings › Web picks the browser and port.</li>
+</ul>
+</section>
+
+<section id="lua">
+<h3>Lua</h3>
+<p>Highlighting, Run with <kbd>F5</kbd>, and the Lua language server, with a Lua version setting.</p>
+</section>
+
+<section id="lust">
+<h3>Lust</h3>
+<ul>
+<li><code>.lst</code> programs and <code>.lsc</code> LustScript files get highlighting, completions, snippets and their own icons: <strong>Lt</strong>, <strong>Ls</strong> and <strong>Lq</strong> for LustQL.</li>
+<li><strong>Views:</strong> pieces in the classes' blue and style words muted. Inside a piece's <code>[ ]</code>, completion offers only the style words that fit it, colours after <code>color</code>, <code>background</code> and <code>border</code>, and your named styles. Colours show a square of their real colour, and hovering a style word or piece explains it with an example.</li>
+<li><strong>Run</strong> (<kbd>F5</kbd>) runs the open file with <code>lust run</code> from the project's folder, with the Input box for <code>ask</code>; <strong>Check</strong> and <strong>Build</strong> use <code>lust check</code> and <code>lust build</code>.</li>
+<li>Every save checks the file quietly, and its mistakes show up in Problems and as squiggles. For a name Lust doesn't know, <kbd>Ctrl</kbd>+<kbd>.</kbd> offers <strong>Did you mean …</strong>.</li>
+<li><kbd>F12</kbd>, <kbd>Shift</kbd>+<kbd>F12</kbd>, <kbd>F2</kbd> and hovering work by name across the folder's Lust files, open tabs included, saved or not. Hovering a name shows where it's declared.</li>
+<li><strong>Lust: show the Lua this file turns into</strong> and <strong>show the Rust</strong> open in a read-only tab.</li>
+<li>Ledger needs <code>lust.exe</code>: <strong>Install Lust</strong> in Settings › Lust builds it from the Lust repo with Rust, or set the path to one you have.</li>
+</ul>
+<p>Everything about the language itself is in the <a href="lust.html#welcome">Lust language guide</a>.</p>
+</section>
+
+<section id="godot">
+<h3>Godot</h3>
+<ol class="steps">
+<li>In Settings › Godot, pick your Godot <code>.exe</code> (the .NET build for C# projects). That's what Play uses.</li>
+<li>The same section shows the values to paste into Godot's <strong>Editor › Editor Settings</strong>, with Copy buttons: <strong>Dotnet › Editor</strong> for C# scripts, and <strong>Text Editor › External</strong> for GDScript.</li>
+<li>Double-click a script in Godot, and it opens in Ledger at the right line.</li>
+</ol>
+<p><kbd>F5</kbd> builds the C# project and starts the game with its output in the panel; <kbd>Ctrl</kbd>+<kbd>F5</kbd> plays the open scene. Shaders (<code>.gdshader</code>) get highlighting and completion.</p>
+</section>
+</section>
+
+<section class="chapter" id="git">
+<h2>Git</h2>
+<ul>
+<li><strong>Source control</strong> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>) stages, commits, pulls and pushes. Hover a changed file for open, discard and stage buttons. <strong>Commit all</strong> asks before adding files Git doesn't track yet.</li>
+<li>Changed lines are marked by the line numbers; <kbd>Alt</kbd>+<kbd>F5</kbd> and <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>F5</kbd> go to the next and previous change. A side-by-side diff shows what changed.</li>
+<li><strong>Branches:</strong> click the branch in the status bar to switch, make, merge or delete one. If switching would lose changes, Ledger offers to stash them first.</li>
+<li><strong>Stashes:</strong> put changes aside and pop, apply, look at or drop them.</li>
+<li><strong>History</strong> lists the branch's commits; click one to see what it changed.</li>
+<li><strong>Blame:</strong> the cursor's line shows who last changed it and when, faintly at its end; <kbd>Ctrl</kbd>+click it for that commit.</li>
+<li><strong>Merge conflicts</strong> get Keep yours, Keep theirs, Keep both and Compare above each one; <kbd>Alt</kbd>+<kbd>F7</kbd> goes to the next.</li>
+<li>Starting a repository writes a <code>.gitignore</code> that fits the folder, and <a href="#gitignore">Add to .gitignore</a> is a right-click away.</li>
+</ul>
+</section>
+
+<section class="chapter" id="terminal">
+<h2>The terminal and the ledger command</h2>
+<ul>
+<li><kbd>Ctrl</kbd>+<kbd>`</kbd> shows a PowerShell terminal in the panel, <kbd>Ctrl</kbd>+<kbd>T</kbd> opens a new one.</li>
+<li>In a terminal, <kbd>Ctrl</kbd>+letter keys go to the shell, except <kbd>Ctrl</kbd>+<kbd>P</kbd>, <kbd>T</kbd>, <kbd>J</kbd> and <kbd>B</kbd>. <kbd>F6</kbd> or <kbd>Ctrl</kbd>+<kbd>`</kbd> gets you out.</li>
+</ul>
+<p>Ledger's terminal has a <code>ledger</code> command; <code>ledger help</code> lists everything.</p>
+<table>
+<thead><tr><th>Command</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>ledger src/main.rs:12</code>, <code>ledger .</code></td><td>Opens a file at a line, or the folder</td></tr>
+<tr><td><code>ledger run</code>, <code>build</code>, <code>test</code>, <code>check</code></td><td>What <kbd>F5</kbd> and the buttons run, in the terminal; anything after <code>--</code> goes to the program</td></tr>
+<tr><td><code>ledger new &lt;kind&gt; &lt;name&gt;</code></td><td>Makes a project (<code>ledger new --list</code> shows the kinds)</td></tr>
+<tr><td><code>ledger audit</code>, <code>ledger audit fix</code></td><td>Checks every Rust, npm and .NET package against known security problems, and fixes them (building and testing after)</td></tr>
+<tr><td><code>ledger update</code>, <code>ledger licenses</code></td><td>Package updates; every package's licence</td></tr>
+<tr><td><code>ledger doctor</code></td><td>Checks what's installed against what the folder needs; <code>--fix</code> installs it</td></tr>
+<tr><td><code>ledger clean</code></td><td>Deletes build output (<code>target</code>, <code>bin</code>/<code>obj</code>, <code>node_modules</code>), showing sizes and asking first</td></tr>
+<tr><td><code>ledger todo</code>, <code>ledger stats</code></td><td>Every TODO note; lines of code per language</td></tr>
+<tr><td><code>ledger history &lt;file&gt;</code></td><td>A file's saved versions</td></tr>
+<tr><td><code>ledger trust</code>, <code>ledger untrust</code>, <code>ledger self-update</code></td><td>Restricted mode, and updating Ledger</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="chapter" id="shortcuts">
+<h2>Keyboard shortcuts</h2>
+<p>Every command is in the command list with its shortcut, and any of them can be changed in Settings › Keyboard shortcuts.</p>
+
+<div class="table-wrap">
+<h3 id="keys-general">General</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>Ctrl Shift P</kbd>, <kbd>F1</kbd></td><td>All commands</td></tr>
+<tr><td><kbd>Ctrl P</kbd></td><td>Settings</td></tr>
+<tr><td><kbd>Ctrl E</kbd></td><td>Go to file</td></tr>
+<tr><td><kbd>Ctrl O</kbd></td><td>Open folder</td></tr>
+<tr><td><kbd>Ctrl Shift N</kbd> / <kbd>Ctrl Shift W</kbd></td><td>New window / close window</td></tr>
+<tr><td><kbd>Ctrl B</kbd>, <kbd>Ctrl J</kbd></td><td>Side bar, panel</td></tr>
+<tr><td><kbd>Ctrl Shift E</kbd> / <kbd>G</kbd> / <kbd>D</kbd></td><td>Files / Source control / Debug</td></tr>
+<tr><td><kbd>Ctrl Shift M</kbd> / <kbd>Ctrl Shift U</kbd></td><td>Problems / Output</td></tr>
+<tr><td><kbd>F6</kbd> / <kbd>Shift F6</kbd></td><td>Move between explorer, editor, panel and status bar</td></tr>
+<tr><td><kbd>Ctrl Alt Z</kbd></td><td>Zen mode</td></tr>
+<tr><td><kbd>Ctrl +</kbd> / <kbd>Ctrl -</kbd> / <kbd>Ctrl 0</kbd></td><td>Editor text size</td></tr>
+</tbody>
+</table>
+
+<h3 id="keys-files">Files and tabs</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>Ctrl S</kbd> / <kbd>Ctrl Alt S</kbd></td><td>Save / save all</td></tr>
+<tr><td><kbd>Ctrl N</kbd> / <kbd>Ctrl Alt N</kbd></td><td>New file / new folder</td></tr>
+<tr><td><kbd>Ctrl W</kbd> / <kbd>Ctrl Shift T</kbd></td><td>Close tab / reopen it</td></tr>
+<tr><td><kbd>Ctrl Tab</kbd>, <kbd>Ctrl PageDown</kbd> / <kbd>PageUp</kbd></td><td>Next / previous tab</td></tr>
+<tr><td><kbd>Ctrl 1</kbd> … <kbd>Ctrl 9</kbd></td><td>Go to tab (9 is the last)</td></tr>
+<tr><td><kbd>Ctrl \</kbd> / <kbd>Ctrl Shift \</kbd></td><td>Split the editor / close the split</td></tr>
+<tr><td><kbd>Ctrl Shift R</kbd></td><td>Show the file in the explorer</td></tr>
+<tr><td><kbd>Ctrl Shift V</kbd> / <kbd>Ctrl Alt V</kbd></td><td>Markdown preview instead / beside; a CSV file as a table</td></tr>
+</tbody>
+</table>
+
+<h3 id="keys-editing">Editing</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>Ctrl Space</kbd>, <kbd>Tab</kbd></td><td>Completions; take the highlighted one</td></tr>
+<tr><td><kbd>Ctrl F</kbd> / <kbd>Ctrl H</kbd></td><td>Find / replace in this file</td></tr>
+<tr><td><kbd>Ctrl Shift F</kbd> / <kbd>Ctrl Shift H</kbd></td><td>Search / replace in files</td></tr>
+<tr><td><kbd>Ctrl G</kbd></td><td>Go to line</td></tr>
+<tr><td><kbd>Ctrl L</kbd>, <kbd>Ctrl Shift L</kbd></td><td>Select the line; select every match</td></tr>
+<tr><td><kbd>Ctrl Alt Up</kbd> / <kbd>Down</kbd></td><td>Add a cursor above / below</td></tr>
+<tr><td><kbd>Ctrl Shift Enter</kbd></td><td>New line above</td></tr>
+<tr><td><kbd>Shift Alt F</kbd></td><td>Format the file</td></tr>
+<tr><td><kbd>Ctrl .</kbd></td><td>Quick fixes and refactors</td></tr>
+<tr><td><kbd>Ctrl K</kbd>, <kbd>Ctrl Shift Space</kbd></td><td>Info at the cursor; parameter hints</td></tr>
+<tr><td><kbd>Alt Z</kbd></td><td>Wrap long lines</td></tr>
+<tr><td><kbd>Ctrl Alt K</kbd> / <kbd>L</kbd> / <kbd>J</kbd></td><td>Bookmark / next / previous</td></tr>
+<tr><td><kbd>Tab</kbd></td><td>Expand an Emmet abbreviation (HTML, JSX, CSS)</td></tr>
+</tbody>
+</table>
+
+<h3 id="keys-navigation">Getting around</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>F12</kbd>, <kbd>Ctrl</kbd>+click</td><td>Go to definition</td></tr>
+<tr><td><kbd>Shift F12</kbd></td><td>Find all references</td></tr>
+<tr><td><kbd>Shift Alt F12</kbd></td><td>Red Thread: follow everywhere it's used</td></tr>
+<tr><td><kbd>F2</kbd></td><td>Rename symbol</td></tr>
+<tr><td><kbd>Ctrl Shift O</kbd> / <kbd>Ctrl Alt O</kbd></td><td>Outline of this file / symbol anywhere</td></tr>
+<tr><td><kbd>Alt Left</kbd> / <kbd>Alt Right</kbd></td><td>Back / forward</td></tr>
+<tr><td><kbd>F8</kbd> / <kbd>Shift F8</kbd></td><td>Next / previous problem</td></tr>
+<tr><td><kbd>Alt F5</kbd> / <kbd>Shift Alt F5</kbd></td><td>Next / previous changed lines</td></tr>
+<tr><td><kbd>Alt F7</kbd> / <kbd>Shift Alt F7</kbd></td><td>Next / previous merge conflict</td></tr>
+</tbody>
+</table>
+
+<h3 id="keys-running">Running and debugging</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>F5</kbd> / <kbd>Shift F5</kbd></td><td>Run or Play (Continue while debugging) / stop</td></tr>
+<tr><td><kbd>Ctrl I</kbd></td><td>Type input for the running program</td></tr>
+<tr><td><kbd>Ctrl Shift B</kbd></td><td>Build</td></tr>
+<tr><td><kbd>Ctrl Alt T</kbd>, <kbd>Ctrl Alt C</kbd></td><td>Run tests; check</td></tr>
+<tr><td><kbd>Shift F9</kbd> / <kbd>F9</kbd></td><td>Start debugging / breakpoint</td></tr>
+<tr><td><kbd>F10</kbd> / <kbd>F11</kbd> / <kbd>Shift F11</kbd></td><td>Step over / into / out</td></tr>
+<tr><td><kbd>Ctrl Shift F5</kbd>, <kbd>Pause</kbd></td><td>Restart debugging; pause</td></tr>
+<tr><td><kbd>Ctrl Shift F10</kbd> / <kbd>Ctrl Shift F9</kbd></td><td>Run / debug the test (or main) at the cursor</td></tr>
+<tr><td><kbd>Ctrl F5</kbd></td><td>Play the open scene (Godot)</td></tr>
+<tr><td><kbd>Ctrl `</kbd> / <kbd>Ctrl T</kbd></td><td>Terminal / new terminal</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section class="chapter" id="troubleshooting">
+<h2>Troubleshooting</h2>
+<ul>
+<li><strong>A language server shows a warning or error</strong> in the status bar: click it to read why. A missing one is red, with a button to the setting for it; Settings › Languages installs it.</li>
+<li><strong>Run asks for trust:</strong> the folder is in restricted mode. Click <strong>Restricted</strong> in the status bar if it's your own code.</li>
+<li><strong>A debugged program waits for input:</strong> it can't be typed to; set its input under <a href="#run-options">Arguments and input</a>, or use Run.</li>
+<li><strong>The browser doesn't open for Go Live:</strong> check Settings › Web's browser, or pick Windows default.</li>
+<li><strong>Lust isn't found:</strong> Settings › Lust › Install Lust, or set the path to your <code>lust.exe</code>. Building Lust programs needs Rust too.</li>
+<li><strong>Deleting from the explorer</strong> moves files to the Recycle Bin, so they can come back.</li>
+<li><strong>Lost a change?</strong> <a href="#history">Local history</a> keeps the last 50 saves of every file.</li>
+</ul>
+</section>

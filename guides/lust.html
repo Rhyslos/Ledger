@@ -1,0 +1,2450 @@
+<section class="chapter" id="welcome">
+<h1><span class="logo" aria-hidden="true"></span>Lust Language Guide</h1>
+<p class="lead">Lust is a small, strict language for apps, games, tools and scripting. Checks are written as questions, states are built in and own their memory, and every file ends with <code>end</code>. This guide covers all of it, with an example for each part.</p>
+<p>Use the search box at the top (press <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd>) to find anything: a word like <code>cMap</code>, a piece like <code>slider</code>, or a question like "loop backwards". Every heading has its own link: point at it and click the hash sign beside it to copy where it is.</p>
+<div class="note">
+<p>This guide follows Lust 2.0.0 alpha 73. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
+</div>
+
+<h3 id="the-short-version">The short version</h3>
+<pre data-lang="lust" data-file="main.lst">
+state Mood = [Cheerful, Grumpy];
+
+class Player {
+    has {
+        string name = "Hero";
+        int hp = 20;
+        Mood mood = Mood.Cheerful;
+    }
+
+    method hurt(int damage) {
+        hp -= damage;
+
+        is hp <= 0? then {
+            print("{name} is knocked out!");
+        } or is hp < 10? then {
+            mood = Mood.Grumpy;
+            print("{name} has {hp} hp left.");
+        }
+    }
+}
+
+Player ada = new Player { name = "Ada" };
+ada:hurt(12);
+
+end
+</pre>
+<ul>
+<li><strong>Every statement ends with <code>;</code></strong> and <strong>every file ends with <code>end</code></strong>.</li>
+<li><strong>No <code>if</code>:</strong> a check is a question, <code>is hp &lt; 10? then { … }</code>, and <code>or { … }</code> is the "otherwise".</li>
+<li><strong>Types come first:</strong> <code>int hp = 20;</code>, <code>method int doubleIt(int n) { … }</code>.</li>
+<li><strong><code>.</code> reads a field, <code>:</code> calls a method:</strong> <code>ada.hp</code>, <code>ada:hurt(12)</code>.</li>
+<li><strong>Text shows values in <code>{ }</code>:</strong> <code>"{name} has {hp} hp"</code>.</li>
+</ul>
+<p>Run it with <code>lust run main.lst</code>, or press <kbd>F5</kbd> in Ledger.</p>
+
+<h3 id="quick-reference">Quick reference</h3>
+<div class="cards">
+<a href="#types"><strong>Types and variables</strong><code>int</code> <code>float</code> <code>string</code> <code>bool</code> <code>vec3</code> <code>colour</code>, <code>lock</code></a>
+<a href="#questions"><strong>Questions</strong><code>is … ? then</code>, <code>or</code>, <code>either</code>, <code>check</code> / <code>when</code></a>
+<a href="#loops"><strong>Loops</strong><code>loop 3</code>, <code>loop (x in xs)</code>, <code>loop (int i = 0; …)</code>, <code>stop</code>, <code>skip</code></a>
+<a href="#collections"><strong>Arrays, cMaps and maps</strong><code>int array</code>, <code>cMap(int id, …)</code>, <code>int map</code></a>
+<a href="#classes"><strong>Classes and objects</strong><code>class</code>, <code>has</code>, <code>new</code>, <code>object</code>, <code>like</code>, <code>node</code>, <code>assembly</code></a>
+<a href="#methods"><strong>Methods and hooks</strong><code>method</code>, <code>return</code>, <code>hook</code>, <code>new hook { }</code></a>
+<a href="#states"><strong>States</strong><code>state</code>, <code>is</code>, <code>keep</code></a>
+<a href="#sharing"><strong>Sharing between files</strong><code>pass</code>, <code>fetch</code>, <code>get</code></a>
+<a href="#views"><strong>Windows</strong><code>view</code>, pieces, <code>[styles]</code>, inputs, tables</a>
+<a href="#library"><strong>The library</strong><code>print</code>, <code>Maths</code>, <code>Random</code>, <code>Files</code>, <code>Time</code>, <code>Json</code></a>
+<a href="#from-other-languages"><strong>Coming from another language</strong>where <code>if</code>, <code>for</code>, <code>null</code> and friends went</a>
+<a href="#commands"><strong>Commands</strong><code>lust run</code>, <code>check</code>, <code>build</code>, <code>test</code>, <code>new</code></a>
+</div>
+</section>
+
+<section class="chapter" id="basics">
+<h2>Files and the basics</h2>
+<p>What every Lust file looks like, before anything else.</p>
+
+<section id="file-kinds">
+<h3>Kinds of file</h3>
+<table>
+<thead><tr><th>Extension</th><th>What it is</th><th>Becomes</th></tr></thead>
+<tbody>
+<tr><td><code>.lst</code></td><td>A Lust program: apps, games, tools and servers</td><td>Rust, built into a real program for Windows, macOS and Linux (<code>lust build</code>)</td></tr>
+<tr><td><code>.lsc</code></td><td>LustScript: scripting and modding inside other programs (Garry's Mod, Aventail, Halberd)</td><td>Lua 5.1, LuaJIT or Luau (see <a href="#lustscript">LustScript</a>)</td></tr>
+<tr><td><code>.lql</code></td><td>LustQL, for stored data</td><td>Still being designed</td></tr>
+</tbody>
+</table>
+<p>Both kinds are the same language with the same rules. <code>lust run</code> runs either kind straight away through Lua, with nothing else to install. Only <code>lust build</code> needs Rust.</p>
+</section>
+
+<section id="statements">
+<h3>Statements, blocks and end</h3>
+<ul>
+<li><strong>Every statement ends with <code>;</code></strong>: <code>int lives = 3;</code>, <code>print("hi");</code>.</li>
+<li><strong>Blocks are in <code>{ }</code></strong> and don't take a <code>;</code> after the <code>}</code>: <code>is ready? then { go(); }</code>.</li>
+<li>A few things that end in a <code>{ }</code> but are still statements do take one: <code>new hook { … };</code> and <code>Player p = new Player { … };</code>.</li>
+<li><strong>Every file ends with <code>end</code></strong> on its last line. Only blank lines and comments may follow it.</li>
+<li><strong>Every project has a <code>main.lst</code></strong> at its root. That's where the program starts, and the folder with it is the project's folder.</li>
+</ul>
+</section>
+
+<section id="comments">
+<h3>Comments</h3>
+<pre data-lang="lust">
+-- a comment, the Lua way
+// also a comment
+--[[ a block comment,
+     over several lines ]]
+</pre>
+<div class="warn"><p>Because <code>--</code> starts a comment, subtracting a negative number needs a space: <code>a - -b</code>, not <code>a--b</code>.</p></div>
+</section>
+
+<section id="file-order">
+<h3>The order inside a file</h3>
+<ol class="steps">
+<li>Imports: <code>fetch</code> and <code>get</code>.</li>
+<li>States and nodes.</li>
+<li>Classes, objects, assemblies, schemas and methods.</li>
+<li><code>pass</code>: what other files may use.</li>
+<li>The code that runs.</li>
+<li><code>end</code>.</li>
+</ol>
+<pre data-lang="lust" data-file="main.lst" data-check="no">
+fetch "entities/player":Player;
+
+state AppState = [Booting, Running];
+
+method start() {
+    Player hero = new Player { name = "Ada", hp = 100 };
+    print("Ready: " + hero.name);
+}
+
+pass AppState;
+
+start();
+
+end
+</pre>
+</section>
+
+<section id="naming">
+<h3>Naming</h3>
+<ul>
+<li><strong>PascalCase for kinds of things:</strong> classes, objects, states, schemas, assemblies and nodes. <code>Player</code>, <code>GameState</code>, <code>LootSpawner</code>.</li>
+<li><strong>camelCase for everything else:</strong> variables, fields, methods, hooks, files and folders. <code>currentHp</code>, <code>takeDamage()</code>, <code>entities/player.lst</code>.</li>
+<li>So <code>Player player = new Player;</code> reads clearly: the capital is the kind, the small letter is the thing.</li>
+<li><strong>No dashes in names</strong>, since <code>-</code> takes away: <code>int max-hp</code> is a mistake that suggests <code>maxHp</code>. Files and folders that other files <code>fetch</code> can't have dashes either: use <code>myParts</code> or <code>my_parts</code>.</li>
+<li><strong>No ALL_CAPS names:</strong> <code>int MAX_HP</code> suggests <code>maxHp</code>. For a value that never changes, use <a href="#lock"><code>lock</code></a>.</li>
+<li><strong>Lust's own words are reserved</strong> and can't be names: <code>int loop = 3;</code> says <em>loop is one of Lust's own words, so it can't be a name.</em> The list is under <a href="#reserved-words">Reserved words</a>.</li>
+<li>Map keys are text, so any text is fine there: <code>"max_hp"</code>, <code>"item-id"</code>.</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="types">
+<h2>Types and variables</h2>
+<p>A variable is declared with its type, its name and a value, and keeps its type forever.</p>
+
+<section id="variables">
+<h3>Variables</h3>
+<pre data-lang="lust">
+int lives = 3;
+float speed = 1.5;
+string name = "Ada";
+bool alive = true;
+
+lives = lives - 1;
+name = "Bo";
+</pre>
+<ul>
+<li>A variable declared inside <code>{ }</code> only exists inside those braces.</li>
+<li>A name can't be declared twice while it still exists.</li>
+<li>An <code>int</code> fits where a <code>float</code> goes. The other way needs <code>.int()</code>: <code>int whole = speed.int();</code>.</li>
+<li>Lust never changes a type quietly: <code>"1" == 1</code> is a mistake, and <code>"hp: " + hp</code> needs <code>hp.text()</code> (or <code>"hp: {hp}"</code>).</li>
+</ul>
+</section>
+
+<section id="type-list">
+<h3>Every type</h3>
+<table>
+<thead><tr><th>Type</th><th>Holds</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td><code>int</code></td><td>Whole numbers (64 bits)</td><td><code>int lives = 3;</code></td></tr>
+<tr><td><code>int8</code> … <code>uint32</code></td><td>Whole numbers in fewer bits, to save memory (<a href="#sized-numbers">below</a>)</td><td><code>uint8 shade = 200;</code></td></tr>
+<tr><td><code>float</code></td><td>Numbers with a point</td><td><code>float speed = 1.5;</code></td></tr>
+<tr><td><code>string</code></td><td>Text, in double quotes</td><td><code>string name = "Ada";</code></td></tr>
+<tr><td><code>bool</code></td><td><code>true</code> or <code>false</code></td><td><code>bool alive = true;</code></td></tr>
+<tr><td><code>vec3</code></td><td>Three numbers: a place, direction or speed in 3D</td><td><code>vec3 pos = [0, 0, 1.5];</code></td></tr>
+<tr><td><code>vec2</code></td><td>Two numbers, x and y, for 2D</td><td><code>vec2 at = [3, 4.5];</code></td></tr>
+<tr><td><code>rotation</code></td><td>A turn in 3D, in degrees around x, y and z</td><td><code>rotation r = [0, 0, 90];</code></td></tr>
+<tr><td><code>colour</code></td><td>Red, green, blue and see-through, each 0 to 1</td><td><code>colour sky = [0.4, 0.7, 1.0];</code></td></tr>
+<tr><td><code>entity</code></td><td>A thing in a game engine, or <code>nothing</code></td><td><code>entity target = nothing;</code></td></tr>
+<tr><td>a class's name</td><td>One thing made from a class</td><td><code>Player p = new Player;</code></td></tr>
+<tr><td><code>T array</code></td><td>A list of <code>T</code></td><td><code>int array scores = [1, 2];</code></td></tr>
+<tr><td><code>cMap(…)</code></td><td>A table of rows found by their key</td><td><code>cMap(int id, string item) bag = [];</code></td></tr>
+<tr><td><code>T map</code></td><td>Values found by a text key</td><td><code>int map prices = ["tea" 2];</code></td></tr>
+<tr><td>a state's name</td><td>One of that state's options</td><td><code>Mood mood = Mood.Calm;</code></td></tr>
+<tr><td>a schema's name</td><td>A data shape for the web</td><td><code>NewUser body</code></td></tr>
+<tr><td><code>hook …</code></td><td>A method kept as a value</td><td><code>hook int(int n) f = doubleIt;</code></td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="lock">
+<h3>lock: values that never change</h3>
+<pre data-lang="lust" data-check="no">
+lock int maxLives = 3;
+maxLives = 4;          -- a mistake, caught before anything runs
+</pre>
+<pre data-lang="text">
+main.lst:2:1  maxLives is locked, so it keeps the value it started with. To change it, leave out lock where it's declared.
+</pre>
+<ul>
+<li>Giving a locked variable a new value (<code>=</code>, <code>+=</code>, <code>is</code>) is a mistake.</li>
+<li>A field can be locked too: <code>has { lock int maxHp = 20; }</code>. It gets its value when the thing is made (its starting value, or one given in <code>new Player { maxHp = 30 }</code>) and keeps it.</li>
+<li>Locking a thing (<code>lock Bag bag = new Bag;</code>) means <code>bag</code> is always that same bag, but its fields can still change: <code>bag.size += 4;</code> is fine. The same goes for a locked array's or map's items.</li>
+<li>A class's own <code>state</code> changes as it goes, so it can't be locked, and neither can a loop's counter.</li>
+</ul>
+</section>
+
+<section id="sized-numbers">
+<h3>Sized numbers</h3>
+<p>An <code>int</code> takes 64 bits. Where a smaller one will do, these take fewer in the program <code>lust build</code> makes: a <code>uint8 array</code> of a million tiles takes 1 MB instead of 8. They're completely optional; <code>int</code> works everywhere.</p>
+<table>
+<thead><tr><th>Type</th><th>Holds</th></tr></thead>
+<tbody>
+<tr><td><code>int8</code></td><td>-128 to 127</td></tr>
+<tr><td><code>int16</code></td><td>-32768 to 32767</td></tr>
+<tr><td><code>int32</code></td><td>-2147483648 to 2147483647</td></tr>
+<tr><td><code>uint8</code></td><td>0 to 255</td></tr>
+<tr><td><code>uint16</code></td><td>0 to 65535</td></tr>
+<tr><td><code>uint32</code></td><td>0 to 4294967295</td></tr>
+</tbody>
+</table>
+<ul>
+<li>Reading one gives an <code>int</code>, so maths, text and comparisons work as for any int.</li>
+<li>Putting a number into one checks it fits. A number written out has to fit before anything runs (<code>int8 x = 300;</code> is a mistake). One worked out while running stops the program if it doesn't fit: <em>303 doesn't fit in a uint8, which holds 0 to 255.</em> It never wraps round quietly.</li>
+<li>They go in variables, fields, parameters, return types, arrays, maps, cMaps, hooks, saves and JSON. Not yet in components, events, database tables or native methods: use <code>int</code> there.</li>
+</ul>
+<div class="note"><p><strong>How big an int can be.</strong> A built program holds whole numbers up to 9223372036854775807. <code>lust run</code> runs through Lua, whose numbers are exact only up to 9007199254740991, so there a bigger one stops the program with a message instead of showing a wrong number. Build the program to use bigger ones.</p></div>
+</section>
+
+<section id="nothing">
+<h3>nothing</h3>
+<p><code>nothing</code> means "no thing here yet". Only class-typed values (and hooks and entities) can be <code>nothing</code>.</p>
+<pre data-lang="lust">
+class Pet {
+    has {
+        string name = "Rex";
+    }
+}
+
+Pet pet = nothing;
+is pet === nothing? then {
+    pet = new Pet;
+}
+print(pet.name);
+</pre>
+<p>Using a field or method on <code>nothing</code> stops the program with an error naming the line: <em>this is nothing, so it has no fields or methods.</em></p>
+</section>
+</section>
+
+<section class="chapter" id="questions">
+<h2>Questions and choices</h2>
+<p>Lust has no <code>if</code>. A check is a question: it starts with <code>is</code> and ends with <code>?</code>.</p>
+
+<section id="is-then">
+<h3>is … ? then</h3>
+<pre data-lang="lust">
+int hp = 3;
+
+is hp == 0? then {
+    print("Out cold");
+} or is hp &lt; 5? then {
+    print("Barely standing");
+} or {
+    print("Fine");
+}
+</pre>
+<ul>
+<li><code>or is …? then { }</code> asks the next question when the first was no.</li>
+<li><code>or { }</code> on its own runs when every question was no.</li>
+<li>Writing <code>if</code> is a mistake that shows the Lust way: <em>Lust asks questions instead of if: is hp == 0? then { }</em>.</li>
+</ul>
+</section>
+
+<section id="bools">
+<h3>Asking about a bool</h3>
+<p>Ask a bool straight, rather than comparing it with <code>true</code>:</p>
+<pre data-lang="lust">
+bool alive = true;
+
+is alive? then { print("still here"); }
+is not alive? then { print("gone"); }
+</pre>
+<p><code>not</code> flips a bool anywhere: <code>alive = not alive;</code>.</p>
+</section>
+
+<section id="comparing">
+<h3>Comparing</h3>
+<table>
+<thead><tr><th>Write</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><code>a == b</code></td><td>The same: equal numbers, text or bools; the very same thing; for state options, the same option or one inside the other</td></tr>
+<tr><td><code>a != b</code></td><td>Not the same</td></tr>
+<tr><td><code>a === b</code></td><td>Exactly the same: for state options, only that very option</td></tr>
+<tr><td><code>a !== b</code></td><td>Not exactly the same</td></tr>
+<tr><td><code>&lt;</code> <code>&gt;</code> <code>&lt;=</code> <code>&gt;=</code></td><td>Comparisons for numbers</td></tr>
+<tr><td><code>a &amp;&amp; b</code>, <code>a || b</code></td><td>Both, either. Group with <code>( )</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>For numbers, text and bools, <code>===</code> means the same as <code>==</code>.</li>
+<li><strong>Things made from classes</strong> are compared by which thing they are: two <code>new Hero</code>s with the same fields are two heroes, so <code>==</code> says false. Compare their fields to ask whether they're alike: <code>a.name == b.name</code>.</li>
+<li>Comparing different types (<code>"1" == 1</code>) is a mistake caught before running.</li>
+<li>A single <code>&amp;</code> or <code>|</code> is for the <a href="#bits">bits of whole numbers</a>, not for joining checks.</li>
+</ul>
+</section>
+
+<section id="either">
+<h3>either: one of two values</h3>
+<pre data-lang="lust">
+int hp = 12;
+string mood = either hp &gt; 10? "happy" or "grumpy";
+print("{either hp &gt; 0? "alive" or "down"}");
+</pre>
+</section>
+
+<section id="check">
+<h3>check and when</h3>
+<p><code>check</code> goes through a state's options, with one <code>when</code> block for each:</p>
+<pre data-lang="lust">
+state Mood = [Calm, Busy, Angry];
+Mood mood = Mood.Busy;
+
+check mood {
+    when Calm {
+        print("relaxed");
+    }
+    when Busy, Angry {
+        print("working");
+    }
+}
+</pre>
+<ul>
+<li><strong>Every option is covered, always.</strong> There's no "anything else": leave an option out and Lust says which one is missing. So when a state gets a new option, Lust points at every <code>check</code> that needs a <code>when</code> for it.</li>
+<li><strong>One <code>when</code> can cover several options:</strong> <code>when Busy, Angry { … }</code>.</li>
+<li><strong>Write the option on its own</strong>, without the state's name: <code>when Calm</code>, not <code>when Mood.Calm</code>.</li>
+<li><strong>Options inside options:</strong> a <code>when</code> for an option covers the options inside it. Put the more particular one first: <code>when ActiveGame.Combat { … }</code> and then <code>when ActiveGame { … }</code> for the rest.</li>
+<li><strong>Bools</strong> work too, with <code>when true { }</code> and <code>when false { }</code>.</li>
+<li><strong>Numbers and text</strong> use questions instead, since there's no list of every value to cover.</li>
+<li>Each <code>when</code> has its own <code>{ }</code>, so one can never run on into the next.</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="maths">
+<h2>Maths and text</h2>
+
+<section id="arithmetic">
+<h3>Arithmetic</h3>
+<ul>
+<li><code>+ - * / %</code> work on <code>int</code> and <code>float</code>. <code>( )</code> groups.</li>
+<li><strong><code>int / int</code> gives an int:</strong> <code>7 / 2</code> is <code>3</code>. Use <code>7.float() / 2</code> for <code>3.5</code>.</li>
+<li><strong>There's no power operator.</strong> Use <code>Maths:power(2, 3)</code>. (<code>2 ^ 3</code> is the bitwise xor, so it's <code>1</code>.)</li>
+<li><strong>Below zero:</strong> <code>int / int</code> drops what's after the point, towards zero: <code>-7 / 2</code> is <code>-3</code>. <code>%</code> takes the sign of the number on its left: <code>-7 % 3</code> is <code>-1</code>. Built programs and <code>lust run</code> agree on all of these.</li>
+<li><strong>Dividing a float by zero</strong> gives <code>infinity</code>, <code>-infinity</code> or <code>not a number</code>; <code>Maths:isFinite(x)</code> asks. Dividing an <em>int</em> by zero stops the program.</li>
+<li><strong>Very big and very small numbers</strong> can be written with <code>e</code>: <code>1e30</code>, <code>2.5e-7</code>. They're always floats.</li>
+</ul>
+</section>
+
+<section id="changing-values">
+<h3>Changing a value using itself</h3>
+<pre data-lang="lust">
+int hp = 20;
+hp -= 5;           -- hp = hp - 5
+hp += 1;
+hp *= 2;
+hp /= 3;
+
+string log = "";
+log += "done. ";   -- += adds to text too
+</pre>
+<p>They work on variables, fields (<code>player.hp += 5;</code>) and items (<code>scores[2] += 1;</code>). <code>+=</code> and <code>-=</code> move a vec3, <code>*=</code> and <code>/=</code> scale one, and <code>*=</code> turns a rotation. The bitwise ones (<code>&amp;=</code>, <code>|=</code>, <code>^=</code>, <code>&lt;&lt;=</code>, <code>&gt;&gt;=</code>) work the same way.</p>
+</section>
+
+<section id="bits">
+<h3>Bits: &amp; | ^ ~ &lt;&lt; &gt;&gt;</h3>
+<table>
+<thead><tr><th>Write</th><th>Means</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td><code>a &amp; b</code></td><td>The bits that are on in both</td><td><code>12 &amp; 10</code> is <code>8</code></td></tr>
+<tr><td><code>a | b</code></td><td>The bits on in either</td><td><code>12 | 10</code> is <code>14</code></td></tr>
+<tr><td><code>a ^ b</code></td><td>The bits on in one but not the other</td><td><code>12 ^ 10</code> is <code>6</code></td></tr>
+<tr><td><code>~a</code></td><td>Every bit flipped</td><td><code>~0</code> is <code>-1</code></td></tr>
+<tr><td><code>a &lt;&lt; n</code></td><td>Moved left <code>n</code> places (times 2, <code>n</code> times)</td><td><code>3 &lt;&lt; 4</code> is <code>48</code></td></tr>
+<tr><td><code>a &gt;&gt; n</code></td><td>Moved right <code>n</code> places (halved, rounding down)</td><td><code>-8 &gt;&gt; 1</code> is <code>-4</code></td></tr>
+</tbody>
+</table>
+<p>Handy for flags, several yes-or-no settings packed into one number:</p>
+<pre data-lang="lust">
+lock int walk = 1;
+lock int swim = 2;
+lock int fly = 4;
+
+int moves = walk | swim;
+is moves &amp; swim != 0? then {
+    print("can swim");
+}
+moves |= fly;      -- now it can fly too
+moves &amp;= ~walk;    -- and no longer walk
+</pre>
+<ul>
+<li>They work on whole numbers only. On a <code>bool</code>, use <code>&amp;&amp;</code>, <code>||</code> or <code>not</code>; on a <code>float</code>, use <code>.int()</code> first.</li>
+<li><strong>The order</strong> is Rust's: <code>~</code>, then <code>* / %</code>, then <code>+ -</code>, then <code>&lt;&lt; &gt;&gt;</code>, then <code>&amp;</code>, <code>^</code>, <code>|</code>, then comparisons, then <code>&amp;&amp;</code> and <code>||</code>. So <code>moves &amp; swim != 0</code> means <code>(moves &amp; swim) != 0</code>.</li>
+<li>Moving by 0 to 63 places works; anything else stops the program, and so does <code>&lt;&lt;</code> pushing bits off the top.</li>
+</ul>
+</section>
+
+<section id="text">
+<h3>Text</h3>
+<ul>
+<li>Text is in double quotes: <code>"Ada"</code>. <code>\n</code> is a new line, <code>\"</code> a quote.</li>
+<li><code>+</code> joins text: <code>"Hello, " + name</code>. It never turns other values into text by itself, so <code>hp + lives</code> always adds numbers.</li>
+<li><code>#name</code> is how many letters.</li>
+<li>Text has tools of its own, like <code>name.upper()</code> and <code>line:split(",")</code>: see <a href="#text-tools">Text tools</a>.</li>
+</ul>
+</section>
+
+<section id="values-in-text">
+<h3>Values in text</h3>
+<p>Put a value in text by writing it in <code>{ }</code>:</p>
+<pre data-lang="lust">
+string name = "Ada";
+int lives = 3;
+float speed = 1.5;
+
+print("Hello, {name}! You have {lives} lives.");
+string card = "{name} has {lives} lives and moves at {speed}";
+print("{lives + 1} next time, {either lives &gt; 2? "plenty" or "careful"}");
+</pre>
+<ul>
+<li>Anything goes in the <code>{ }</code>: a variable, a field, maths, a method call, even more text. Each value is shown the way <code>print</code> shows it, so there's no <code>.text()</code> to write.</li>
+<li>A <code>{</code> straight before a name, a bracket, <code>#</code> or text starts a value. Any other <code>{</code> is just a brace, so JSON (<code>"{\"name\": \"Ada\"}"</code>) and patterns (<code>"[0-9]{4}"</code>) need nothing special.</li>
+<li>For a plain <code>{</code> before a name, write <code>\{</code>: <code>"\{lives} is written like this"</code>.</li>
+</ul>
+</section>
+
+<section id="converting">
+<h3>Turning one type into another</h3>
+<table>
+<thead><tr><th>Method</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>.text()</code></td><td>Anything as text: <code>hp.text()</code></td></tr>
+<tr><td><code>.int()</code></td><td>A float or text as a whole number, dropping what is after the point: <code>"42".int()</code>, <code>speed.int()</code></td></tr>
+<tr><td><code>.float()</code></td><td>An int or text as a float</td></tr>
+<tr><td><code>.isNumber()</code></td><td><code>true</code> when text is a number</td></tr>
+<tr><td><code>.lines()</code></td><td>Text cut into its lines, as a string array</td></tr>
+</tbody>
+</table>
+<pre data-lang="lust">
+string typed = ask("How old are you?");
+is typed.isNumber()? then {
+    int age = typed.int();
+    print("Next year you'll be {age + 1}.");
+} or {
+    print("That isn't a number.");
+}
+</pre>
+</section>
+</section>
+
+<section class="chapter" id="vectors">
+<h2>Vectors, rotations and colours</h2>
+<p>For games, 2D and 3D, and anything drawn. They're copied like numbers: <code>vec3 b = a;</code> makes a copy, so changing <code>b.x</code> doesn't change <code>a</code>.</p>
+
+<section id="vec3">
+<h3>vec3</h3>
+<pre data-lang="lust">
+vec3 pos = [0, 0, 1.5];
+vec3 speed = [2, 0, 0];
+float dt = 1.0 / 60;
+
+pos = pos + speed * dt;
+pos.z = 0;
+print(pos);
+print(pos:length(), pos:distance([0, 0, 0]));
+</pre>
+<ul>
+<li><strong>Arithmetic:</strong> <code>+</code> and <code>-</code> between vec3s, <code>*</code> and <code>/</code> by a number, and <code>-pos</code> points the other way.</li>
+<li><strong>Parts:</strong> <code>pos.x</code>, <code>pos.y</code> and <code>pos.z</code> are floats that can be changed. Z is up.</li>
+<li><strong>Methods:</strong> <code>length()</code>, <code>normalized()</code> (the same direction, 1 long), <code>dot(b)</code>, <code>cross(b)</code>, <code>distance(b)</code>, <code>lerp(b, 0.25)</code> (a quarter of the way to b) and <code>angle(b)</code> (degrees, 0 to 180).</li>
+<li>Each number is a 32-bit float, about 7 digits, so compare with a little room: <code>is a:distance(b) &lt; 0.0001? then { … }</code>.</li>
+<li>Every step is worked out the same in a built program and in <code>lust run</code>, to the last bit.</li>
+</ul>
+</section>
+
+<section id="rotation">
+<h3>rotation</h3>
+<p>A turn, written as degrees around x, y and z. The degrees turn in the order z, then x, then y: x tilts, y rolls, and z turns like a compass.</p>
+<pre data-lang="lust">
+vec3 pos = [0, 0, 0];
+vec3 target = [5, 5, 0];
+rotation facing = [0, 0, 90];               -- a quarter turn around z
+
+vec3 toTarget = target - pos;
+rotation goal = Rotation:toward(toTarget);
+facing = facing:lerp(goal, 0.1);            -- turn a tenth of the way
+vec3 ahead = facing * [1, 0, 0];            -- the direction facing points
+is ahead:angle(toTarget) &lt; 5? then { print("in sight"); }
+</pre>
+<ul>
+<li>A rotation times a vec3 turns it; a rotation times a rotation turns by one and then the other; <code>facing *= turn;</code> turns it in place.</li>
+<li><code>facing:degrees()</code> gives its degrees as a vec3, <code>facing:inverse()</code> the turn back, <code>facing:lerp(goal, t)</code> part of the smooth turn to another.</li>
+<li><code>Rotation:toward(dir)</code> faces a direction, never rolling. <code>Rotation:around(axis, degrees)</code> turns around an axis: <code>Rotation:around([0, 0, 1], 90)</code> is <code>[0, 0, 90]</code>.</li>
+<li><code>Rotation</code> with a capital is the object; <code>rotation</code> is the type.</li>
+</ul>
+</section>
+
+<section id="vec2">
+<h3>vec2</h3>
+<p>A vec3 without z, for 2D games:</p>
+<pre data-lang="lust">
+vec2 pos = [3.0, 4.5];
+vec2 speed = [2, 0];
+pos += speed * 0.5;
+vec2 left = speed:rotated(90);           -- a quarter turn counter-clockwise
+print(left, pos:distance([0, 0]));
+</pre>
+<ul>
+<li>The same arithmetic and methods as a vec3, plus <code>rotated(degrees)</code>, and <code>cross(b)</code> gives a float: above 0 when b turns left from a.</li>
+<li><code>pos3.xy</code> is a vec3's x and y as a vec2, and <code>pos:withZ(z)</code> makes a vec3 from a vec2. A vec2 and a vec3 don't mix.</li>
+</ul>
+</section>
+
+<section id="colour">
+<h3>colour</h3>
+<p>Four numbers from 0 to 1: red, green, blue and how solid it is (<code>a</code>).</p>
+<pre data-lang="lust">
+colour sky = [0.4, 0.7, 1.0];            -- solid
+colour glass = [1, 1, 1, 0.5];           -- half see-through
+colour warn = orange5;                   -- a colour word
+colour moss = Colour:hex("#3a8f2a");     -- or "#3a8f2a80", with see-through
+colour dusk = sky:lerp(warn, 0.5);
+print(sky, dusk.r, moss:hex());
+</pre>
+<ul>
+<li><strong>Colour words</strong> are the ones views use: <code>white</code>, <code>black</code>, <code>gray1</code> to <code>gray9</code>, and <code>red</code>, <code>orange</code>, <code>yellow</code>, <code>green</code>, <code>teal</code>, <code>blue</code>, <code>indigo</code>, <code>purple</code> and <code>pink</code>, each with shades 1 (palest) to 9 (deepest). See <a href="#colours">Colours</a>.</li>
+<li><strong>Parts:</strong> <code>c.r</code>, <code>c.g</code>, <code>c.b</code> and <code>c.a</code>, kept between 0 and 1. Written as numbers, a part outside 0 to 1 is a mistake (for 0 to 255, divide by 255).</li>
+<li><strong>Methods:</strong> <code>c:fade(alpha)</code>, <code>a:lerp(b, t)</code> and <code>c:hex()</code>. There's no arithmetic on colours.</li>
+<li><code>print</code> and <code>.text()</code> show the hex text. <code>Colour</code> with a capital is the object; <code>colour</code> is the type.</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="collections">
+<h2>Arrays, cMaps and maps</h2>
+
+<section id="arrays">
+<h3>Arrays</h3>
+<pre data-lang="lust">
+int array scores = [10, 20, 30];
+
+print(scores[0]);          -- counted from 0
+print(#scores);            -- how many: 3
+scores:inject(40);         -- adds to the end
+scores:remove(0);          -- removes by position
+scores[0] += 5;
+
+string array names = [];
+names:inject("Ada");
+</pre>
+<p>Arrays have tools for sorting, summing, picking and more: see <a href="#array-tools">Array tools</a>.</p>
+</section>
+
+<section id="cmaps">
+<h3>cMaps: tables of rows</h3>
+<p>A cMap is a table whose rows are found by their key. The first column is always the key: you choose its name, and whether it's an <code>int</code> or a <code>string</code>.</p>
+<pre data-lang="lust">
+cMap(int id, string itemName, int amount) bag = [
+    [1, "Sword", 1],
+    [2, "Apple", 5]
+];
+
+cMap(string name, int price, int stock) shop = [
+    ["tea", 2, 10],
+    ["cake", 5, 3]
+];
+
+print(shop["tea"].price);
+shop["tea"].price = 3;
+shop:inject(["bread", 3, 8]);
+shop:remove("cake");
+print(shop:has("cake"), #shop);
+shop:sortBy(price);
+
+loop (string name, int price, int stock in shop) {
+    print(name, price, stock);
+}
+</pre>
+<ul>
+<li><code>bag[1]</code> is the row with key 1 (not the second row); <code>shop["tea"]</code> the row with key "tea".</li>
+<li>A key can't be changed. To give a row a new key, remove it and add it again.</li>
+<li><code>:sortBy(column)</code> puts the rows in order (rows with the same value keep their order), and <code>:reverse()</code> turns them around.</li>
+<li>Looping goes through the rows in the order they were added.</li>
+</ul>
+</section>
+
+<section id="cmap-keys">
+<h3>Keys Lust makes</h3>
+<p>A new row can leave its key out, and Lust makes one:</p>
+<ul>
+<li><strong>An <code>int</code> key counts up</strong> from the biggest key so far: <code>bag:inject(["Map", 1]);</code> gets 3.</li>
+<li><strong>A key-maker</strong> makes it instead: a method or hook that takes nothing and gives back a key, written after the key column like a starting value.</li>
+<li><strong>A <code>string</code> key with no key-maker</strong> has to be given every time.</li>
+</ul>
+<pre data-lang="lust">
+method int rollId() {
+    return Random[1000, 9999];
+}
+
+cMap(int id = rollId, string item, int amount) chest = [];
+chest:inject(["Ruby", 1]);    -- gets a key from rollId
+</pre>
+<p>If the key-maker gives a key that's taken, Lust asks it again (and stops after 100 taken keys in a row). A key-maker goes where a cMap is made: on a variable or a field, not in a method's parameters.</p>
+</section>
+
+<section id="maps">
+<h3>Maps</h3>
+<pre data-lang="lust">
+int map prices = ["apple" 3, "seed" 1];
+
+print(prices["apple"]);
+prices["pear"] = 5;           -- adds or changes
+print(prices:has("pear"));
+prices:remove("seed");
+
+loop (string fruit, int price in prices) {
+    print(fruit, price);
+}
+</pre>
+<p>Keys are text. A cMap with one column after its key does the same job, but maps are quicker to write for that.</p>
+</section>
+</section>
+
+<section class="chapter" id="states">
+<h2>States and memory</h2>
+<p>States describe what things are doing, and they own memory: what's made inside a state is let go when the state ends.</p>
+
+<section id="state-options">
+<h3>A state and its options</h3>
+<pre data-lang="lust">
+state GameState = [
+    MainMenu,
+    ActiveGame [
+        Exploration,
+        Combat
+    ]
+];
+
+GameState now = GameState.MainMenu;
+now is GameState.ActiveGame.Combat;      -- or: now = …;
+
+is now == GameState.ActiveGame? then {
+    print("playing");                     -- yes: Combat is inside ActiveGame
+}
+is now === GameState.ActiveGame? then {
+    print("only ActiveGame itself");      -- no: === asks for that very option
+}
+</pre>
+<ul>
+<li>Options can hold options of their own, as deep as you like.</li>
+<li>A question about an option includes everything inside it; <code>===</code> asks for that very option.</li>
+<li><code>loop (GameState s in GameState) { … }</code> goes through every option.</li>
+<li>Go through the options with <a href="#check"><code>check</code></a>, which makes sure none is forgotten.</li>
+</ul>
+</section>
+
+<section id="own-state">
+<h3>A thing's own state</h3>
+<p>A class or object can have a state of its own, written <code>state is …;</code> in its <code>has</code>. Inside its methods, <code>state is …;</code> changes it, and <code>state</code> reads it:</p>
+<pre data-lang="lust">
+state Phase = [Calm, Battle];
+
+class Guard {
+    has {
+        state is Phase.Calm;
+    }
+
+    method alarm() {
+        state is Phase.Battle;
+        is state == Phase.Battle? then { print("To arms!"); }
+    }
+}
+</pre>
+<p>Outside a class or object there's no <code>state</code> to change; use a variable.</p>
+</section>
+
+<section id="keep">
+<h3>Things made in a state end with it</h3>
+<p>Anything a thing with its own state makes with <code>new</code> in one of its methods belongs to the option it's in at that moment, and <strong>ends when it leaves that option</strong>. <code>keep</code> holds onto it:</p>
+<pre data-lang="lust">
+state Phase = [Calm, Battle];
+
+class Item {
+    has {
+        string name = "";
+    }
+}
+
+class Hero {
+    has {
+        state is Phase.Calm;
+        Item array bag = [];
+    }
+
+    method grab(string name) {
+        Item sword = new Item { name = name };
+        keep sword in bag;      -- without keep, the sword would end when Calm does
+    }
+}
+</pre>
+<ul>
+<li><strong><code>keep thing in place;</code></strong> holds onto it and puts it in an array (at the end), a field or a variable. <strong><code>keep thing;</code></strong> holds onto it without putting it anywhere.</li>
+<li>Using something that has ended stops the program, saying why: <em>this was made during Battle.Melee, and ended with it.</em></li>
+<li>Options inside options count separately: something made during <code>Battle.Melee</code> ends when the thing moves on to <code>Battle.Ranged</code>.</li>
+<li>Starting values in <code>has</code>, and anything made by code outside a class's methods, belong to no state.</li>
+<li>Lust catches the simple slips before running: storing something just made in a field or array without <code>keep</code> is a mistake.</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="classes">
+<h2>Classes, objects and their kin</h2>
+<p>A class describes a kind of thing; <code>new</code> makes one. An object is one ready-made thing. Nodes open and close, and assemblies make things from recipes.</p>
+
+<section id="class">
+<h3>class, has and new</h3>
+<pre data-lang="lust">
+class Dog {
+    has {
+        string name = "Rex";
+        int hp = 10;
+    }
+
+    method bark() {
+        print(name + " says woof!");
+    }
+}
+
+Dog pet = new Dog { name = "Bo" };
+Dog other = new Dog;          -- every field at its starting value
+pet:bark();
+print(other.name, pet.hp);
+pet.hp -= 3;
+</pre>
+<ul>
+<li><strong>Fields are written like variables</strong>, all inside one <code>has { }</code> block.</li>
+<li><code>new</code> makes a thing. The braces set fields; anything not mentioned keeps its starting value. With nothing to set, leave the braces out: <code>new Dog</code>.</li>
+<li><strong><code>.</code> reads a field, <code>:</code> calls a method:</strong> <code>pet.hp</code>, <code>pet:bark()</code>.</li>
+<li>Inside its own methods, a thing's fields and methods are used by name alone: <code>name</code>, <code>bark()</code>.</li>
+<li>Things are shared, not copied: <code>Dog same = pet;</code> is the same dog.</li>
+</ul>
+</section>
+
+<section id="object">
+<h3>object: one ready-made thing</h3>
+<pre data-lang="lust">
+object Game {
+    has {
+        int score = 0;
+    }
+
+    method add(int points) {
+        score += points;
+    }
+}
+
+Game:add(10);
+print(Game.score);
+</pre>
+<p>An object is used by its name, like a class you never need to make. Good for a game's score, settings or anything there's only one of.</p>
+</section>
+
+<section id="like">
+<h3>like: building on another class</h3>
+<pre data-lang="lust">
+class Player {
+    has {
+        string name = "Hero";
+        int hp = 20;
+    }
+
+    method greet() {
+        print("I'm {name}.");
+    }
+}
+
+class Wizard like Player {
+    has {
+        int mana = 50;
+    }
+
+    method greet() {
+        print("I'm {name} the wizard, with {mana} mana.");
+    }
+}
+
+Player hero = new Wizard { name = "Merlin" };
+hero:greet();
+is hero like Wizard? then {
+    print("a wizard after all");
+}
+</pre>
+<ul>
+<li>A Wizard fits anywhere a Player does, and its methods replace Player's of the same name.</li>
+<li><code>is hero like Wizard?</code> asks what something really is.</li>
+</ul>
+</section>
+
+<section id="node">
+<h3>node: something that opens and closes</h3>
+<p>A node is like an object, but it opens and closes again and again: a room in a game, a level, a menu. Closing it ends everything it made.</p>
+<pre data-lang="lust">
+class Item {
+    has {
+        string name = "";
+    }
+}
+
+node Cave {
+    has {
+        Item chest = new Item { name = "chest" };
+        int visits = 0;
+    }
+
+    method onOpen() {
+        print("You enter the cave.");
+    }
+
+    method onClose() {
+        print("You leave the cave.");
+    }
+}
+
+Cave:open();
+Cave.visits = Cave.visits + 1;
+Cave:close();
+print(Cave:isOpen());
+</pre>
+<ul>
+<li>A node starts closed. <code>Cave:open();</code> starts it fresh with its starting values, then runs <code>onOpen</code> if it has one.</li>
+<li><code>Cave:close();</code> runs <code>onClose</code>, then ends everything the node made. Using one afterwards says <em>this was made in Cave, and ended when it closed.</em> Use <a href="#keep"><code>keep</code></a> to hold onto something.</li>
+<li>While it's closed, using its fields or methods says to open it first. Opening an open node, or closing a closed one, is an error.</li>
+<li>A node can't be <code>like</code> a class. <code>onOpen</code> and <code>onClose</code> take nothing and give nothing back.</li>
+</ul>
+</section>
+
+<section id="assembly">
+<h3>assembly: a factory</h3>
+<p>An assembly holds one recipe per class and makes ready-filled things. (An assembly with a <code>view</code> is a window or a piece of one: see <a href="#views">Windows</a>.)</p>
+<pre data-lang="lust">
+class Item {
+    has {
+        string name = "";
+        int value = 0;
+    }
+}
+
+class Sword {
+    has {
+        string name = "";
+        int sharpness = 1;
+    }
+}
+
+assembly Loot {
+    create Item {
+        name = "Potion";
+        value = 50;
+    }
+    create Sword {
+        name = "Old sword";
+        sharpness = Random[1, 5];
+    }
+}
+
+Item drop = Loot:create(Item);
+Sword blade = Loot:create(Sword);
+print(drop.name, blade.sharpness);
+</pre>
+<p>A recipe's values are worked out each time something is made, so <code>Random</code> gives each sword its own sharpness.</p>
+</section>
+</section>
+
+<section class="chapter" id="methods">
+<h2>Methods and hooks</h2>
+
+<section id="method">
+<h3>Methods</h3>
+<p>Everything callable is a <code>method</code>: inside a class or object, or on its own.</p>
+<pre data-lang="lust">
+method int doubleIt(int value) {
+    return value * 2;
+}
+
+method greet(string who) {
+    print("Hello, " + who);
+}
+
+method string describe(string name, int hp) {
+    is hp &lt;= 0? then {
+        return "{name} is down";
+    }
+    return "{name} has {hp} hp";
+}
+
+greet("Ada");
+print(doubleIt(21), describe("Bo", 0));
+</pre>
+<ul>
+<li><strong>The return type comes first</strong>, and is left out when nothing comes back.</li>
+<li><code>return value;</code> gives back a value and ends the method. A plain <code>return;</code> leaves early.</li>
+<li>Parameters are typed: <code>(int a, string b)</code>.</li>
+<li>Methods can be used before the line they're written on.</li>
+<li><strong>A method can't see the variables at the top of the file.</strong> Pass the value in as a parameter, or keep it in an <a href="#object">object</a>'s field, which every method can reach: <em>users belongs to the top of the file, and methods can't see those. Pass it in, or keep it in an object.</em></li>
+</ul>
+</section>
+
+<section id="hooks">
+<h3>Hooks: methods kept as values</h3>
+<p><code>hook</code> is the type of a method kept in a variable, field, array or map. The names in a hook's type are the names its body uses.</p>
+<pre data-lang="lust">
+method int doubleIt(int value) {
+    return value * 2;
+}
+
+hook int(int n) triple = new hook {
+    return n * 3;
+};
+
+hook int(int) f = doubleIt;            -- an existing method works too
+
+print(triple(5), f(5));
+
+class Shop {
+    has {
+        hook(string item, int price) onSell = nothing;
+    }
+
+    method sell(string item, int price) {
+        is onSell !== nothing? then {
+            onSell(item, price);
+        }
+    }
+}
+
+Shop shop = new Shop;
+shop.onSell = new hook {
+    print("Sold {item} for {price}");
+};
+shop:sell("bread", 3);
+</pre>
+<ul>
+<li><code>new hook { }</code> is just the body. What it takes and gives back comes from where it's going.</li>
+<li>A hook in a variable is called like a method on its own: <code>triple(5)</code>. One kept in a field is called with <code>:</code> from outside (<code>shop:onSell("bread", 3);</code>), or by name inside the class.</li>
+<li>A <code>new hook</code> can read the variables around it, as they were when it was made, but can't change them. To share changes, keep the value in an object's field: objects are shared, not copied.</li>
+<li>Calling a hook that's <code>nothing</code> stops the program, so check first: <code>is shop.onSell !== nothing?</code>.</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="loops">
+<h2>Loops</h2>
+<p><code>loop</code> does every kind of repeating.</p>
+
+<section id="loop-kinds">
+<h3>Every kind of loop</h3>
+<table>
+<thead><tr><th>Write</th><th>Repeats</th></tr></thead>
+<tbody>
+<tr><td><code>loop { … }</code></td><td>Forever, until <code>stop</code></td></tr>
+<tr><td><code>loop 3 { … }</code></td><td>Three times</td></tr>
+<tr><td><code>loop (hp &gt; 0) { … }</code></td><td>While the check is true</td></tr>
+<tr><td><code>loop (int score in scores) { … }</code></td><td>Each item of an array</td></tr>
+<tr><td><code>loop (int id, string item, int qty in bag) { … }</code></td><td>Each row of a cMap or database table</td></tr>
+<tr><td><code>loop (string key, int value in prices) { … }</code></td><td>Each key of a map</td></tr>
+<tr><td><code>loop (GameState s in GameState) { … }</code></td><td>Each option of a state</td></tr>
+<tr><td><code>loop (int i = 0; i &lt; 10; i += 1) { … }</code></td><td>Counting</td></tr>
+</tbody>
+</table>
+<pre data-lang="lust">
+string array names = ["Ada", "Bo", "Cy"];
+int hp = 3;
+
+loop 2 {
+    print("hello");
+}
+
+loop (hp &gt; 0) {
+    hp -= 1;
+}
+
+loop (string n in names) {
+    print(n);
+}
+</pre>
+</section>
+
+<section id="counting">
+<h3>Counting</h3>
+<p>Three parts, split by <code>;</code>: a new variable to count with, the check that keeps the loop going, and the change after each round.</p>
+<pre data-lang="lust">
+string array names = ["Ada", "Bo", "Cy"];
+
+loop (int i = 0; i &lt; #names; i += 1) {
+    print(i, names[i]);          -- each name with its place
+}
+loop (int i = 10; i &gt; 0; i -= 2) {
+    print(i);                    -- down, by twos
+}
+loop (int i = #names - 1; i &gt;= 0; i -= 1) {
+    print(names[i]);             -- backwards through an array
+}
+</pre>
+<ul>
+<li>The counter belongs to its loop: it's gone after the <code>}</code>, so the next loop can use <code>i</code> again.</li>
+<li>The check is asked before every round, so a check that's false at the start means no rounds.</li>
+<li>The change still happens after <code>skip;</code>.</li>
+</ul>
+</section>
+
+<section id="stop-skip">
+<h3>stop and skip</h3>
+<pre data-lang="lust">
+int array scores = [4, 0, 9, 12];
+
+loop (int s in scores) {
+    is s == 0? then { skip; }     -- on to the next round
+    is s &gt; 10? then { stop; }     -- out of the loop
+    print(s);
+}
+</pre>
+<p><code>stop;</code> is other languages' <code>break</code>, and <code>skip;</code> their <code>continue</code>.</p>
+</section>
+</section>
+
+<section class="chapter" id="sharing">
+<h2>Sharing between files</h2>
+<p>Everything in a file is private until it's passed.</p>
+
+<section id="pass">
+<h3>pass, fetch and get</h3>
+<pre data-lang="lust" data-file="entities/player.lst" data-check="no">
+class Player {
+    has {
+        string name = "Hero";
+    }
+}
+
+method int clamp(int x, int low, int high) {
+    return Maths:clamp(x, low, high);
+}
+
+pass Player, clamp;
+
+end
+</pre>
+<pre data-lang="lust" data-file="main.lst" data-check="no">
+fetch "entities/player":Player;
+get "entities/player":clamp;
+
+Player ada = new Player { name = "Ada" };
+print(clamp(15, 0, 10));
+
+end
+</pre>
+<ul>
+<li><strong><code>pass</code></strong> lists what other files may use: <code>pass Player;</code>, <code>pass GameState, Mood;</code>.</li>
+<li><strong><code>fetch</code></strong> brings in classes, objects, states, assemblies and schemas; <strong><code>get</code></strong> brings in methods. Several at once go in <code>[ ]</code>: <code>fetch "entities/player":[Player, Party];</code>.</li>
+<li><strong>The path</strong> is in quotes, from the project's folder (the one with <code>main.lst</code>), with <code>/</code> between folders and without <code>.lst</code>.</li>
+<li>Only what's brought in can be used. If a file forgets, Lust says where the thing lives.</li>
+<li>Two files can each have a private thing with the same name; they never mix. Files can bring things in from each other both ways.</li>
+</ul>
+</section>
+
+<section id="projects">
+<h3>Projects and running one file</h3>
+<ul>
+<li><strong>Only the file being run runs its code.</strong> The code at the bottom of a fetched file is left out, so any file can be run on its own to try it: <code>lust run entities/player.lst</code> from the project's folder, or <code>lust run player.lst</code> from inside <code>entities</code>.</li>
+<li>Lust finds the project's folder (the nearest one up with a <code>main.lst</code>) either way.</li>
+<li>Mistakes name the file they're in: <code>entities/player.lst:12  …</code>.</li>
+<li>LustScript works the same way with <code>.lsc</code> files, and a LustScript program turns into one Lua file.</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="saves">
+<h2>Saves and databases</h2>
+
+<section id="save">
+<h3>Saves</h3>
+<pre data-lang="lust">
+object Farm {
+    has {
+        int crops = 0;
+    }
+}
+
+int currentDay = 1;
+save gameSession = [Farm, currentDay];
+
+is saved gameSession? then {
+    load gameSession;
+}
+
+currentDay += 1;
+save gameSession;
+</pre>
+<ul>
+<li>A save lists what it holds once, at the top of the file: objects, and variables declared above it. Then <code>save</code> and <code>load</code> do the rest.</li>
+<li>The file is <code>gameSession.save</code>, readable JSON, in the folder the program runs from (the program's own folder when it's double-clicked).</li>
+<li><code>saved gameSession</code> is true when there's a save to load.</li>
+<li><strong>Loading is strict:</strong> if the save doesn't fit the program, nothing changes and the error says why: <em>gameSession's save doesn't fit this program, so nothing was loaded: it has no currentDay.</em></li>
+<li>Hooks aren't saved, and nodes can't be: save what's in them. A save that holds variables can only be saved and loaded from the top of the file.</li>
+</ul>
+</section>
+
+<section id="database">
+<h3>Databases</h3>
+<p>A database is a file of tables, kept by SQLite. Each table is written like a cMap and used like one:</p>
+<pre data-lang="lust">
+database Shop in "shop.db" {
+    cMap(string name, float price, int stock) items;
+    cMap(int id, string who, string item) orders;
+}
+
+Shop.items:inject(["tea", 2.5, 10]);
+Shop.items["tea"].stock = 9;            -- changes the database straight away
+print(Shop.items["tea"].price);
+print(#Shop.items);
+</pre>
+<ul>
+<li>The first column is the key. An <code>int</code> key counts up when a row leaves it out, and a removed row's key is never given out again. A <code>string</code> key has to be given.</li>
+<li>Columns hold numbers, text, bools, state options, vectors, rotations and colours.</li>
+<li><code>:inject</code>, <code>:has(key)</code>, <code>:remove(key)</code> and <code>[key]</code> work as on cMaps, and a row found with <code>[key]</code> reads and changes the database itself.</li>
+<li>Programs with a database are built with Cargo; the first build on a computer takes a minute or two.</li>
+</ul>
+</section>
+
+<section id="queries">
+<h3>Queries</h3>
+<p>Queries pick rows. They're written in Lust, and Lust turns them into SQL:</p>
+<pre data-lang="lust">
+database Shop in "shop.db" {
+    cMap(string name, float price, int stock) items;
+}
+
+loop (string name, float price, int stock in Shop.items:where(price &lt;= 3.0 &amp;&amp; stock &gt; 0)) {
+    print(name);
+}
+
+cMap(string name, float price, int stock) cheapest = Shop.items:orderBy(price):first(3);
+Shop.items:where(stock == 0):remove();
+</pre>
+<table>
+<thead><tr><th>Query</th><th>Gives</th></tr></thead>
+<tbody>
+<tr><td><code>:where(condition)</code></td><td>The rows where it's true; the columns are used by name</td></tr>
+<tr><td><code>:orderBy(column)</code></td><td>The rows in that column's order, smallest first</td></tr>
+<tr><td><code>:reverse()</code></td><td>The same rows the other way round</td></tr>
+<tr><td><code>:first(n)</code></td><td>Only the first n</td></tr>
+<tr><td><code>:count()</code>, or <code>#</code></td><td>How many</td></tr>
+<tr><td><code>:remove()</code></td><td>Removes the rows the query picked</td></tr>
+</tbody>
+</table>
+<ul>
+<li>Queries chain: <code>Shop.items:where(stock &gt; 0):orderBy(price):first(5)</code>.</li>
+<li>Inside <code>:where</code>, columns work with maths, comparisons, <code>&amp;&amp;</code>, <code>||</code>, <code>not</code>, <code>#</code>, <code>:contains</code>, <code>:startsWith</code> and <code>:endsWith</code>. Anything that doesn't use the columns is worked out first.</li>
+<li>Vectors, rotations and colours are kept as text, so <code>:where</code> and <code>:orderBy</code> can't use them: loop through the rows and check each one instead.</li>
+<li>Putting a query in a cMap variable copies its rows, so changing the cMap doesn't change the database.</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="errors">
+<h2>Errors and mistakes</h2>
+
+<section id="try">
+<h3>try and error</h3>
+<pre data-lang="lust">
+string data = "{\"volume\": 3}";
+
+try {
+    Files:write("config.json", data);
+} error (string message) {
+    print("That didn't work: " + message);
+}
+</pre>
+<ul>
+<li><code>try</code> runs the block. If something goes wrong inside it, the program carries on in <code>error</code> instead of stopping.</li>
+<li>Without <code>try</code>, an error stops the program with the file, line and a plain message: <em>missing-row.lst:2  there's no row with id 7. The ids are 1, 2.</em></li>
+</ul>
+</section>
+
+<section id="mistakes">
+<h3>Mistakes before running</h3>
+<p>Lust checks the whole program before anything runs, and lists every mistake at once, with what to do:</p>
+<pre data-lang="text">
+basics.lsc:3:1  Lust asks questions instead of if: is hp == 0? then { }
+basics.lsc:6:23  can't add an int to a string. Use lives.text() to turn it into text.
+classes.lsc:18:19  Dog has no field called nam. Did you mean name?
+</pre>
+<p>In Ledger, the same mistakes show as squiggles and in Problems every time you save, and <kbd>F8</kbd> goes to the next one. See <a href="#lust-in-ledger">Lust in Ledger</a>.</p>
+</section>
+</section>
+
+<section class="chapter" id="views">
+<h2>Windows: view</h2>
+<p>A screen is described, not built step by step. A <code>view</code> says what the window should look like right now, given the data. After anything happens (a click, a key, a timer), Lust looks at the view again and updates the window to match. <strong>You change data, never the screen.</strong></p>
+
+<section id="first-window">
+<h3>A first window</h3>
+<pre data-lang="lust" data-file="main.lst">
+assembly App {
+    has {
+        int count = 0;
+    }
+
+    view [title "Counter", width 360, height 200] {
+        column [center, gap 12, pad 24] {
+            text "Clicked {count} times" [size 24, weight 600];
+            button "Add one" [blue, round] {
+                count = count + 1;
+            }
+        }
+    }
+}
+
+App:open();
+end
+</pre>
+<ul>
+<li><strong>An assembly with a <code>view</code></strong> is a window, or a piece of one. <code>App:open();</code> opens it, through <code>lust run</code> and as a built program, and the program goes on after the window closes.</li>
+<li><strong>The view's own <code>[ ]</code></strong> holds the window's settings: <code>title</code>, <code>width</code>, <code>height</code> and the rest (<a href="#window-settings">below</a>).</li>
+<li><strong>A button's <code>{ }</code></strong> runs when it's clicked, and the window redraws afterwards.</li>
+<li><strong>Questions and loops</strong> work inside a view: showing something only sometimes is an <code>is … ? then</code>, and a list is a <code>loop</code>.</li>
+<li><code>lust new name app</code> (or Ledger's <strong>New project › Lust program</strong>, with a window) starts a project like this, with a piece in <code>ui/</code>.</li>
+</ul>
+</section>
+
+<section id="pieces">
+<h3>The pieces</h3>
+<table>
+<thead><tr><th>Kind</th><th>Pieces</th></tr></thead>
+<tbody>
+<tr><td>Layout</td><td><code>column</code>, <code>row</code>, <code>stack</code> (layers), <code>scroll</code>, <code>space</code>, <code>grid</code>, <code>split</code></td></tr>
+<tr><td>Content</td><td><code>text</code>, <code>button</code>, <code>image</code>, <code>icon</code>, <code>progress</code></td></tr>
+<tr><td>Inputs</td><td><code>input</code>, <code>textarea</code>, <code>checkbox</code>, <code>switch</code>, <code>number</code>, <code>slider</code></td></tr>
+<tr><td>Choosing</td><td><code>dropdown</code>, <code>radio</code>, <code>menu</code> with <code>item</code> and <code>divider</code>, <code>datePicker</code>, <code>colourPicker</code></td></tr>
+<tr><td>Rows of data</td><td><code>table</code> with <code>column</code>s, <code>list</code></td></tr>
+<tr><td>Showing parts</td><td><code>tabs</code> with <code>tab</code>, <code>branch</code></td></tr>
+<tr><td>Drawing</td><td><code>canvas</code> with <code>box</code>, <code>circle</code>, <code>line</code></td></tr>
+<tr><td>Over the view</td><td><code>dialog</code>, and <code>window</code> beside it</td></tr>
+<tr><td>Time, keys and files</td><td><code>every</code>, <code>key</code>, <code>drop</code>, <code>tray</code></td></tr>
+</tbody>
+</table>
+<p>The pieces are words only at the start of a line inside a view, so they can still be names elsewhere: <code>int number = 3;</code> works anywhere.</p>
+</section>
+
+<section id="styles">
+<h3>Styles</h3>
+<p>Short words in <code>[ ]</code> after a piece, in the spirit of Tailwind: <code>text "Hi" [size 24, bold, muted]</code>.</p>
+<table>
+<thead><tr><th>For</th><th>Words</th></tr></thead>
+<tbody>
+<tr><td>Spacing</td><td><code>pad 16</code>, <code>padX 8</code>, <code>padY 4</code>, <code>padTop</code>, <code>padRight</code>, <code>padBottom</code>, <code>padLeft</code>, and <code>gap 8</code> between children</td></tr>
+<tr><td>Size</td><td><code>width 200</code>, <code>height 40</code>, <code>width fill</code>, <code>height fill</code>, <code>grow 2</code>, <code>minWidth</code>, <code>maxWidth</code>, <code>minHeight</code>, <code>maxHeight</code></td></tr>
+<tr><td>Text</td><td><code>size 24</code>, <code>tiny</code>, <code>small</code>, <code>large</code>, <code>huge</code>, <code>weight 600</code>, <code>bold</code>, <code>muted</code>, <code>strike</code>, <code>nowrap</code>, <code>font "file.ttf"</code></td></tr>
+<tr><td>Colour</td><td>A colour word on its own colours text (or a whole button); <code>color …</code>, <code>background …</code>; <code>subtle</code> for a button with no background until the mouse is over it</td></tr>
+<tr><td>Shape</td><td><code>round</code>, <code>round 12</code>, <code>pill</code>, <code>border</code>, <code>border red</code>, <code>borderWidth 2</code>, <code>shadow</code>, <code>opacity 0.5</code></td></tr>
+<tr><td>Placing</td><td><code>left</code>, <code>center</code>, <code>right</code> side to side; <code>top</code>, <code>middle</code>, <code>bottom</code> up and down; <code>spread</code></td></tr>
+<tr><td>Under the mouse</td><td><code>hover:[ … ]</code>, <code>tip "…"</code></td></tr>
+<tr><td>Dark mode</td><td><code>dark:[ … ]</code></td></tr>
+<tr><td>Screen readers</td><td><code>label "Delete the note"</code></td></tr>
+<tr><td>Motion</td><td><code>animate</code></td></tr>
+<tr><td>Off</td><td><code>disabled</code>, or with a bool: <code>disabled not ready</code></td></tr>
+<tr><td>Inputs and pictures</td><td><code>placeholder "…"</code>; <code>from</code>, <code>to</code>, <code>step</code> (sliders); <code>min</code>, <code>max</code>, <code>step</code> (number boxes); <code>min</code>, <code>max</code> (date pickers); <code>alpha</code>, <code>swatches [ … ]</code> (colour pickers); <code>across</code> (radios); <code>cover</code> (pictures)</td></tr>
+<tr><td>Grids, splits, branches</td><td><code>columns 3</code>, <code>cell 180</code>, <code>down</code>, <code>open</code></td></tr>
+<tr><td>Tables and lists</td><td><code>select chosen</code>, <code>rowHeight 28</code>, <code>stripes</code>, <code>reorder</code>, and <code>sort p.age</code> on a column</td></tr>
+<tr><td>In a canvas</td><td><code>x</code>, <code>y</code>, <code>toX</code>, <code>toY</code>, <code>radius</code>, <code>thick</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Name a style to reuse it:</strong> <code>style card = [pad 16, round, shadow];</code>, then <code>column [card] { … }</code>.</li>
+<li><strong>Values can come from the data:</strong> <code>[grow done, background shade, size 12 + extra, disabled not ready]</code>. Only colour words and <code>fill</code> are read as words.</li>
+<li>In Ledger, completion inside a piece's <code>[ ]</code> offers only the style words that fit that piece, and hovering one explains it.</li>
+</ul>
+</section>
+
+<section id="colours">
+<h3>Colours</h3>
+<p><code>white</code>, <code>black</code>, <code>gray1</code> to <code>gray9</code>, and <code>red</code>, <code>orange</code>, <code>yellow</code>, <code>green</code>, <code>teal</code>, <code>blue</code>, <code>indigo</code>, <code>purple</code> and <code>pink</code>. Each colour has nine shades, from <code>blue1</code> (a pale blue for backgrounds) to <code>blue9</code> (a deep one); the shades are the Open Color palette. Any other colour is written <code>"#2f9e44"</code>, or held in a <a href="#colour"><code>colour</code></a>: <code>[background sky]</code>.</p>
+</section>
+
+<section id="layout">
+<h3>Sharing the room and placing</h3>
+<ul>
+<li><strong>Pieces are as big as what's in them.</strong> <code>width fill</code> in a row (or <code>height fill</code> in a column) takes the room that's left; several fills share it equally, and <code>grow 2</code> takes twice the share of <code>grow 1</code>.</li>
+<li><strong>A <code>space</code></strong> is an empty fill, so it pushes what comes after it to the end.</li>
+<li><strong>On a column,</strong> <code>left</code>, <code>center</code> and <code>right</code> place its children side to side, and <code>top</code>, <code>middle</code> and <code>bottom</code> up and down. On a row it's the same, and its children sit in the middle up and down unless told otherwise.</li>
+<li><strong><code>spread</code></strong> puts the spare room evenly between the children: <code>row [spread] { text "Back"; text "Next"; }</code> puts one at each end.</li>
+<li><strong>A <code>stack</code></strong> lays its children on top of each other, the later ones in front: a picture with a label on it, or a badge in a corner.</li>
+<li><strong>Text wraps</strong> onto more lines when it doesn't fit. <code>\n</code> starts a new line, and <code>nowrap</code> keeps it on one.</li>
+<li><strong>Sizes are in units, not pixels</strong>, so a window looks the same size on every screen, only sharper on a sharper one (125%, 150%, 200% scaling).</li>
+</ul>
+<pre data-lang="lust">
+assembly Bar {
+    view [title "Layout"] {
+        column [gap 12, pad 16] {
+            row [gap 8] {
+                text "Name" [bold];
+                space;
+                button "Edit" [subtle, small] { }
+            }
+            row [spread] {
+                text "Back";
+                text "Next";
+            }
+            stack {
+                image "cat.png" [width 120];
+                text "New" [right, top, background green1, padX 6, round];
+            }
+        }
+    }
+}
+
+Bar:open();
+</pre>
+</section>
+
+<section id="inputs">
+<h3>Inputs are bound to fields</h3>
+<p><code>input name;</code> shows the field and changes it as you type. Every input works this way, and a block after it runs after each change, once the field already holds the new value.</p>
+<pre data-lang="lust">
+assembly Settings {
+    has {
+        string name = "";
+        bool dark = false;
+        bool sound = true;
+        int volume = 50;
+        int copies = 1;
+        string notes = "";
+    }
+
+    view [title "Settings", dark dark] {
+        column [gap 12, pad 20] {
+            input name [placeholder "Your name", width fill] enter { print("Hi {name}"); }
+            checkbox dark "Dark mode";
+            switch sound "Sound";
+            row [gap 8] {
+                slider volume [from 0, to 100, step 5];
+                text volume.text();
+            }
+            number copies [min 1, max 99];
+            textarea notes [placeholder "Notes…", width fill, height 120];
+        }
+    }
+}
+
+Settings:open();
+</pre>
+<table>
+<thead><tr><th>Piece</th><th>Changes</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>input</code></td><td>a string</td><td><code>placeholder</code>; <code>enter { }</code> runs on Enter; 220 wide unless told</td></tr>
+<tr><td><code>textarea</code></td><td>a string, lines joined with <code>\n</code></td><td>Enter starts a new line; <code>enter { }</code> runs on Ctrl+Enter</td></tr>
+<tr><td><code>checkbox</code>, <code>switch</code></td><td>a bool</td><td>Words after the field go beside it: <code>switch sound "Sound";</code></td></tr>
+<tr><td><code>slider</code></td><td>an int or a float</td><td><code>from</code>, <code>to</code>, <code>step</code> (<code>step 0</code> slides smoothly)</td></tr>
+<tr><td><code>number</code></td><td>an int or a float</td><td><code>min</code>, <code>max</code>, <code>step</code>; a red edge while what's typed doesn't fit</td></tr>
+<tr><td><code>radio</code>, <code>dropdown</code></td><td>a string or a state</td><td>See <a href="#choosing">Choosing</a></td></tr>
+<tr><td><code>datePicker</code></td><td>a string holding a date, <code>"2026-11-13"</code></td><td><code>min</code>, <code>max</code>, <code>placeholder</code>; a calendar</td></tr>
+<tr><td><code>colourPicker</code></td><td>a colour</td><td><code>alpha</code> for see-through, <code>swatches [ … ]</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>An input is bound to a field (or a field of something, like <code>todos[id].task</code>), never a variable of the view: the view's variables are made again each time it's drawn.</li>
+<li>Tab and Shift+Tab move between inputs, the mouse and the usual keys work, Ctrl+Z undoes, and input methods for Chinese, Japanese and Korean work.</li>
+<li>A colour word colours a checkbox's tick, a slider's bar, a switch when it's on: <code>slider volume [purple]</code>.</li>
+</ul>
+</section>
+
+<section id="own-pieces">
+<h3>Pieces of your own</h3>
+<p>A piece of screen is an assembly with a view. Each goes in its own file, in folders that mirror the app (<code>ui/todoRow.lst</code>), and is used inside another view by name:</p>
+<pre data-lang="lust" data-file="ui/todoRow.lst">
+assembly TodoRow {
+    has {
+        string label = "";
+        bool done = false;
+        hook() onToggle = nothing;
+        hook() onRemove = nothing;
+    }
+
+    view {
+        row [gap 8, pad 8, round, hover:[background gray1]] {
+            checkbox done { onToggle(); }
+
+            is done? then {
+                text label [muted, strike];
+            } or {
+                text label;
+            }
+
+            space;
+            button "✕" [subtle, small] { onRemove(); }
+        }
+    }
+}
+
+pass TodoRow;
+end
+</pre>
+<pre data-lang="lust" data-file="main.lst" data-check="no">
+fetch "ui/todoRow":TodoRow;
+
+style card = [pad 16, round, shadow, background white];
+
+assembly App {
+    has {
+        cMap(int id, string task, bool done) todos = [];
+        string newTodo = "";
+    }
+
+    method add() {
+        is newTodo.trim() != ""? then {
+            todos:inject([newTodo.trim(), false]);
+            newTodo = "";
+        }
+    }
+
+    view [title "To do", width 420, height 600] {
+        column [gap 12, pad 24] {
+            text "To do" [size 24, weight 600];
+
+            row [gap 8] {
+                input newTodo [width fill, placeholder "Something to do…"] enter { add(); }
+                button "Add" [blue, round] { add(); }
+            }
+
+            column [card, gap 4] {
+                loop (int id, string task, bool done in todos) {
+                    TodoRow {
+                        label = task,
+                        done = done,
+                        onToggle = new hook { todos[id].done = not todos[id].done; },
+                        onRemove = new hook { todos:remove(id); }
+                    };
+                }
+
+                is #todos == 0? then {
+                    text "Nothing to do!" [muted, center];
+                }
+            }
+        }
+    }
+}
+
+App:open();
+end
+</pre>
+<ul>
+<li><strong>Using a piece:</strong> <code>TodoRow { label = task };</code>, the shape of <code>new TodoRow { … }</code> without <code>new</code>. It can have styles too: <code>TodoRow [width 300] { … };</code>.</li>
+<li><strong>Values given in <code>{ }</code> are given again on every redraw</strong>, so a piece always shows the current data. Fields not given are the piece's own memory, kept between redraws.</li>
+<li><strong>The data lives in one place.</strong> A piece shows what it's given, and asks for changes through hooks.</li>
+<li><strong>Which piece is which:</strong> in a loop over a map or cMap, each row keeps its own piece by the row's key. Elsewhere, pieces are matched by their place.</li>
+<li>When a piece leaves the screen, it and its memory are forgotten; if it shows up again, it starts fresh.</li>
+</ul>
+</section>
+
+<section id="tables">
+<h3>Tables and long lists</h3>
+<pre data-lang="lust">
+class Person {
+    has {
+        string name = "";
+        int age = 0;
+    }
+}
+
+assembly People {
+    has {
+        Person array people = [];
+        Person chosen = nothing;
+    }
+
+    method forget(Person p) {
+        loop (int i = 0; i < #people; i += 1) {
+            is people[i] == p? then {
+                people:remove(i);
+                stop;
+            }
+        }
+    }
+
+    view [title "People", width 480, height 360] {
+        table (Person p in people) [select chosen, stripes] {
+            column "Name" p.name [width 160];
+            column "Age" p.age;
+            column "" [width 40] {
+                button [icon "trash", subtle, label "Forget"] { forget(p); }
+            }
+        } open {
+            print("Opened {chosen.name}");
+        } menu {
+            item "Forget " + p.name { forget(p); }
+        }
+    }
+}
+
+People:open();
+</pre>
+<ul>
+<li><strong>Columns:</strong> <code>column "Age" p.age;</code> shows a value; <code>column "" { … }</code> holds pieces. Drag a header's edge to resize.</li>
+<li><strong>Sorting:</strong> clicking a header sorts by it, again for largest first, a third time for the array's own order. It only changes what's shown, never the array.</li>
+<li><strong><code>select chosen</code></strong> puts the clicked row in a field (<code>nothing</code> when none is picked). Up, Down, Home, End and Page Up/Down move it.</li>
+<li><strong><code>open { }</code></strong> runs on a double-click or Enter.</li>
+<li><strong>Rows from a cMap or database table</strong> are written as in a loop: <code>table (int id, string name in shop)</code>, and <code>select</code> then picks the key.</li>
+<li><strong>Quick with any number of rows:</strong> only the rows on the screen are made, so 100,000 rows scroll as smoothly as ten. Every row is one height (the first row's, or <code>rowHeight 28</code>).</li>
+<li><strong><code>list (Message m in inbox) [rowHeight 48] { … }</code></strong> is the same without columns or headers: a scrolling column of rows.</li>
+<li><strong><code>[reorder]</code></strong> on a list or table lets rows be dragged to new places (or moved with Alt+Up and Alt+Down), and the array itself changes order. Only an array's rows can be reordered.</li>
+<li><strong><code>scroll { }</code></strong> is fine for a few hundred rows; for thousands, use <code>list</code> or <code>table</code>.</li>
+</ul>
+</section>
+
+<section id="grids">
+<h3>Grids, splits, tabs, branches and progress</h3>
+<pre data-lang="lust">
+assembly Panels {
+    has {
+        string page = "Items";
+        float loaded = 0.4;
+    }
+
+    view [title "Panels", width 640, height 420] {
+        split {
+            column [width 200, pad 8] {
+                branch "Weapons" [open] {
+                    text "Sword";
+                    branch "Bows" {
+                        text "Longbow";
+                    }
+                }
+            }
+            tabs page {
+                tab "Items" {
+                    grid [cell 140, gap 12] {
+                        loop 6 {
+                            column [pad 12, round, background gray1] { text "Card"; }
+                        }
+                    }
+                }
+                tab "Stats" {
+                    progress loaded [to 1.0, width fill, green];
+                }
+            }
+        }
+    }
+}
+
+Panels:open();
+</pre>
+<ul>
+<li><strong><code>grid</code></strong> puts its pieces in columns: <code>columns 3</code>, or <code>cell 180</code> to fit as many columns at least 180 wide as there's room for, so cards rewrap with the window.</li>
+<li><strong><code>split</code></strong> puts panels side by side with a line between to drag; <code>split [down]</code> stacks them. Panels with a <code>width</code> start at it.</li>
+<li><strong><code>tabs</code></strong> holds <code>tab</code>s. Bound to a string (<code>tabs page</code>), the code can switch tabs too: <code>page = "Stats";</code>. Only the tab that shows is drawn.</li>
+<li><strong><code>branch "Name" { }</code></strong> opens and shuts what's under it; branches in branches make a tree. <code>open</code> starts it open.</li>
+<li><strong><code>progress done [to total];</code></strong> is a bar that fills up, from 0 to 100 unless told.</li>
+</ul>
+</section>
+
+<section id="choosing">
+<h3>Choosing: dropdowns, radios and pickers</h3>
+<pre data-lang="lust">
+state Shelf = [Fridge, Freezer, Cupboard];
+
+assembly Pantry {
+    has {
+        Shelf shelf = Shelf.Fridge;
+        string size = "Medium";
+        string fruit = "Pear";
+        string due = "";
+        colour tint = Colour:hex("#3b82f6");
+    }
+
+    view [title "Pantry"] {
+        column [gap 10, pad 16] {
+            dropdown shelf;
+            dropdown size in ["Small", "Medium", "Large"] { print(size); }
+            radio fruit in ["Apple", "Pear", "Plum"] [across];
+            datePicker due [placeholder "When?"];
+            colourPicker tint [alpha];
+        }
+    }
+}
+
+Pantry:open();
+</pre>
+<ul>
+<li><strong>Bound to a state,</strong> a dropdown's or radio's choices are the state's options; <strong>bound to a string,</strong> they're the list after <code>in</code>.</li>
+<li>A radio shows every choice at once (down a column, or <code>across</code>); use a dropdown for many choices.</li>
+<li>A date picker takes typing or a month's calendar (Alt+Down opens it), with <code>min</code> and <code>max</code> dates. A colour picker opens a square of colours, a hue strip, a hex box and swatches.</li>
+<li><code>colourPicker</code> is spelled like the type; <code>colorPicker</code> is a mistake that says so.</li>
+</ul>
+</section>
+
+<section id="menus">
+<h3>Menus and right-click menus</h3>
+<pre data-lang="lust">
+assembly Editor {
+    has {
+        bool upToDate = true;
+        bool confirming = false;
+    }
+
+    view [title "Editor"] {
+        column [pad 8, gap 8] {
+            row [gap 4] {
+                menu "File" {
+                    item "New" { print("new"); }
+                    item "Save" [disabled upToDate] { upToDate = true; }
+                    divider;
+                    item "Quit" { confirming = true; }
+                }
+            }
+            text "Right-click me" menu {
+                item "Copy" { print("copied"); }
+            }
+        }
+    }
+}
+
+Editor:open();
+</pre>
+<ul>
+<li><code>menu "File" { }</code> is a word that opens a list of <code>item</code>s; a row of them at the top is a menu bar.</li>
+<li><code>menu { }</code> right after a piece, with no name, is that piece's right-click menu. It goes in place of the piece's <code>;</code>, or after its <code>{ }</code>. Shift+F10 or the Menu key opens it from the keyboard.</li>
+<li>In a table or list, the menu belongs to the rows, so its items can use the row's variable, and a right-click picks the row first.</li>
+</ul>
+</section>
+
+<section id="dialogs">
+<h3>Dialogs and second windows</h3>
+<pre data-lang="lust">
+assembly Notes {
+    has {
+        bool confirming = false;
+        bool showingSettings = false;
+        string name = "";
+    }
+
+    view [title "Notes", width 480, height 320] {
+        column [gap 8, pad 16] {
+            text "Hello " + name;
+            button "Delete" [red] { confirming = true; }
+            button [icon "settings", tip "Settings"] { showingSettings = true; }
+        }
+
+        dialog confirming [width 320] {
+            text "Delete it?" [bold];
+            text "This can't be undone." [muted];
+            row [gap 8, right] {
+                button "Cancel" { confirming = false; }
+                button "Delete" [red] { confirming = false; }
+            }
+        }
+
+        window showingSettings [title "Settings", width 300, height 160, escape] {
+            column [gap 8, pad 16] {
+                input name [placeholder "Your name"];
+                button "Done" { showingSettings = false; }
+            }
+        }
+    }
+}
+
+Notes:open();
+</pre>
+<ul>
+<li><strong><code>dialog flag { }</code></strong> pops up over the dimmed view while the bool is true. Escape or a click outside sets it to false.</li>
+<li><strong><code>window flag [ … ] { }</code></strong> is a real second window, open while the bool is true. It shares the data, so typing in it changes the main window straight away. Its X sets the bool to false, and <code>[escape]</code> lets Escape close it.</li>
+<li>Both take no room where they're written, and both are bound to a field.</li>
+</ul>
+</section>
+
+<section id="canvas">
+<h3>Drawing: canvas</h3>
+<pre data-lang="lust">
+assembly Paint {
+    has {
+        vec2 array dots = [];
+        string where = "";
+    }
+
+    view [title "Paint", width 420, height 320] {
+        column [gap 8, pad 12] {
+            canvas [width 400, height 260, background gray1] {
+                line [x 0, y 130, toX 400, toY 130, thick 1, gray5];
+                loop (vec2 d in dots) {
+                    circle [x d.x, y d.y, radius 3, blue];
+                }
+                box [x 10, y 10, width 40, height 20, round 4, red] { dots = []; }
+            } press (vec2 at) {
+                dots:inject(at);
+            } drag (vec2 at) {
+                dots:inject(at);
+            } hover (vec2 at) {
+                where = "{at.x}, {at.y}";
+            }
+            text where [muted];
+        }
+    }
+}
+
+Paint:open();
+</pre>
+<ul>
+<li>A canvas places what's in it by <code>x</code> and <code>y</code> from its top left, and cuts off what's outside. It's 300 by 150 unless told.</li>
+<li><code>box</code>, <code>circle</code> and <code>line</code> are drawn only in a canvas; any other piece can go in one too. A box or circle with a <code>{ }</code> runs it when clicked.</li>
+<li><code>press</code>, <code>drag</code>, <code>release</code> and <code>hover</code> after the canvas run with where the mouse is, as a <code>vec2</code>.</li>
+<li><code>animate</code> on any piece makes it glide to its new place and fade in when it first shows up.</li>
+</ul>
+</section>
+
+<section id="icons-pictures">
+<h3>Icons, pictures and fonts</h3>
+<pre data-lang="lust">
+assembly Icons {
+    view [title "Icons"] {
+        column [gap 8, pad 16] {
+            row [gap 8] {
+                icon "star" [size 18, yellow6];
+                text "Favourites";
+            }
+            button "Delete" [icon "trash", red] { }
+            image "cat.png" [width 48, height 48, cover, round 24];
+            text "Pancakes" [huge, font "fonts/Lobster.ttf"];
+        }
+    }
+}
+
+Icons:open();
+</pre>
+<ul>
+<li><strong>Icons</strong> come from a built-in set of about 150 (Lucide's shapes), sharp at any size: arrows, chevrons, <code>check</code>, <code>x</code>, <code>plus</code>, <code>trash</code>, <code>pencil</code>, <code>copy</code>, <code>search</code>, <code>settings</code>, <code>user</code>, <code>folder</code>, <code>file</code>, <code>save</code>, <code>play</code>, <code>pause</code>, <code>bell</code>, <code>star</code>, <code>heart</code>, <code>calendar</code>, <code>clock</code>, <code>mail</code>, <code>sun</code>, <code>moon</code>, <code>code</code>, <code>bug</code>, <code>rocket</code> and more. A name Lust doesn't have is a mistake that suggests the nearest one.</li>
+<li><strong>Pictures:</strong> <code>image "cat.png";</code> shows a PNG, JPEG or SVG. Give a <code>width</code> or <code>height</code> and the other follows; both with <code>cover</code> fills the box. A <code>cat@2x.png</code> beside it is used on sharp screens.</li>
+<li><strong>Fonts:</strong> <code>font "file.ttf"</code> on a piece, or on the view's <code>[ ]</code> for the whole window. Lust's own font is Inter.</li>
+</ul>
+</section>
+
+<section id="keys-timers">
+<h3>Keys, timers and dropped files</h3>
+<pre data-lang="lust">
+assembly Clock {
+    has {
+        int seconds = 0;
+        bool running = true;
+        string array pictures = [];
+    }
+
+    view [title "Clock"] {
+        column [pad 16] {
+            text "{seconds} s" [huge];
+        }
+
+        is running? then {
+            every 1.0 {
+                seconds += 1;
+            }
+        }
+        key "ctrl+p" { running = not running; }
+        key "escape" { seconds = 0; }
+        drop (string array paths) {
+            loop (string p in paths) {
+                is p:endsWith(".png")? then { pictures:inject(p); }
+            }
+        }
+    }
+}
+
+Clock:open();
+</pre>
+<ul>
+<li><strong><code>every 1.0 { }</code></strong> runs every second and redraws after. It runs only while it's in the view, so inside a question it starts and stops with it.</li>
+<li><strong><code>key "ctrl+s" { }</code></strong> is a shortcut anywhere in the window: <code>ctrl</code>, <code>shift</code> and <code>alt</code> joined with <code>+</code>, then a letter, number, sign, <code>f1</code>–<code>f12</code>, <code>enter</code>, <code>escape</code>, <code>tab</code>, <code>space</code>, the arrows and the rest. On a Mac, <code>ctrl</code> means Cmd. While typing in an input, the keys it uses go to the input.</li>
+<li><strong><code>drop (string array paths) { }</code></strong> runs when files are dropped on the window, with their whole paths.</li>
+</ul>
+</section>
+
+<section id="toasts-tray">
+<h3>Toasts, notifications and the tray</h3>
+<pre data-lang="lust" data-check="no">
+button "Save" {
+    save();
+    toast "Saved" [green, icon "check"];
+}
+App:notify("Saved", "Your notes are safe.");
+
+tray [icon "bell", tip "Notes"] {
+    item "Show" { shown = true; }
+    divider;
+    item "Quit" { App:quit(); }
+} click {
+    shown = true;
+}
+</pre>
+<ul>
+<li><strong><code>toast "…";</code></strong> shows a small message in the window's corner for about 4 seconds; <code>seconds 8</code> keeps it longer. It's a statement, so it goes in a block a view runs, not straight in the view.</li>
+<li><strong><code>App:notify(title, words)</code></strong> shows the computer's own notification (Windows and Linux), from anywhere.</li>
+<li><strong><code>tray</code></strong> puts an icon in the system tray on Windows, with a right-click menu and <code>click { }</code>. With <code>visible shown</code> on the view, a program can hide its window and live in the tray.</li>
+<li><strong><code>App:quit()</code></strong> ends the program from any block a view runs.</li>
+</ul>
+</section>
+
+<section id="window-settings">
+<h3>The window's settings, dark mode and closing</h3>
+<table>
+<thead><tr><th>In the view's <code>[ ]</code></th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>title "…"</code></td><td>The window's title; it can show the data: <code>title "To do ({#todos})"</code></td></tr>
+<tr><td><code>width</code>, <code>height</code>, <code>minWidth</code>, <code>minHeight</code></td><td>Its size, in units</td></tr>
+<tr><td><code>background</code>, <code>font</code></td><td>The whole window's background and font</td></tr>
+<tr><td><code>dark</code>, <code>dark darkMode</code></td><td>Dark mode, always or while a bool is true</td></tr>
+<tr><td><code>fullscreen</code>, <code>fullscreen isFull</code></td><td>Full screen, always or while a bool is true (bound both ways)</td></tr>
+<tr><td><code>visible shown</code></td><td>Hides the main window while the bool is false, without ending the program</td></tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Dark mode</strong> turns the greys round (<code>gray1</code> becomes the darkest) and pale backgrounds into deep tints. <code>dark:[ … ]</code> on a piece holds styles it has only in dark mode: <code>[background green1, dark:[color green3]]</code>.</li>
+<li><strong><code>close { }</code></strong> after the view's <code>{ }</code> is what the window's X does instead of ending the program, so it can ask first or hide the window.</li>
+<li>Lust gives full screen no key of its own; add one: <code>key "f11" { isFull = not isFull; }</code>.</li>
+</ul>
+</section>
+
+<section id="for-everyone">
+<h3>For everyone</h3>
+<ul>
+<li>Windows are sharp at any screen scaling, and keep their size in units when moved between screens.</li>
+<li>Inputs take typing through input methods for Chinese, Japanese, Korean and other languages.</li>
+<li>Every piece is described to screen readers (Narrator, NVDA, Orca) with no extra code. Give an icon-only button or a picture a name with <code>label</code>: <code>button [icon "trash", label "Delete the note"] { … }</code>.</li>
+</ul>
+</section>
+
+<section id="view-tests">
+<h3>Testing a view without a screen</h3>
+<p>With <code>LUST_VIEW_TEST=1</code> set (as <code>lust test</code> does for every test), no window opens: the program reads commands, one per line, from what's typed in or a <code>.in</code> file, and <code>dump</code> prints every piece with its place and size, for the test's <code>.out</code> to compare.</p>
+<table>
+<thead><tr><th>Command</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>dump</code>, <code>dump access</code></td><td>Prints every piece, or the tree a screen reader is given</td></tr>
+<tr><td><code>click Add one</code>, <code>dblclick Ada</code>, <code>rightclick Notes</code></td><td>Clicks the piece or row showing those words</td></tr>
+<tr><td><code>focus input 1</code>, <code>type Hello</code>, <code>key ctrl+s</code></td><td>Focus, typing and keys</td></tr>
+<tr><td><code>check 1</code>, <code>flip 1</code>, <code>slide 1 70</code></td><td>Checkboxes, switches and sliders</td></tr>
+<tr><td><code>open dropdown 1</code>, <code>open menu File</code></td><td>Opens a list</td></tr>
+<tr><td><code>drag Ada Cleo</code>, <code>drop C:/a.txt</code></td><td>Drags a row, drops files</td></tr>
+<tr><td><code>press 40 20</code>, <code>move 90 20</code>, <code>release 90 20</code></td><td>The mouse at a place</td></tr>
+<tr><td><code>wait 2.5</code>, <code>size 800 600</code>, <code>scale 1.25</code></td><td>Time passing, the window's size, the screen's scaling</td></tr>
+<tr><td><code>choose cat.png</code>, <code>choose cancel</code></td><td>The answer the next file box gives</td></tr>
+<tr><td><code>snapshot shot.png</code></td><td>Draws the window into a picture</td></tr>
+<tr><td><code>in Settings click Save</code></td><td>Sends a command to a second window</td></tr>
+</tbody>
+</table>
+</section>
+</section>
+
+<section class="chapter" id="tweens">
+<h2>Tweens: values that glide</h2>
+<p>A tween moves a value to a new one over some seconds, a little each moment, instead of jumping: a health bar draining, a door swinging open, the sky turning orange. Tweens work everywhere, not only in windows.</p>
+
+<section id="tween">
+<h3>tween</h3>
+<pre data-lang="lust">
+object Hud {
+    has {
+        int hp = 100;
+        vec3 pos = [0, 0, 0];
+        colour sky = blue3;
+    }
+
+    method sunset() {
+        tween hp to 0 over 0.5;
+        tween pos to [10, 0, 0] over 2 [ease OutCubic];
+        tween sky to orange5 over 1 [ease InOutSine] {
+            print("sunset done");      -- runs when it ends
+        }
+    }
+}
+
+Hud:sunset();
+wait 2;
+print(Hud.hp, Hud.pos);
+</pre>
+<ul>
+<li><strong>The shape:</strong> <code>tween place to value over seconds;</code>, then if you want them <code>[ease Name]</code> and a done block. With a done block there's no <code>;</code> after the <code>}</code>.</li>
+<li><strong>What it moves:</strong> a field, or a variable at the top of the file, holding an <code>int</code>, <code>float</code>, <code>vec2</code>, <code>vec3</code>, <code>colour</code> or <code>rotation</code>. Not a method's own variable (it keeps going after the method ends), and not one part of a vector (tween the whole <code>pos</code>).</li>
+<li><strong>A new tween replaces the old</strong> on the same place, from where it is; the old done block never runs. <code>over 0</code> sets it straight away.</li>
+<li><code>tween</code>, <code>to</code> and <code>over</code> are words only in a tween, so they can still be names.</li>
+</ul>
+</section>
+
+<section id="easing">
+<h3>Easing</h3>
+<p>With no <code>[ease …]</code> a tween moves at one speed, <code>Linear</code>. The others start slow (<code>In…</code>), end slow (<code>Out…</code>) or both (<code>InOut…</code>):</p>
+<table>
+<thead><tr><th>Family</th><th>Eases</th></tr></thead>
+<tbody>
+<tr><td>Sine</td><td><code>InSine</code>, <code>OutSine</code>, <code>InOutSine</code>: the gentlest</td></tr>
+<tr><td>Quad, Cubic, Quart, Quint</td><td><code>InQuad</code> … <code>InOutQuint</code>: each a little sharper</td></tr>
+<tr><td>Expo</td><td>Very slow, then very fast</td></tr>
+<tr><td>Circ</td><td>Like a quarter circle</td></tr>
+<tr><td>Back</td><td>Goes a little past the end first</td></tr>
+<tr><td>Elastic</td><td>Wobbles like a spring</td></tr>
+<tr><td>Bounce</td><td>Bounces like a dropped ball</td></tr>
+</tbody>
+</table>
+<p><code>Ease</code> is a state whose options are the curves, so a variable can hold one (<code>Ease chosen = Ease.OutBack;</code>, then <code>[ease chosen]</code>), and an object: <code>Ease:apply(Ease.OutBack, t)</code> gives the curve's value for <code>t</code> from 0 to 1. The curves are the standard ones from easings.net.</p>
+</section>
+
+<section id="tween-clock">
+<h3>When tweens move</h3>
+<ul>
+<li><strong>In a window,</strong> each frame, on the same clock as <code>every</code> timers and <code>animate</code>.</li>
+<li><strong>In a plain program,</strong> during <code>wait seconds;</code>, in steps of 1/60 s. Without a <code>wait</code>, nothing moves, and tweens still running when the program ends just stop.</li>
+<li><strong>In a game engine,</strong> once a tick (see <a href="#engines">Lust in other programs</a>).</li>
+<li>A tween takes the same steps in <code>lust run</code> and a built program, so both end with the same numbers.</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="web">
+<h2>Web servers</h2>
+<p>A Lust program can be a server that answers web requests with JSON. Pages in the browser stay HTML, CSS and JavaScript.</p>
+
+<section id="schema">
+<h3>schema: the shape of data coming in</h3>
+<pre data-lang="lust">
+schema NewUser {
+    has {
+        string name;
+        int age = 0;
+    }
+}
+</pre>
+<ul>
+<li>A field with no value must be filled in; a field with a value is optional.</li>
+<li>A schema only holds fields: no methods, no <code>like</code>. <code>new NewUser { name = "Ada" }</code> must fill in every field with no value.</li>
+<li>When JSON is read into a schema, a missing field is an error that names it.</li>
+</ul>
+</section>
+
+<section id="route">
+<h3>route: answering requests</h3>
+<pre data-lang="lust">
+schema NewUser {
+    has {
+        string name;
+    }
+}
+
+class User {
+    has {
+        int id = 0;
+        string name = "";
+    }
+}
+
+object Users {
+    has {
+        User array all = [];
+    }
+}
+
+method User getUser(int id) {
+    loop (User u in Users.all) {
+        is u.id == id? then { return u; }
+    }
+    Web:fail(404, "there's no user {id}.");
+    return nothing;
+}
+
+method User createUser(NewUser body) {
+    User u = new User { id = #Users.all + 1, name = body.name };
+    Users.all:inject(u);
+    return u;
+}
+
+route "/api" {
+    get "/users/:id" =&gt; getUser;
+    post "/users" =&gt; createUser;
+}
+
+print(Web:request("POST", "/api/users", "{\"name\": \"Ada\"}"));
+print(Web:request("GET", "/api/users/1", ""));
+</pre>
+<ul>
+<li><code>get</code>, <code>post</code>, <code>put</code> and <code>delete</code> are the kinds of request. The text after <code>route</code> goes in front of every path.</li>
+<li>A value named like a <code>:name</code> in the path comes from the path; any other value comes from the body, read as JSON (usually a schema).</li>
+<li>What the method gives back is the answer, as JSON, with status 200; a method that gives nothing back answers 204. <code>Web:fail(404, "…");</code> answers with an error. A bad path value or body answers 400 by itself.</li>
+<li><strong><code>Web:serve(8080);</code></strong> answers requests on that port until the program is stopped. <code>Web:request(…)</code> tries a route without a network, for tests.</li>
+</ul>
+</section>
+
+<section id="web-get">
+<h3>Asking other websites</h3>
+<pre data-lang="lust" data-check="no">
+string answer = Web:get("https://api.example.com/weather?city=Oslo");
+Weather w = Json:read(answer);
+string reply = Web:post("https://example.com/scores", Json:write(score));
+</pre>
+<p>Both give back the answer's text; turn JSON into Lust values with <a href="#json"><code>Json:read</code></a>. If the site can't be reached or answers with an error, the program stops with what happened, so use <code>try</code> to carry on. Programs that ask websites are built with Cargo, like ones with databases.</p>
+</section>
+</section>
+
+<section class="chapter" id="library">
+<h2>Built-ins and the library</h2>
+
+<section id="builtins">
+<h3>print, ask and wait</h3>
+<table>
+<thead><tr><th>Built-in</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>print(x);</code></td><td>Shows <code>x</code> on its own line: numbers, text, bools, lists, vectors, colours, states and <code>nothing</code></td></tr>
+<tr><td><code>print(a, b, c);</code></td><td>Several values on one line, with a space between each</td></tr>
+<tr><td><code>ask(question)</code></td><td>Shows a question and gives back what's typed (in Ledger, the Input box under the output)</td></tr>
+<tr><td><code>wait seconds;</code></td><td>Pauses, while <a href="#tween">tweens</a> move on</td></tr>
+</tbody>
+</table>
+<pre data-lang="lust">
+string name = ask("What's your name?");
+print("Hello,", name);
+wait 0.5;
+print("Score:", 10, "lives:", 3);
+</pre>
+</section>
+
+<section id="random">
+<h3>Random</h3>
+<pre data-lang="lust">
+int dice = Random[1, 6];          -- a whole number from 1 to 6
+float chance = Random[0.0, 1.0];  -- a decimal from 0 up to (not quite) 1
+string array names = ["Ada", "Bo", "Cy"];
+
+is Random:chance(0.25)? then { print("lucky"); }
+print(names:pick());
+names:shuffle();
+vec3 spark = Random:direction();
+Random:seed(42);                  -- the same rolls every run from here
+</pre>
+<table>
+<thead><tr><th>Write</th><th>Gives</th></tr></thead>
+<tbody>
+<tr><td><code>Random[a, b]</code></td><td>With two ints, going into an int: a whole number, both ends included. With a float: a decimal from the lowest up to just below the highest</td></tr>
+<tr><td><code>Random:chance(p)</code></td><td><code>true</code> about <code>p</code> of the time, for <code>p</code> from 0 to 1</td></tr>
+<tr><td><code>Random:direction()</code></td><td>A random vec3 1 long, any way equally likely</td></tr>
+<tr><td><code>names:pick()</code>, <code>cards:shuffle();</code></td><td>A random item, and a random order in place</td></tr>
+<tr><td><code>Random:seed(42);</code></td><td>Starts the rolls again from a seed, so what follows is the same every run</td></tr>
+</tbody>
+</table>
+<p>Each run rolls different numbers. Set <code>LUST_SEED</code> to a number, or call <code>Random:seed</code>, for the same numbers every time; <code>lust test</code> sets it to 1. A seed gives exactly the same rolls in <code>lust run</code> and a built program.</p>
+</section>
+
+<section id="text-tools">
+<h3>Text tools</h3>
+<p>Positions count letters (not bytes), from 0, like arrays. The ones written with a dot give a changed copy; the ones with a colon ask or cut.</p>
+<table>
+<thead><tr><th>Write</th><th>Gives</th></tr></thead>
+<tbody>
+<tr><td><code>name.upper()</code>, <code>name.lower()</code></td><td>The text in capitals, or small letters (accented letters too)</td></tr>
+<tr><td><code>name.trim()</code></td><td>Without spaces and line breaks at either end</td></tr>
+<tr><td><code>#name</code></td><td>How many letters</td></tr>
+<tr><td><code>name:contains("a")</code>, <code>:startsWith("a")</code>, <code>:endsWith("a")</code></td><td>true or false</td></tr>
+<tr><td><code>name:find("a")</code></td><td>Where it first is, or -1</td></tr>
+<tr><td><code>name:replace("old", "new")</code></td><td>Every <code>old</code> changed to <code>new</code></td></tr>
+<tr><td><code>line:split(",")</code></td><td>A string array of the parts; <code>:split("")</code> gives every letter</td></tr>
+<tr><td><code>name:slice(2, 5)</code></td><td>Letters 2, 3 and 4</td></tr>
+<tr><td><code>text.lines()</code></td><td>The lines, as a string array</td></tr>
+<tr><td><code>line:matches("[0-9]+")</code></td><td>true if the pattern is in it somewhere</td></tr>
+<tr><td><code>line:findAll("[0-9]+")</code></td><td>Every piece that fits the pattern</td></tr>
+<tr><td><code>line:capture("Order ([0-9]+)")</code></td><td>The parts in <code>( )</code> of the first fit (empty if none)</td></tr>
+<tr><td><code>line:replaceAll("[0-9]+", "#")</code></td><td>Every fit replaced; <code>$1</code>, <code>$2</code> put back the parts in <code>( )</code></td></tr>
+</tbody>
+</table>
+<pre data-lang="lust">
+string line = "Order 1234 for Ada, Bo";
+string array parts = line:split(", ");
+string array digits = line:capture("Order ([0-9]+)");
+print(digits[0], parts[1], line.upper(), line:slice(0, 5));
+</pre>
+<p>Patterns are regular expressions, the kind most languages use. In LustScript they need <code>lust run</code>.</p>
+</section>
+
+<section id="array-tools">
+<h3>Array tools</h3>
+<table>
+<thead><tr><th>Write</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>#scores</code></td><td>How many items</td></tr>
+<tr><td><code>scores:inject(40);</code>, <code>scores:remove(0);</code></td><td>Adds to the end; removes by position</td></tr>
+<tr><td><code>words:join(", ")</code></td><td>One text from a string array, with <code>", "</code> between</td></tr>
+<tr><td><code>scores:has(10)</code>, <code>scores:find(10)</code></td><td>Whether it's there, and where (or -1). For arrays of numbers, text and bools</td></tr>
+<tr><td><code>scores:sort();</code>, <code>scores:reverse();</code></td><td>Numbers or text in order, smallest first; turned around</td></tr>
+<tr><td><code>team:sortBy(score);</code></td><td>An array of things in order by one of their fields</td></tr>
+<tr><td><code>scores:sum()</code>, <code>scores:average()</code></td><td>All the items added up (0 when empty); the average, always a float</td></tr>
+<tr><td><code>scores:smallest()</code>, <code>scores:largest()</code></td><td>The smallest and largest item</td></tr>
+<tr><td><code>names:pick()</code>, <code>cards:shuffle();</code></td><td>A random item; a random order</td></tr>
+</tbody>
+</table>
+<pre data-lang="lust">
+int array scores = [12, 7, 30];
+scores:sort();
+print(scores, scores:sum(), scores:average(), scores:largest());
+string array words = ["tea", "cake"];
+print(words:join(" and "), words:has("cake"));
+</pre>
+<p>An empty array has no average, smallest or largest, so asking stops the program. <code>:find</code> and <code>:has</code> don't work on arrays of things; loop through and compare instead.</p>
+</section>
+
+<section id="maths-lib">
+<h3>Maths</h3>
+<table>
+<thead><tr><th>Write</th><th>Gives</th></tr></thead>
+<tbody>
+<tr><td><code>Maths:abs(x)</code>, <code>Maths:min(a, b)</code>, <code>Maths:max(a, b)</code>, <code>Maths:clamp(x, low, high)</code></td><td>An int for ints, a float when there's a float</td></tr>
+<tr><td><code>Maths:round(x)</code>, <code>Maths:floor(x)</code>, <code>Maths:ceil(x)</code></td><td>The nearest whole number (a half away from zero), the one below, the one above</td></tr>
+<tr><td><code>Maths:trunc(x)</code>, <code>Maths:fraction(x)</code></td><td>The whole part, and what's after the point</td></tr>
+<tr><td><code>Maths:sign(x)</code></td><td>-1, 0 or 1</td></tr>
+<tr><td><code>Maths:sqrt(x)</code>, <code>Maths:power(x, p)</code></td><td>Square root, power</td></tr>
+<tr><td><code>Maths:sin(x)</code>, <code>cos</code>, <code>tan</code>, <code>asin</code>, <code>acos</code>, <code>atan</code>, <code>atan2(y, x)</code></td><td>Angles are in radians</td></tr>
+<tr><td><code>Maths:degrees(r)</code>, <code>Maths:radians(d)</code></td><td>Radians to degrees, and back</td></tr>
+<tr><td><code>Maths:log(x)</code>, <code>Maths:exp(x)</code></td><td>Natural log, and e to the power x</td></tr>
+<tr><td><code>Maths:lerp(a, b, t)</code></td><td>The number <code>t</code> of the way from a to b</td></tr>
+<tr><td><code>Maths:moveTowards(current, target, step)</code></td><td>Moved towards target by at most step, never past it</td></tr>
+<tr><td><code>Maths:smoothstep(low, high, x)</code></td><td>A smooth S curve from 0 to 1</td></tr>
+<tr><td><code>Maths:isFinite(x)</code></td><td>false for infinity and not a number</td></tr>
+<tr><td><code>Maths:noise(x, y)</code>, <code>Maths:noise(x, y, z)</code></td><td>Smooth Perlin noise from -1 to 1, the same every run: <code>Maths:noise(x * 0.1, y * 0.1)</code></td></tr>
+<tr><td><code>Maths.pi</code>, <code>Maths.e</code></td><td>3.14159… and 2.71828…</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="files-lib">
+<h3>Files</h3>
+<p>Paths are from the folder the program runs in, or whole paths.</p>
+<table>
+<thead><tr><th>Write</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>Files:read(path)</code></td><td>The whole file as text</td></tr>
+<tr><td><code>Files:write(path, text);</code>, <code>Files:append(path, text);</code></td><td>Writes the file, or adds to its end</td></tr>
+<tr><td><code>Files:exists(path)</code></td><td>true if there's a file or folder there</td></tr>
+<tr><td><code>Files:remove(path);</code></td><td>Removes a file, or an empty folder</td></tr>
+<tr><td><code>Files:list(folder)</code></td><td>What's in the folder, in order</td></tr>
+<tr><td><code>Files:makeFolder(path);</code></td><td>Makes the folder, and any it's inside</td></tr>
+<tr><td><code>Files:chooseOpen("Open a picture", ["png", "jpg"])</code></td><td>The computer's own box for choosing a file; <code>""</code> if cancelled</td></tr>
+<tr><td><code>Files:chooseSave("Save the notes", "notes.txt")</code>, <code>Files:chooseFolder("Where?")</code></td><td>The boxes for saving and for a folder</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="time-lib">
+<h3>Time</h3>
+<table>
+<thead><tr><th>Write</th><th>Gives</th></tr></thead>
+<tbody>
+<tr><td><code>Time:now()</code></td><td>Seconds since 1 January 1970, as a float</td></tr>
+<tr><td><code>Time:clock()</code></td><td>Seconds since the program started: for timing things</td></tr>
+<tr><td><code>Time:date()</code>, <code>Time:time()</code></td><td>Today as <code>"2026-10-21"</code>, the time as <code>"14:05:09"</code></td></tr>
+<tr><td><code>Time:addDays(date, n)</code>, <code>Time:daysBetween(from, to)</code></td><td>Date sums</td></tr>
+<tr><td><code>Time:weekday(date)</code></td><td><code>"Monday"</code> to <code>"Sunday"</code></td></tr>
+<tr><td><code>Time:isDate(text)</code></td><td>true if it's a real date</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="json">
+<h3>Json</h3>
+<pre data-lang="lust">
+class Player {
+    has {
+        string name = "Ada";
+        int hp = 20;
+    }
+}
+
+Player player = new Player;
+string text = Json:write(player);     -- {"name":"Ada","hp":20}
+string nice = Json:pretty(player);    -- the same, over several lines
+Player back = Json:read(text);
+print(text, back.hp);
+</pre>
+<ul>
+<li>JSON holds numbers, text, bools, state options (by name), vectors, rotations, colours, arrays, maps, cMaps and things made from classes. Hooks stay out.</li>
+<li><code>Json:read</code> needs a place to go, so Lust knows what it's reading.</li>
+<li>Fields missing from the JSON keep their starting values; anything extra is left out. If it doesn't fit, the error says where: <em>the JSON at bag[0] is missing item.</em></li>
+<li>Vectors and colours are written so that reading them back gives exactly the same value.</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="lustscript">
+<h2>LustScript and Lua</h2>
+
+<section id="lsc">
+<h3>LustScript (.lsc)</h3>
+<p>LustScript is Lust turned into Lua, for running inside programs that already speak Lua: Garry's Mod, Aventail, Halberd, or any Lua 5.1, LuaJIT or Luau host. It's the same language with the same rules and checks; only the output differs.</p>
+<ul>
+<li><code>lust run file.lsc</code> runs it straight away; <code>lust build file.lsc</code> writes <code>file.lua</code> next to it; <code>lust lua file.lsc</code> shows the Lua.</li>
+<li>Lua has no separate whole numbers, so <code>int</code> is checked strictly by Lust and becomes a plain number in Lua.</li>
+<li>Databases, patterns, <code>Files:list</code>, the file boxes and the precise clock need <code>lust run</code>; inside other programs they say they aren't available.</li>
+</ul>
+</section>
+
+<section id="lua-blocks">
+<h3>Lua inside LustScript</h3>
+<p>Anything Lust doesn't cover can be written in Lua directly, after <code>fetch lua;</code>:</p>
+<pre data-lang="lust" data-file="spawn.lsc" data-check="no">
+fetch lua;
+
+method registerHook() {
+    lua {
+        hook.Add("PlayerSpawn", "lust_spawn", function(ply)
+            ply:ChatPrint("Welcome!")
+        end)
+    };
+}
+
+registerHook();
+
+end
+</pre>
+</section>
+</section>
+
+<section class="chapter" id="engines">
+<h2>Lust inside other programs</h2>
+<p>Lust can be one part of a bigger program, like a game engine written in Rust: the engine does the drawing, physics and sound, and Lust holds the game's own logic.</p>
+
+<section id="native">
+<h3>Native methods</h3>
+<pre data-lang="lust" data-file="engine/entity.lst">
+class Entity {
+    has {
+        int id = 0;
+    }
+
+    method float x() native;
+    method moveBy(float dx) native;
+}
+
+method float now() native;
+
+pass Entity, now;
+end
+</pre>
+<p>A method ending in <code>native;</code> has its body in the program Lust is part of. Lust still checks every call against it. Its body comes from the Rust program (built with <code>--library</code>), or from a Lua function in <code>LUST_NATIVES</code> (LustScript); run on its own, calling it stops with a message saying where its body lives.</p>
+</section>
+
+<section id="components">
+<h3>Components and events</h3>
+<pre data-lang="lust" data-check="no">
+event Hit(entity by, float damage);
+
+component Health {
+    has {
+        float hp = 10;
+    }
+
+    on Hit(entity by, float damage) {
+        hp = hp - damage;
+    }
+}
+
+component Gun {
+    has {
+        int ammo = 30;
+        entity target = nothing;
+    }
+
+    method update(float dt) {
+        send Hit(this, 6) to target;
+    }
+}
+
+pass Health, Gun;
+</pre>
+<ul>
+<li><strong>A <code>component</code></strong> is a class whose fields the engine keeps and shows in its inspector, and whose <code>update(float dt)</code> it runs once a tick. Fields hold <code>bool</code>, <code>int</code>, <code>float</code>, <code>string</code>, a state, <code>vec3</code>, <code>vec2</code>, <code>rotation</code>, <code>colour</code> and <code>entity</code>.</li>
+<li><strong><code>this</code></strong> is the entity the component is on. The engine's abilities on <code>entity</code> are called bare inside a component: <code>moveTo(position() + [1, 0, 0])</code>.</li>
+<li><strong><code>event Name(…)</code></strong> says what an event carries; <strong><code>on Name(…) { }</code></strong> in a component handles it; <strong><code>send Name(…) to target;</code></strong> queues it with the engine.</li>
+<li><strong>A passed <code>object</code></strong> is one for the whole game: the engine ticks its <code>update</code> and saves its fields.</li>
+<li><strong>Data files</strong> are ordinary <code>.lst</code> files holding only <code>lock</code> values of fixed values, which an engine reads without running anything.</li>
+</ul>
+</section>
+
+<section id="as-library">
+<h3>Lust as a Rust library</h3>
+<p><code>lust build game.lst --library</code> makes a <code>game_library</code> folder, a Rust library a Rust program uses with one line in its <code>Cargo.toml</code>, which Lust prints. <code>game::start()</code> runs the file's own start; each class the file passes is a Rust type with getters, setters and methods; native methods' bodies come from the program's <code>game::Host</code>. An engine can also use Lust's compiler itself (<code>lust::check</code>, <code>lust::to_lua</code>) to check a game and run it as Lua while it plays. Section 21 of <code>LUST.md</code> has every detail.</p>
+</section>
+</section>
+
+<section class="chapter" id="commands">
+<h2>Commands</h2>
+
+<section id="lust-cli">
+<h3>The lust command</h3>
+<table>
+<thead><tr><th>Command</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>lust run file</code></td><td>Checks the file, then runs it straight away through Lua. <code>lust file</code> works too</td></tr>
+<tr><td><code>lust check file</code></td><td>Only checks, and lists any mistakes</td></tr>
+<tr><td><code>lust build file.lst</code></td><td>Builds a real program next to it, through Rust (needs Rust installed)</td></tr>
+<tr><td><code>lust build file.lst --library</code></td><td>Makes a Rust library from it, for a Rust program to use</td></tr>
+<tr><td><code>lust build file.lsc</code></td><td>Writes the Lua next to it, as <code>file.lua</code></td></tr>
+<tr><td><code>lust lua file</code>, <code>lust rust file.lst</code></td><td>Shows the Lua or Rust it turns into</td></tr>
+<tr><td><code>lust new name</code></td><td>Makes a project folder with a <code>main.lst</code></td></tr>
+<tr><td><code>lust new name app</code></td><td>The same, starting with a window and a piece of it in <code>ui/</code></td></tr>
+<tr><td><code>lust test tests</code></td><td>Runs the test programs, both ways; <code>lust test tests/player.lst</code> runs one</td></tr>
+<tr><td><code>lust update</code></td><td>Gets the newest Lust; <code>lust update check</code> only looks, <code>lust update off</code> stops the notes about new ones</td></tr>
+<tr><td><code>lust version</code></td><td>Which Lust this is</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="lust-test">
+<h3>Tests</h3>
+<p><code>lust test &lt;folder&gt;</code> runs every program that has an expected result next to it, through Lua and as a built program, and both have to match:</p>
+<ul>
+<li><code>player.out</code>: what <code>player.lst</code> should print.</li>
+<li><code>player.err</code>: the mistakes it should report.</li>
+<li><code>player.in</code>: what's typed in (for <code>ask</code>, or the commands of a <a href="#view-tests">view test</a>).</li>
+</ul>
+<p>Tests run with <code>LUST_SEED=1</code>, so random numbers are the same every time.</p>
+</section>
+
+<section id="lust-in-ledger">
+<h3>Lust in Ledger</h3>
+<ul>
+<li><strong>Run</strong> (<kbd>F5</kbd>) runs the open file with <code>lust run</code>, from the project's folder; the <strong>Input</strong> box under the output answers <code>ask</code> (<kbd>Ctrl</kbd>+<kbd>I</kbd> jumps to it). <strong>Check</strong> and <strong>Build</strong> use <code>lust check</code> and <code>lust build</code>.</li>
+<li>Every save checks the file quietly: mistakes show as squiggles and in Problems (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>), and <kbd>F8</kbd> goes to the next with its message. Clicking a mistake in the output opens the right file.</li>
+<li>Completion knows Lust's words, the library (<code>Maths:</code>, <code>name:</code>), and inside a piece's <code>[ ]</code> only the style words that fit it. Colour words show a swatch of their real colour, and hovering a style word or piece explains it.</li>
+<li><kbd>F12</kbd> goes to a declaration, <kbd>Shift</kbd>+<kbd>F12</kbd> finds every use, <kbd>F2</kbd> renames across the folder's Lust files (unsaved tabs included), and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> lists the file's classes and methods.</li>
+<li><strong>Lust: show the Lua this file turns into</strong> and <strong>Lust: show the Rust this file turns into</strong> (in the command list) open it in a read-only tab.</li>
+<li><strong>New project › Lust program</strong> asks whether to start with a window. Settings › Lust installs Lust or points at your own <code>lust.exe</code>.</li>
+</ul>
+<p>The <a href="ledger.html#lust">Ledger user guide</a> has the rest.</p>
+</section>
+</section>
+
+<section class="chapter" id="reference">
+<h2>Reference</h2>
+
+<section id="from-other-languages">
+<h3>Coming from another language</h3>
+<table>
+<thead><tr><th>Elsewhere</th><th>In Lust</th></tr></thead>
+<tbody>
+<tr><td><code>if (x) { } else if (y) { } else { }</code></td><td><code>is x? then { } or is y? then { } or { }</code></td></tr>
+<tr><td><code>cond ? a : b</code></td><td><code>either cond? a or b</code></td></tr>
+<tr><td><code>switch</code> / <code>match</code></td><td><code>check value { when A { } when B, C { } }</code></td></tr>
+<tr><td><code>while (x) { }</code></td><td><code>loop (x) { }</code></td></tr>
+<tr><td><code>for (int i = 0; i &lt; n; i++)</code></td><td><code>loop (int i = 0; i &lt; n; i += 1)</code></td></tr>
+<tr><td><code>foreach (var x in xs)</code></td><td><code>loop (int x in xs)</code></td></tr>
+<tr><td><code>break</code>, <code>continue</code></td><td><code>stop;</code>, <code>skip;</code></td></tr>
+<tr><td><code>null</code></td><td><code>nothing</code></td></tr>
+<tr><td><code>const</code>, <code>readonly</code></td><td><code>lock</code></td></tr>
+<tr><td><code>!x</code></td><td><code>not x</code></td></tr>
+<tr><td><code>x.Length</code>, <code>len(x)</code></td><td><code>#x</code></td></tr>
+<tr><td><code>list.Add(x)</code>, <code>push</code></td><td><code>list:inject(x);</code></td></tr>
+<tr><td><code>Math.Pow(2, 3)</code>, <code>2 ** 3</code></td><td><code>Maths:power(2, 3)</code></td></tr>
+<tr><td><code>$"Hi {name}"</code>, <code>f"Hi {name}"</code></td><td><code>"Hi {name}"</code></td></tr>
+<tr><td><code>x.ToString()</code></td><td><code>x.text()</code></td></tr>
+<tr><td><code>obj.Method()</code></td><td><code>obj:method()</code> (<code>.</code> is for fields)</td></tr>
+<tr><td><code>function</code>, <code>void Foo()</code></td><td><code>method foo() { }</code></td></tr>
+<tr><td>a lambda, <code>x =&gt; x * 3</code></td><td><code>new hook { return n * 3; }</code></td></tr>
+<tr><td><code>enum</code></td><td><code>state</code></td></tr>
+<tr><td><code>class B : A</code>, <code>extends</code></td><td><code>class B like A</code></td></tr>
+<tr><td><code>x is Wizard</code>, <code>instanceof</code></td><td><code>is x like Wizard?</code></td></tr>
+<tr><td><code>static class</code>, a singleton</td><td><code>object</code></td></tr>
+<tr><td><code>try { } catch (e) { }</code></td><td><code>try { } error (string message) { }</code></td></tr>
+<tr><td><code>import</code>, <code>using</code></td><td><code>fetch "path":Thing;</code>, <code>get "path":method;</code></td></tr>
+<tr><td><code>export</code>, <code>public</code></td><td><code>pass Thing;</code></td></tr>
+<tr><td><code>Dictionary&lt;string, int&gt;</code></td><td><code>int map</code></td></tr>
+<tr><td><code>List&lt;int&gt;</code></td><td><code>int array</code></td></tr>
+<tr><td><code>Console.ReadLine()</code>, <code>input()</code></td><td><code>ask("…")</code></td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="operators">
+<h3>Operators, in order</h3>
+<p>From first to last, as Rust orders them. Brackets make it plain when in doubt.</p>
+<table>
+<thead><tr><th>Operators</th><th>Kind</th></tr></thead>
+<tbody>
+<tr><td><code>.</code> <code>:</code> <code>[ ]</code> <code>( )</code></td><td>Fields, methods, items, calls</td></tr>
+<tr><td><code>-x</code> <code>~x</code> <code>not x</code> <code>#x</code></td><td>Minus, bits flipped, not, how many</td></tr>
+<tr><td><code>*</code> <code>/</code> <code>%</code></td><td>Times, divide, remainder</td></tr>
+<tr><td><code>+</code> <code>-</code></td><td>Plus (and joining text), minus</td></tr>
+<tr><td><code>&lt;&lt;</code> <code>&gt;&gt;</code></td><td>Bits moved</td></tr>
+<tr><td><code>&amp;</code>, then <code>^</code>, then <code>|</code></td><td>Bitwise and, xor, or</td></tr>
+<tr><td><code>==</code> <code>!=</code> <code>===</code> <code>!==</code> <code>&lt;</code> <code>&gt;</code> <code>&lt;=</code> <code>&gt;=</code></td><td>Comparisons</td></tr>
+<tr><td><code>&amp;&amp;</code> <code>||</code></td><td>Both, either</td></tr>
+<tr><td><code>=</code> <code>+=</code> <code>-=</code> <code>*=</code> <code>/=</code> <code>&amp;=</code> <code>|=</code> <code>^=</code> <code>&lt;&lt;=</code> <code>&gt;&gt;=</code> <code>is</code></td><td>Giving a value</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="reserved-words">
+<h3>Reserved words</h3>
+<p>These can't be used as names:</p>
+<pre data-lang="text">
+class      object     node       assembly   create     has
+method     hook       return     like       new        nothing
+schema     route      view       style      keep       pass
+fetch      get        lua        is         then       or
+either     not        true       false      loop       stop
+skip       in         try        error      state      save
+load       saved      end        database   int        float
+string     bool       array      cMap       map        native
+component  check      when       lock
+</pre>
+<ul>
+<li>Nor can the built-ins <code>print</code>, <code>wait</code> and <code>ask</code>, or the built-in objects <code>Maths</code>, <code>Files</code>, <code>Time</code>, <code>Json</code>, <code>Web</code>, <code>Random</code>, <code>Rotation</code>, <code>Colour</code> and <code>Ease</code>.</li>
+<li><code>tween</code>, <code>to</code> and <code>over</code> are words only in a tween (and <code>to</code> after <code>send</code>), <code>toast</code> only at the start of a statement, and <code>App</code> can be your own assembly's name, so all of these can still be names.</li>
+<li>The pieces of a view are words only at the start of a line inside a view, so they can still be names.</li>
+</ul>
+</section>
+
+<section id="common-mistakes">
+<h3>Common mistakes</h3>
+<table>
+<thead><tr><th>You wrote</th><th>Write instead</th></tr></thead>
+<tbody>
+<tr><td><code>if (hp == 0) { … }</code></td><td><code>is hp == 0? then { … }</code></td></tr>
+<tr><td>A file without <code>end</code></td><td><code>end</code> on the last line</td></tr>
+<tr><td><code>"hp: " + hp</code></td><td><code>"hp: {hp}"</code> or <code>"hp: " + hp.text()</code></td></tr>
+<tr><td><code>player.hurt(5)</code></td><td><code>player:hurt(5)</code></td></tr>
+<tr><td><code>int max-hp</code>, <code>int MAX_HP</code></td><td><code>int maxHp</code></td></tr>
+<tr><td><code>7 / 2</code> expecting 3.5</td><td><code>7.float() / 2</code></td></tr>
+<tr><td><code>2 ^ 3</code> expecting 8</td><td><code>Maths:power(2, 3)</code></td></tr>
+<tr><td><code>a--b</code></td><td><code>a - -b</code> (<code>--</code> starts a comment)</td></tr>
+<tr><td><code>when Mood.Calm</code></td><td><code>when Calm</code></td></tr>
+<tr><td>A <code>check</code> missing an option</td><td>A <code>when</code> for every option (there's no "else")</td></tr>
+<tr><td>A method using a variable from the top of the file</td><td>Pass it in, or keep it in an object's field</td></tr>
+<tr><td>Storing something just made in a field without <code>keep</code></td><td><code>keep sword in bag;</code></td></tr>
+<tr><td><code>input name;</code> bound to a view's own variable</td><td>Bind it to a field in <code>has</code></td></tr>
+<tr><td><code>colorPicker</code></td><td><code>colourPicker</code></td></tr>
+<tr><td><code>shop[0]</code> for a cMap's first row</td><td><code>shop[key]</code>: rows are found by key, so loop for order</td></tr>
+</tbody>
+</table>
+</section>
+</section>

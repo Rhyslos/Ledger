@@ -55,6 +55,7 @@ To change the name, see [Renaming](#renaming).
 - **.NET tools**: Settings › C# and .NET lists the installed SDKs and runtimes, installs the .NET 8, 9 or 10 SDK side by side, lists and installs workloads (MAUI, Android, iOS, WebAssembly tools), and installs `dotnet-ef`. When a folder opens, Ledger warns if its `global.json` pins an SDK that isn't installed (and offers it), offers `dotnet tool restore` for a project's own tools, and runs `dotnet restore` in a trusted folder so the language server and the first build find every package. Go to definition reaches into NuGet packages and the framework: their source through Source Link when the package has it, decompiled when not, opened read-only.
 - **Explorer menu**: "Open with Ledger" when you right-click a file or folder in Windows (Settings › Windows turns it off).
 - **Updates**: when Ledger starts, a small window checks for a new version first. If there is one, it asks: **Update now** downloads and installs it and starts the new Ledger; **Later** (or Esc) opens Ledger as it is. The editor loads behind it meanwhile, and the check gives up after 8 seconds (offline, say), so it never holds Ledger back for long. Turn it off in Settings › Updates; then Ledger checks once it's open, downloads in the background and shows **Restart to update**. Updates are signed, and one that isn't signed by Ledger's own release workflow is refused.
+- **Docs**: Ctrl Shift P › **Docs** opens the **Lust language guide** (every part of Lust's syntax, with examples) or the **Ledger user guide** (every view, tool and shortcut) in your browser. They're carried inside Ledger, so they work offline, and each links to the other.
 - **Settings** on Ctrl P: theme, fonts, status bar position, tab size, wrapping, format on save, auto save, editor extras, tool paths, terminal shell, debuggers, Godot setup, and every Ledger command's shortcut can be changed.
 
 Each window has one folder open. Ctrl Shift N opens another window (or Ctrl Enter on a recent folder on the start page), each with its own program, language servers, debugger and terminals. Open a project folder (with `Cargo.toml`, a `.sln`/`.csproj`, `project.godot` or `package.json`), or a folder that holds several projects, like a course folder with one project per lesson. Run, Build and Test always use the project of the file you have open; its name shows at the left of the status bar. New project (in the command list) can create the project inside the open folder.
@@ -321,6 +322,9 @@ src-tauri/src/lib.rs  files, running cargo/dotnet/Godot, language servers and de
 src-tauri/src/live.rs Live Server
 src-tauri/windows/hooks.nsh  installer steps: Lust file icons, "Open with Ledger"
 build.ps1, build.cmd  local Windows build
+guides/               the Lust language guide and the Ledger user guide (lust.html, ledger.html) with their
+                      shared guide.css and guide.js; `npm run guides` builds them into src-tauri/guides/
+scripts/guides.mjs    builds the guides: colours Lust code, checks every link
 scripts/              rename and collect helpers
 tests/                tests for npm test
 ```

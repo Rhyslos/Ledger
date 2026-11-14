@@ -1,0 +1,1686 @@
+<!DOCTYPE html>
+<!-- Made by scripts/guides.mjs from guides/ledger.html. Edit that, not this. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledger User Guide</title>
+<meta name="description" content="How to use Ledger, the code editor: every view, tool and shortcut, step by step.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNTYiIGhlaWdodD0iMjU2IiB2aWV3Qm94PSIwIDAgMjU2IDI1NiI+PHJlY3Qgd2lkdGg9IjI1NiIgaGVpZ2h0PSIyNTYiIHJ4PSI1NiIgZmlsbD0iIzExMTMxOCIvPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDAgMCkiPjxwYXRoIGQ9Ik01MCA2MCBINzggVjE3NCBIMTI0IFYyMDAgSDUwIFoiIGZpbGw9IiNlOGU2ZTEiLz48cGF0aCBkPSJNMTQyIDkyIEwxOTIgMTMwIEwxNDIgMTY4IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZjVmNTYiIHN0cm9rZS13aWR0aD0iMjQiIHN0cm9rZS1saW5lam9pbj0ibWl0ZXIiLz48L2c+PC9zdmc+">
+<script>
+/* The chosen theme is set before anything is drawn, so the page never
+   flashes the other one. Storage can be refused (file://, private windows). */
+(function () {
+  try {
+    var t = window.localStorage.getItem("guide-theme");
+    if (t === "light" || t === "dark") { document.documentElement.setAttribute("data-theme", t); }
+  } catch (e) { /* follow the system */ }
+}());
+</script>
+<style>
+:root { --logo: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNTYiIGhlaWdodD0iMjU2IiB2aWV3Qm94PSIwIDAgMjU2IDI1NiI+PHJlY3Qgd2lkdGg9IjI1NiIgaGVpZ2h0PSIyNTYiIHJ4PSI1NiIgZmlsbD0iIzExMTMxOCIvPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDAgMCkiPjxwYXRoIGQ9Ik01MCA2MCBINzggVjE3NCBIMTI0IFYyMDAgSDUwIFoiIGZpbGw9IiNlOGU2ZTEiLz48cGF0aCBkPSJNMTQyIDkyIEwxOTIgMTMwIEwxNDIgMTY4IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZjVmNTYiIHN0cm9rZS13aWR0aD0iMjQiIHN0cm9rZS1saW5lam9pbj0ibWl0ZXIiLz48L2c+PC9zdmc+"); }
+/* Ledger's guides: the Lust language guide and the Ledger user guide.
+   Colours follow Ledger's own: paper and ink in light, graphite in dark,
+   with the red of Ledger's L> as the accent, and code in the quiet colours
+   Ledger gives Lust. Every colour is a token here. */
+:root {
+  --bg: #f6f6f5;
+  --surface: #ffffff;
+  --panel: #eeeeec;
+  --line: #e2e2df;
+  --line-strong: #cfcfcb;
+  --text: #202020;
+  --text2: #3a3a38;
+  --muted: #6b6b68;
+  --accent: #a3262e;
+  --accent-soft: rgba(163, 38, 46, 0.08);
+  --accent-line: rgba(163, 38, 46, 0.42);
+  --on-accent: #ffffff;
+  --kbd-bg: #ffffff;
+  --kbd-edge: #cfcfcb;
+  --mark: rgba(240, 190, 60, 0.42);
+  --flash: rgba(240, 160, 30, 0.85);
+  --note-bg: #edf2f8;
+  --note-edge: #2f6db0;
+  --tip-bg: #f8eded;
+  --warn-bg: #fbf2df;
+  --warn-edge: #a8670f;
+  --scrim: rgba(20, 20, 20, 0.35);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 20px rgba(0, 0, 0, 0.06);
+  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.08), 0 16px 40px rgba(0, 0, 0, 0.12);
+  --code-bg: #fbfbfa;
+  --lust-red: #d9433b; --lust-flow: #b8635c; --lust-value: #8a6a2b; --lust-comment: #3f7f3f; --lust-type: #6f8a69;
+  --lust-punct: #9d9d99; --lust-state: #1f8a78; --lust-class: #3566a8; --lust-object: #b35a1f;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #191919;
+    --surface: #1f1f1f;
+    --panel: #262626;
+    --line: #303030;
+    --line-strong: #474747;
+    --text: #e8e8e6;
+    --text2: #c9c9c6;
+    --muted: #9b9b97;
+    --accent: #ec7378;
+    --accent-soft: rgba(236, 115, 120, 0.11);
+    --accent-line: rgba(236, 115, 120, 0.5);
+    --on-accent: #191919;
+    --kbd-bg: #2a2a2a;
+    --kbd-edge: #4a4a4a;
+    --mark: rgba(230, 185, 70, 0.32);
+    --flash: rgba(240, 175, 50, 0.7);
+    --note-bg: #1c232c;
+    --note-edge: #6ea8e6;
+    --tip-bg: #2a2021;
+    --warn-bg: #2b261c;
+    --warn-edge: #e3a24e;
+    --scrim: rgba(0, 0, 0, 0.55);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 20px rgba(0, 0, 0, 0.25);
+    --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.4), 0 16px 40px rgba(0, 0, 0, 0.45);
+    --code-bg: #1e1e1e;
+    --lust-red: #ff5f56; --lust-flow: #f0a39e; --lust-value: #d7ba7d; --lust-comment: #6a9955; --lust-type: #a1b59c;
+    --lust-punct: #7c7f83; --lust-state: #4fc4ab; --lust-class: #7fa9dc; --lust-object: #e8935a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #191919;
+  --surface: #1f1f1f;
+  --panel: #262626;
+  --line: #303030;
+  --line-strong: #474747;
+  --text: #e8e8e6;
+  --text2: #c9c9c6;
+  --muted: #9b9b97;
+  --accent: #ec7378;
+  --accent-soft: rgba(236, 115, 120, 0.11);
+  --accent-line: rgba(236, 115, 120, 0.5);
+  --on-accent: #191919;
+  --kbd-bg: #2a2a2a;
+  --kbd-edge: #4a4a4a;
+  --mark: rgba(230, 185, 70, 0.32);
+  --flash: rgba(240, 175, 50, 0.7);
+  --note-bg: #1c232c;
+  --note-edge: #6ea8e6;
+  --tip-bg: #2a2021;
+  --warn-bg: #2b261c;
+  --warn-edge: #e3a24e;
+  --scrim: rgba(0, 0, 0, 0.55);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 20px rgba(0, 0, 0, 0.25);
+  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.4), 0 16px 40px rgba(0, 0, 0, 0.45);
+  --code-bg: #1e1e1e;
+  --lust-red: #ff5f56; --lust-flow: #f0a39e; --lust-value: #d7ba7d; --lust-comment: #6a9955; --lust-type: #a1b59c;
+  --lust-punct: #7c7f83; --lust-state: #4fc4ab; --lust-class: #7fa9dc; --lust-object: #e8935a;
+  color-scheme: dark;
+}
+
+:root { --top: 56px; --measure: 70ch; }
+* { box-sizing: border-box; }
+html { scroll-padding-top: calc(var(--top) + 20px); -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16.5px/1.7 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+a { color: var(--accent); text-underline-offset: 3px; text-decoration-thickness: 1px; text-decoration-color: var(--accent-line); }
+a:hover { text-decoration-color: currentColor; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+code, kbd, .mono { font-family: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; }
+code { font-size: 0.86em; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 0.08em 0.36em; overflow-wrap: anywhere; }
+kbd {
+  display: inline-block;
+  min-width: 1.75em;
+  padding: 0.02em 0.45em;
+  font-size: 0.8em;
+  line-height: 1.55;
+  text-align: center;
+  color: var(--text);
+  background: var(--kbd-bg);
+  border: 1px solid var(--kbd-edge);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  white-space: nowrap;
+  vertical-align: 0.06em;
+}
+.logo { display: inline-block; flex: none; background: var(--logo) center / contain no-repeat; }
+
+/* Top bar: contents button, name, where you are, search, theme; the
+   reading progress runs along its bottom edge. */
+.top {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; gap: 12px;
+  height: var(--top); padding: 0 16px;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: saturate(1.2) blur(12px);
+  -webkit-backdrop-filter: saturate(1.2) blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 650; white-space: nowrap; }
+.brand .logo { width: 28px; height: 28px; }
+.brand small { font-weight: 450; color: var(--muted); font-size: 0.9em; }
+.crumb {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden;
+  padding-left: 14px; margin-left: 2px; border-left: 1px solid var(--line);
+}
+.crumb a { color: var(--text2); text-decoration: none; overflow: hidden; text-overflow: ellipsis; }
+.crumb a:hover { color: var(--text); text-decoration: underline; text-decoration-color: var(--accent-line); }
+.crumb .num { font-variant-numeric: tabular-nums; color: var(--muted); }
+.crumb .sep { flex: none; color: var(--line-strong); }
+.crumb .sub { color: var(--text); font-weight: 560; }
+.crumb .sub:empty, .crumb .sep.hidden { display: none; }
+.progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); transform-origin: 0 50%; transform: scaleX(0); pointer-events: none; }
+
+.search { position: relative; flex: 0 1 380px; min-width: 0; }
+.search input {
+  width: 100%; height: 38px; padding: 0 70px 0 36px;
+  font: inherit; font-size: 15px; color: var(--text);
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px;
+  outline: none; -webkit-appearance: none; appearance: none;
+}
+.search input::-webkit-search-cancel-button { display: none; }
+.search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.search .glass { position: absolute; left: 11px; top: 11px; width: 16px; height: 16px; color: var(--muted); pointer-events: none; }
+.search .hint { position: absolute; right: 9px; top: 8px; display: flex; gap: 4px; pointer-events: none; }
+.search .hint kbd { font-size: 11px; color: var(--muted); }
+.search input:not(:placeholder-shown) ~ .hint { display: none; }
+.results {
+  position: absolute; right: 0; top: 46px; z-index: 40;
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(70vh, 560px); overflow-y: auto; overscroll-behavior: contain;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px;
+  box-shadow: var(--shadow-pop); display: none; padding: 6px;
+}
+.results.shown { display: block; }
+.results .count { padding: 6px 10px 8px; font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.results .empty { padding: 14px 12px; font-size: 14px; color: var(--muted); }
+.results a.result { display: block; padding: 8px 10px; border-radius: 8px; color: var(--text2); text-decoration: none; }
+.results a.result + a.result { margin-top: 1px; }
+.results a.result.selected, .results a.result:hover { background: var(--accent-soft); }
+.results a.result.selected { box-shadow: inset 2px 0 0 var(--accent); }
+.results .where { display: block; font-size: 12px; color: var(--muted); line-height: 1.4; }
+.results .title { display: block; font-weight: 600; color: var(--text); line-height: 1.4; }
+.results .snippet { display: block; font-size: 13.5px; line-height: 1.5; margin-top: 2px; color: var(--text2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.results .keys-help { display: flex; gap: 14px; flex-wrap: wrap; padding: 8px 10px 4px; margin-top: 4px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.results .keys-help kbd { font-size: 10.5px; }
+
+.icon-button {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 38px; min-width: 38px; padding: 0 10px;
+  font: inherit; font-size: 14px; color: var(--text2);
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; cursor: pointer;
+}
+.icon-button:hover { color: var(--text); border-color: var(--muted); }
+#toc-button { display: none; }
+#theme-button svg { display: none; }
+#theme-button[data-mode="system"] .i-system, #theme-button[data-mode="light"] .i-light, #theme-button[data-mode="dark"] .i-dark { display: block; }
+#theme-button .label { min-width: 2.6em; text-align: left; }
+
+/* Page: contents on the left, the guide beside it. */
+.page { display: grid; grid-template-columns: 292px minmax(0, 1fr); max-width: 1320px; margin: 0 auto; }
+nav.toc {
+  position: sticky; top: var(--top); align-self: start;
+  height: calc(100vh - var(--top)); overflow-y: auto; overscroll-behavior: contain;
+  padding: 18px 14px 48px 16px;
+  border-right: 1px solid var(--line);
+  font-size: 14px;
+  scrollbar-width: thin;
+}
+.toc-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 10px 10px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+.toc-head .read { text-transform: none; letter-spacing: 0; font-weight: 500; font-variant-numeric: tabular-nums; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; }
+nav.toc a {
+  display: flex; gap: 8px; padding: 4px 10px; border-radius: 7px;
+  color: var(--text2); text-decoration: none; line-height: 1.4;
+}
+nav.toc a:hover { background: var(--panel); color: var(--text); }
+nav.toc .num { flex: none; width: 1.4em; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 500; }
+nav.toc > ol > li { margin: 1px 0; }
+nav.toc > ol > li > a { font-weight: 600; color: var(--text); }
+nav.toc li ol { display: none; margin: 2px 0 8px 30px; border-left: 1px solid var(--line); }
+nav.toc li.open > ol, nav.toc li.has-hits > ol { display: block; }
+nav.toc li ol a { font-size: 13.5px; color: var(--muted); padding: 3px 10px; border-radius: 0 7px 7px 0; margin-left: -1px; border-left: 2px solid transparent; }
+nav.toc li.active > a { color: var(--text); background: var(--panel); }
+nav.toc li.active > a .num { color: var(--accent); }
+nav.toc li ol a.current { color: var(--text); background: var(--accent-soft); border-left-color: var(--accent); font-weight: 560; }
+nav.toc a.dim { opacity: 0.4; }
+nav.toc a.hit { color: var(--text); }
+nav.toc a.hit::after { content: ""; flex: none; align-self: center; width: 6px; height: 6px; margin-left: auto; border-radius: 50%; background: var(--accent); }
+.scrim { display: none; }
+
+main { min-width: 0; padding: 36px 56px 120px; }
+.guide { max-width: 860px; margin: 0 auto; }
+.guide p, .guide ul, .guide ol, .guide h1, .guide h2, .guide h3, .guide h4, .guide .note, .guide .tip, .guide .warn { max-width: var(--measure); }
+
+h1, h2, h3, h4 { color: var(--text); text-wrap: balance; }
+h1 { display: flex; align-items: center; gap: 16px; font-size: 2.3rem; line-height: 1.15; margin: 0.2em 0 0.5em; letter-spacing: -0.015em; }
+h1 .logo { width: 56px; height: 56px; }
+h2 { font-size: 1.85rem; line-height: 1.2; margin: 0 0 0.55em; letter-spacing: -0.01em; }
+h2[data-num]::before { content: "Chapter " attr(data-num); display: block; margin-bottom: 0.45em; font-size: 0.8rem; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+h3 { font-size: 1.28rem; line-height: 1.3; margin: 2.4em 0 0.55em; letter-spacing: -0.005em; }
+h4 { font-size: 1.04rem; line-height: 1.35; margin: 1.8em 0 0.4em; }
+h2, h3 { position: relative; border-radius: 6px; }
+h2.landed, h3.landed, h1.landed { animation: landed 1.8s ease-out; }
+@keyframes landed { 0%, 25% { background: var(--accent-soft); box-shadow: -10px 0 0 var(--accent-soft), 10px 0 0 var(--accent-soft); } 100% { background: transparent; box-shadow: none; } }
+section.chapter { padding-top: 56px; margin-top: 64px; border-top: 1px solid var(--line); }
+section.chapter:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+section.chapter > section > h3:first-child { margin-top: 2.2em; }
+.lead { font-size: 1.12rem; line-height: 1.65; color: var(--text2); }
+p { margin: 0 0 1em; }
+p, li { color: var(--text2); }
+strong { color: var(--text); font-weight: 620; }
+ol, ul { padding-left: 1.4em; margin: 0 0 1.1em; }
+li { margin: 0.35em 0; }
+li::marker { color: var(--muted); }
+ol.steps { counter-reset: step; list-style: none; padding-left: 0; }
+ol.steps > li { counter-increment: step; position: relative; padding-left: 2.4em; margin: 0.7em 0; }
+ol.steps > li::before {
+  content: counter(step); position: absolute; left: 0; top: 0.2em;
+  width: 1.65em; height: 1.65em; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.8em; font-weight: 650; color: var(--accent); background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+}
+.anchor { margin-left: 0.4em; padding: 0 0.15em; color: var(--muted); text-decoration: none; opacity: 0; font-weight: 400; transition: opacity 0.12s; }
+h2:hover .anchor, h3:hover .anchor, .anchor:focus-visible { opacity: 1; }
+.anchor:hover { color: var(--accent); }
+@media (hover: none) { .anchor { opacity: 0.45; } }
+
+.tip, .note, .warn {
+  margin: 1.2em 0; padding: 0.8em 1.1em; border-radius: 0 10px 10px 0;
+  background: var(--tip-bg); border-left: 3px solid var(--accent);
+}
+.note { background: var(--note-bg); border-left-color: var(--note-edge); }
+.warn { background: var(--warn-bg); border-left-color: var(--warn-edge); }
+.tip p, .note p, .warn p { margin: 0.2em 0; }
+.tip::before, .note::before, .warn::before { display: block; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 0.2em; }
+.tip::before { content: "Tip"; color: var(--accent); }
+.note::before { content: "Good to know"; color: var(--note-edge); }
+.warn::before { content: "Careful"; color: var(--warn-edge); }
+
+figure { margin: 1.8em 0 2em; }
+figure img {
+  display: block; width: 100%; height: auto;
+  border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel); box-shadow: var(--shadow); cursor: zoom-in;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+figure img:hover { box-shadow: var(--shadow-pop); }
+figcaption { display: flex; gap: 8px; align-items: baseline; font-size: 0.9rem; line-height: 1.5; color: var(--muted); margin-top: 0.7em; max-width: var(--measure); }
+figcaption::before { content: ""; flex: none; width: 14px; height: 1px; background: var(--line-strong); transform: translateY(-0.3em); }
+
+.table-wrap { overflow-x: auto; margin: 1em 0 1.6em; }
+.table-wrap > table { margin: 0; }
+table { border-collapse: separate; border-spacing: 0; width: 100%; margin: 1em 0 1.6em; font-size: 0.93rem; line-height: 1.55; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
+th, td { text-align: left; vertical-align: top; padding: 0.6em 0.9em; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { color: var(--text); font-weight: 620; background: var(--panel); font-size: 0.85rem; letter-spacing: 0.01em; }
+td { color: var(--text2); }
+tbody tr:hover td { background: color-mix(in srgb, var(--panel) 55%, transparent); }
+table.keys { margin: 0.6em 0 1.8em; }
+table.keys td:first-child { width: 62%; }
+table.keys td:last-child { white-space: normal; }
+.table-wrap > h3, .table-wrap > h4 { max-width: var(--measure); }
+.none { color: var(--muted); font-size: 0.9em; }
+
+mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1px; }
+mark.flash { animation: flash 2.2s ease-out; }
+@keyframes flash { 0%, 30% { background: var(--flash); box-shadow: 0 0 0 4px var(--flash); } 100% { background: var(--mark); box-shadow: 0 0 0 0 transparent; } }
+
+/* The way on from each chapter. */
+.pager { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 3em 0 0; max-width: 860px; }
+.pager a { display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); text-decoration: none; color: var(--text); transition: border-color 0.12s, box-shadow 0.12s; }
+.pager a:hover { border-color: var(--accent-line); box-shadow: var(--shadow); }
+.pager .dir { font-size: 12.5px; color: var(--muted); }
+.pager .name { font-weight: 600; line-height: 1.35; }
+.pager .next { grid-column: 2; text-align: right; }
+
+.to-top {
+  position: fixed; right: 20px; bottom: 20px; z-index: 25;
+  height: 40px; padding: 0 14px 0 10px; border-radius: 20px;
+  box-shadow: var(--shadow-pop);
+  opacity: 0; transform: translateY(8px); pointer-events: none; transition: opacity 0.18s, transform 0.18s;
+}
+.to-top.shown { opacity: 1; transform: none; pointer-events: auto; }
+.toast {
+  position: fixed; left: 50%; bottom: 24px; z-index: 60; transform: translate(-50%, 10px);
+  padding: 8px 14px; border-radius: 9px; font-size: 14px;
+  color: var(--bg); background: var(--text); box-shadow: var(--shadow-pop);
+  opacity: 0; pointer-events: none; transition: opacity 0.18s, transform 0.18s;
+}
+.toast.shown { opacity: 1; transform: translate(-50%, 0); }
+
+/* A picture made large. */
+.lightbox { position: fixed; inset: 0; z-index: 70; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; background: rgba(10, 10, 10, 0.94); cursor: zoom-out; }
+.lightbox.open { display: flex; }
+.lightbox img { max-width: 100%; max-height: calc(100% - 56px); border-radius: 8px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
+.lightbox p { margin: 0; max-width: 90ch; text-align: center; font-size: 14px; color: #d8d6d0; }
+.lightbox button { position: absolute; top: 14px; right: 14px; color: #eee; background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.25); }
+
+footer { margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 0.88rem; color: var(--muted); }
+footer p { color: var(--muted); }
+
+@media (max-width: 1100px) {
+  main { padding: 32px 36px 110px; }
+  .page { grid-template-columns: 264px minmax(0, 1fr); }
+}
+@media (max-width: 920px) {
+  :root { --top: 94px; }
+  .top { flex-wrap: wrap; height: auto; min-height: var(--top); padding: 9px 12px 0; gap: 8px 10px; align-content: flex-start; }
+  .search { flex: 1 1 0; min-width: 0; margin-left: auto; max-width: 420px; }
+  .crumb { order: 10; flex: 1 0 100%; height: 36px; padding: 0 2px; margin: 0; border-left: 0; border-top: 1px solid var(--line); font-size: 13.5px; cursor: pointer; }
+  .page { grid-template-columns: minmax(0, 1fr); }
+  #toc-button { display: inline-flex; }
+  nav.toc {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 50;
+    width: min(320px, 86vw); height: auto;
+    background: var(--bg); box-shadow: var(--shadow-pop); border-right: 1px solid var(--line);
+    transform: translateX(-104%); transition: transform 0.2s ease; visibility: hidden;
+    padding-top: 20px;
+  }
+  body.toc-open nav.toc { transform: none; visibility: visible; }
+  body.toc-open .scrim { display: block; position: fixed; inset: 0; z-index: 45; background: var(--scrim); }
+  main { padding: 24px 20px 100px; }
+  .brand small { display: none; }
+  .results { right: auto; left: 50%; transform: translateX(-50%); position: fixed; top: 54px; }
+}
+@media (max-width: 560px) {
+  body { font-size: 16px; }
+  main { padding: 20px 16px 96px; }
+  .brand .word { display: none; }
+  .search .hint { display: none; }
+  .search input { padding-right: 12px; }
+  #theme-button .label { display: none; }
+  h1 { font-size: 1.75rem; gap: 12px; }
+  h1 .logo { width: 44px; height: 44px; }
+  h2 { font-size: 1.5rem; }
+  h3 { font-size: 1.18rem; }
+  section.chapter { padding-top: 40px; margin-top: 44px; }
+  table.keys td:first-child { width: auto; }
+  th, td { padding: 0.5em 0.65em; }
+  .pager { grid-template-columns: 1fr; }
+  .pager .next { grid-column: 1; }
+  .to-top .label { display: none; }
+  .to-top { padding: 0; width: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+@media print {
+  pre.code .copy { display: none !important; }
+  pre.code { white-space: pre-wrap; break-inside: avoid; }
+  .top, nav.toc, .pager, .to-top, .scrim { display: none !important; }
+  .page { display: block; }
+  main { padding: 0; }
+  figure img { box-shadow: none; }
+  section.chapter { break-before: page; }
+}
+
+/* Code: blocks with a Copy button, coloured the way Ledger colours Lust. */
+pre.code {
+  position: relative;
+  margin: 1.1em 0 1.6em; padding: 14px 18px;
+  background: var(--code-bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 10px;
+  overflow-x: auto; font-size: 0.86rem; line-height: 1.62; tab-size: 4;
+  scrollbar-width: thin;
+}
+pre.code code { background: none; border: 0; padding: 0; font-size: 1em; overflow-wrap: normal; white-space: pre; }
+pre.code[data-file] { padding-top: 38px; }
+pre.code[data-file]::before {
+  content: attr(data-file);
+  position: absolute; left: 0; right: 0; top: 0; height: 28px; padding: 0 18px;
+  display: flex; align-items: center;
+  font: 600 12px/1 ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--muted);
+  border-bottom: 1px solid var(--line); background: var(--panel); border-radius: 10px 10px 0 0;
+}
+pre.code .copy {
+  position: absolute; top: 6px; right: 6px;
+  height: 26px; padding: 0 9px; border-radius: 6px;
+  font: 500 12px/1 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--muted);
+  background: var(--surface); border: 1px solid var(--line-strong); cursor: pointer;
+  opacity: 0; transition: opacity 0.12s;
+}
+pre.code[data-file] .copy { top: 1px; height: 26px; border: 0; background: transparent; }
+pre.code:hover .copy, pre.code .copy:focus-visible { opacity: 1; }
+pre.code .copy:hover { color: var(--text); }
+@media (hover: none) { pre.code .copy { opacity: 1; } }
+.tk-k { color: var(--lust-red); font-weight: 500; }
+.tk-f { color: var(--lust-flow); }
+.tk-t { color: var(--lust-type); }
+.tk-v { color: var(--lust-value); }
+.tk-c { color: var(--lust-comment); font-style: italic; }
+.tk-n { color: var(--lust-class); }
+.tk-o { color: var(--lust-object); }
+.tk-p { color: var(--lust-punct); }
+.tk-s { color: var(--lust-state); }
+.guide pre.code { max-width: 100%; }
+
+/* A row of small cards: the quick reference on the first page. */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin: 1.2em 0 1.8em; }
+.cards a { display: block; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); text-decoration: none; color: var(--text2); line-height: 1.45; font-size: 0.92rem; transition: border-color 0.12s, box-shadow 0.12s; }
+.cards a:hover { border-color: var(--accent-line); box-shadow: var(--shadow); }
+.cards a strong { display: block; margin-bottom: 2px; }
+.cards code { font-size: 0.82em; }
+td code, th code { overflow-wrap: normal; white-space: nowrap; }
+td pre.code { margin: 0.2em 0; }
+.other-guide { display: inline; font-size: 14px; color: var(--text2); text-decoration: none; white-space: nowrap; }
+.other-guide:hover { color: var(--text); }
+@media (max-width: 1100px) { .other-guide .long { display: none; } }
+@media (max-width: 560px) { .other-guide { display: none; } }
+
+</style>
+</head>
+<body>
+<header class="top">
+  <button class="icon-button" id="toc-button" type="button" aria-controls="toc" aria-expanded="false" title="Contents">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"></path></svg>
+  </button>
+  <a class="brand" href="#welcome" title="To the top">
+    <span class="logo" role="img" aria-label="Ledger"></span>
+    <span class="word">Ledger</span> <small>User guide</small>
+  </a>
+  <div class="crumb" id="crumb" aria-label="You are reading">
+    <a class="chap" id="crumb-chapter" href="#welcome">Welcome</a>
+    <span class="sep hidden" aria-hidden="true">›</span>
+    <span class="sub" id="crumb-section"></span>
+  </div>
+  <a class="other-guide" href="lust.html" title="Open the Lust language guide">Lust<span class="long">&nbsp;language guide</span>&nbsp;→</a>
+  <div class="search" role="search">
+    <svg class="glass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+    <input id="guide-search" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-label="Search the guide" aria-controls="results" aria-expanded="false">
+    <span class="hint"><kbd>/</kbd><kbd>Ctrl K</kbd></span>
+    <div class="results" id="results" role="listbox" aria-label="Search results"></div>
+  </div>
+  <button class="icon-button" id="theme-button" type="button" data-mode="system" title="Theme: Auto (follows the system). Click for Light." aria-label="Theme: Auto (follows the system). Click for Light.">
+    <svg class="i-system" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"></path></svg>
+    <svg class="i-light" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+    <svg class="i-dark" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"></path></svg>
+    <span class="label">Auto</span>
+  </button>
+  <div class="progress" id="progress" aria-hidden="true"></div>
+</header>
+<div class="page">
+<nav class="toc" id="toc" aria-label="Contents"><div class="toc-head"><span>Contents</span><span class="read" id="toc-read">0% read</span></div></nav>
+<div class="scrim" id="scrim"></div>
+<main id="main">
+<div class="guide">
+<section class="chapter" id="welcome">
+<h1><span class="logo" aria-hidden="true"></span>Ledger User Guide</h1>
+<p class="lead">Ledger is a code editor for Rust, C#, Godot, web projects, Lua and Lust. This guide walks through every part of it, with the keys for each. Everything in Ledger can be done from the keyboard.</p>
+<p>Use the search box at the top (press <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd>) to find anything, or pick a chapter on the left. Every heading has its own link: point at it and click the hash sign beside it to copy where it is.</p>
+<div class="note">
+<p><strong>Ledger has no AI in it, and never will.</strong> No assistant, no chat panel, no generated code, nothing sent off to a model. What's in your files is what you wrote.</p>
+</div>
+<p>To open this guide again, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong>. The <a href="lust.html#welcome">Lust language guide</a> opens the same way.</p>
+
+<h3 id="the-short-version">The short version</h3>
+<ol class="steps">
+<li>Press <kbd>Ctrl</kbd>+<kbd>O</kbd> to open a project folder, or run <strong>New project</strong> from the command list (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>).</li>
+<li>If Ledger asks whether you trust the folder, say yes for your own code. See <a href="#trust">Trusting a folder</a>.</li>
+<li>Open files with <kbd>Ctrl</kbd>+<kbd>E</kbd> (type part of a name), and press <kbd>F5</kbd> to run. Type into the <strong>Input</strong> box under the output when the program asks for something.</li>
+<li>Mistakes show as squiggles and in Problems; <kbd>F8</kbd> goes to the next one. <kbd>F12</kbd> goes to a definition, <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>F12</kbd> follows everywhere something is used.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> lists every command with its key. <kbd>Ctrl</kbd>+<kbd>P</kbd> opens Settings.</li>
+</ol>
+
+<h3 id="quick-reference">Quick reference</h3>
+<div class="cards">
+<a href="#command-list"><strong>All commands</strong><kbd>Ctrl Shift P</kbd> or <kbd>F1</kbd></a>
+<a href="#goto-file"><strong>Go to file</strong><kbd>Ctrl E</kbd>, then <code>@</code> for symbols, <code>file:line</code> for a line</a>
+<a href="#run"><strong>Run / stop</strong><kbd>F5</kbd> / <kbd>Shift F5</kbd>, input with <kbd>Ctrl I</kbd></a>
+<a href="#red-thread"><strong>Red Thread</strong><kbd>Shift Alt F12</kbd>: follow everywhere it's used</a>
+<a href="#search"><strong>Search in files</strong><kbd>Ctrl Shift F</kbd>, replace with <kbd>Ctrl Shift H</kbd></a>
+<a href="#debugging"><strong>Debug</strong><kbd>Shift F9</kbd>, breakpoint <kbd>F9</kbd>, step <kbd>F10</kbd> <kbd>F11</kbd></a>
+<a href="#git"><strong>Git</strong><kbd>Ctrl Shift G</kbd>: stage, commit, push</a>
+<a href="#shortcuts"><strong>Every shortcut</strong>in one place</a>
+</div>
+</section>
+
+<section class="chapter" id="getting-started">
+<h2>Getting started</h2>
+
+<section id="install">
+<h3>Installing and updates</h3>
+<ul>
+<li><strong>The installer</strong> (<code>Ledger_…_x64-setup.exe</code>) installs Ledger for you alone, with no administrator rights, and adds a Start menu entry, the <code>ledger</code> command and <strong>Open with Ledger</strong> in File Explorer's right-click menu. It makes <code>.lst</code>, <code>.lsc</code>, <code>.lql</code> and <code>.lust</code> files open in Ledger with their own icons.</li>
+<li><strong><code>Ledger-portable.exe</code></strong> runs from anywhere and needs nothing else on Windows 11.</li>
+<li><strong>Updates:</strong> when Ledger starts, a small window checks for a new version first. <strong>Update now</strong> downloads, installs and starts the new Ledger; <strong>Later</strong> (or <kbd>Esc</kbd>) opens Ledger as it is. The check gives up after 8 seconds, so being offline never holds Ledger back. Settings › Updates turns it off; Ledger then checks once it's open and shows <strong>Restart to update</strong>. Updates are signed, and an unsigned one is refused.</li>
+</ul>
+</section>
+
+<section id="open-folder">
+<h3>Opening a folder</h3>
+<p>Each window has one folder open. Press <kbd>Ctrl</kbd>+<kbd>O</kbd>, or pick a recent folder on the start page. Open a project folder (with <code>Cargo.toml</code>, a <code>.sln</code> or <code>.csproj</code>, <code>project.godot</code>, <code>package.json</code> or <code>main.lst</code>), or a folder that holds several projects, like a course folder with one project per lesson.</p>
+<ul>
+<li><strong>Run, Build and Test always use the project of the file you have open.</strong> Its name shows at the left of the status bar.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> opens another window (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd> on a recent folder), each with its own program, language servers, debugger and terminals. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> closes a window.</li>
+<li>From a terminal: <code>Ledger.exe C:\Games\MyGame --goto C:\Games\MyGame\Player.cs:42</code>.</li>
+</ul>
+</section>
+
+<section id="trust">
+<h3>Trusting a folder (restricted mode)</h3>
+<p>Opening a downloaded project shouldn't run its code. The first time Ledger opens a folder with a project or a Git repository in it, it asks whether you trust the code. Until you do, the folder is in <strong>restricted mode</strong>, shown as <strong>Restricted</strong> in the status bar (click it to trust the folder).</p>
+<ul>
+<li>You can read, edit, search, format and commit as usual. HTML, CSS, JSON and TypeScript help work, with the computer's own TypeScript.</li>
+<li>Run, Build, Test and Debug ask for trust first, since they run the project's code.</li>
+<li>Rust, C# and Lua analysis wait, since their servers run the project's build scripts and plugins.</li>
+<li>Git runs with the repository's hooks switched off.</li>
+<li><strong>Lust checking works in restricted mode</strong>, since <code>lust check</code> only reads the code.</li>
+<li>Projects you make in Ledger are trusted. <strong>Trust this folder, or go back to restricted mode</strong> in the command list changes your answer.</li>
+</ul>
+</section>
+
+<section id="new-project">
+<h3>Making a new project</h3>
+<p>Run <strong>New project</strong> from the command list. With a folder open, Ledger asks whether the project goes inside it (a course folder, say) or somewhere else.</p>
+<table>
+<thead><tr><th>Kind</th><th>What you get</th></tr></thead>
+<tbody>
+<tr><td>Website</td><td>An HTML, CSS and JavaScript page to serve with <a href="#web">Go Live</a></td></tr>
+<tr><td>React, Vue, Svelte, Preact, Solid, Lit, Qwik, vanilla (Vite), Next.js</td><td>Through their own create commands, in TypeScript or JavaScript, with Tailwind if you want it</td></tr>
+<tr><td>TypeScript program</td><td>Plain TypeScript on Node.js: <code>tsc</code> turns <code>src/</code> into <code>dist/</code> and node runs it</td></tr>
+<tr><td>Node.js, Lua</td><td>A program to run with <kbd>F5</kbd></td></tr>
+<tr><td>Lust program, LustScript</td><td>A <code>main.lst</code> (or <code>.lsc</code>); a Lust program can start with a window and a piece in <code>ui/</code></td></tr>
+<tr><td>Rust</td><td>A <code>cargo</code> program or library</td></tr>
+<tr><td>C#</td><td>Any dotnet template: console, class library, Web API, Blazor, MVC, worker, WPF, test projects and more</td></tr>
+</tbody>
+</table>
+<div class="tip"><p><strong>Barebones or the template's files.</strong> For Vite and Next.js projects, Ledger asks <em>Start with the template's files?</em> <strong>Barebones</strong> is just the setup and an empty page, with no logos, counter or starter styles; the other choice keeps the template's starter page. Ledger remembers which you picked last.</p></div>
+<p>Starting a Git repository for a project writes a <code>.gitignore</code> that fits what's in it (<code>target</code>, <code>bin</code>/<code>obj</code>, <code>node_modules</code> and so on).</p>
+</section>
+</section>
+
+<section class="chapter" id="window">
+<h2>The window at a glance</h2>
+<p>A side bar on the left, open files as tabs, the editor, a panel at the bottom for output, problems and terminals, and a thin status bar along the bottom (or the top).</p>
+
+<section id="command-list">
+<h3>The command list</h3>
+<p><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> (or <kbd>F1</kbd>) lists every command with its shortcut. Type a few letters of what you want; commands also answer to other words for the same thing ("usages" finds Red Thread, "args" finds the run options). Every shortcut can be changed in Settings › Keyboard shortcuts.</p>
+<p>In dialogs, the arrows move and <kbd>Enter</kbd> picks; in short choice dialogs the number keys pick directly.</p>
+</section>
+
+<section id="side-bar">
+<h3>The side bar</h3>
+<table>
+<thead><tr><th>View</th><th>Key</th><th>Shows</th></tr></thead>
+<tbody>
+<tr><td>Files</td><td><kbd>Ctrl Shift E</kbd></td><td>The explorer: the folder's files</td></tr>
+<tr><td>Search</td><td><kbd>Ctrl Shift F</kbd></td><td>Search and replace in files</td></tr>
+<tr><td>Source control</td><td><kbd>Ctrl Shift G</kbd></td><td>Git: changes, commits, branches, stashes</td></tr>
+<tr><td>Debug</td><td><kbd>Ctrl Shift D</kbd></td><td>Variables, watches, call stack while debugging</td></tr>
+<tr><td>Solution</td><td></td><td>.NET projects, packages and references (with .NET projects)</td></tr>
+</tbody>
+</table>
+<p><kbd>Ctrl</kbd>+<kbd>B</kbd> shows or hides it. <kbd>F6</kbd> and <kbd>Shift</kbd>+<kbd>F6</kbd> move between the explorer, editor, panel and status bar; <kbd>Esc</kbd> goes back to the editor.</p>
+</section>
+
+<section id="panel">
+<h3>The panel</h3>
+<p>The bottom panel holds <strong>Output</strong> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd>), <strong>Problems</strong> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>), <strong>Terminal</strong> (<kbd>Ctrl</kbd>+<kbd>`</kbd>), <strong>Tests</strong>, <strong>TODO</strong> and the debug console. <kbd>Ctrl</kbd>+<kbd>J</kbd> shows or hides it.</p>
+</section>
+
+<section id="status-bar">
+<h3>The status bar</h3>
+<ul>
+<li>At the left: the project of the open file, the Git branch (click to switch), and <strong>Restricted</strong> when the folder isn't trusted.</li>
+<li>The language servers: one with a warning or error shows it in colour; click it to read why. A missing server is red, with a button to its setting.</li>
+<li>Line and column, indentation (click to change it for this file), the file's encoding, and <strong>Go Live</strong> for web folders.</li>
+<li>For .NET: the startup project, Debug or Release, the framework, the launch profile and <code>dotnet watch</code>.</li>
+<li>While audio plays, what's playing (click to go back to it).</li>
+</ul>
+</section>
+
+<section id="settings">
+<h3>Settings</h3>
+<p><kbd>Ctrl</kbd>+<kbd>P</kbd> opens Settings, with a search box at the top. Among them:</p>
+<ul>
+<li><strong>Appearance:</strong> light, dark or matching Windows; quiet code colours (a few) or colourful ones; fonts and sizes; the status bar along the bottom or the top; file icons.</li>
+<li><strong>Editor and Editing:</strong> tab size, wrapping, format on save, auto save, the minimap, sticky scroll, type hints, whether <kbd>Tab</kbd> takes the highlighted suggestion, your snippets, and the explorer following the open file.</li>
+<li><strong>Markdown:</strong> whether Markdown files open as the editor, the preview, or both side by side.</li>
+<li><strong>Web:</strong> the browser (Windows default, Chrome, Edge, Firefox, Brave, or another program) and Live Server's port.</li>
+<li><strong>Languages, C# and .NET, Lust, Godot, Debugging:</strong> one-click installs and the paths to your own tools.</li>
+<li><strong>Keyboard shortcuts:</strong> change any command's keys.</li>
+<li><strong>Git, Updates, Windows:</strong> blame, update checks, and Open with Ledger in File Explorer.</li>
+</ul>
+<p>The editor's own keys (<kbd>Ctrl</kbd>+<kbd>Z</kbd>, <kbd>Ctrl</kbd>+<kbd>D</kbd>, <kbd>Ctrl</kbd>+<kbd>/</kbd> and the like) are fixed. <kbd>Ctrl</kbd>+<kbd>+</kbd>, <kbd>Ctrl</kbd>+<kbd>-</kbd> and <kbd>Ctrl</kbd>+<kbd>0</kbd> change the editor's text size.</p>
+</section>
+</section>
+
+<section class="chapter" id="files">
+<h2>Files</h2>
+
+<section id="explorer">
+<h3>The explorer</h3>
+<ul>
+<li><strong>Keys:</strong> the arrows move, Right and Left open and close folders, <kbd>Enter</kbd> opens, <kbd>Space</kbd> (or a click) shows the file in a preview tab and stays in the explorer, <kbd>F2</kbd> renames, <kbd>Delete</kbd> moves to the Recycle Bin, <kbd>Ctrl</kbd>+<kbd>X</kbd>/<kbd>C</kbd>/<kbd>V</kbd> move and copy files, <kbd>Shift</kbd>+<kbd>F10</kbd> opens the menu, and typing jumps to a name.</li>
+<li><strong>New files and folders:</strong> <kbd>Ctrl</kbd>+<kbd>N</kbd> and <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd>. Dragging files from File Explorer onto a folder copies them in.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> shows the current file in the explorer. Changed files are coloured by Git, and folders with problems show how many.</li>
+<li><strong>Folder icons follow what's inside:</strong> a folder of only audio files gets an audio folder icon in the audio colour, one of videos a video icon, and the same for pictures and fonts.</li>
+</ul>
+</section>
+
+<section id="gitignore">
+<h3>Add to .gitignore</h3>
+<p>Right-click any file or folder in the explorer and choose <strong>Add to .gitignore</strong>. For a file there's also <strong>Add all *.ext files to .gitignore</strong>, for every file of that kind. Ledger adds the line to the project's <code>.gitignore</code> (making one if there isn't one), and the file drops out of Source control.</p>
+</section>
+
+<section id="tabs">
+<h3>Tabs</h3>
+<ul>
+<li>Clicking through files in the explorer reuses one <strong>preview tab</strong> (in italics) until you edit, save or pin it. Diffs, the CSV table and the hex view open the same way.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Tab</kbd> and <kbd>Ctrl</kbd>+<kbd>PageDown</kbd>/<kbd>PageUp</kbd> go to the next and previous tab; <kbd>Ctrl</kbd>+<kbd>1</kbd> to <kbd>Ctrl</kbd>+<kbd>9</kbd> to a tab (9 is the last).</li>
+<li><kbd>Ctrl</kbd>+<kbd>W</kbd> closes a tab, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> reopens it.</li>
+<li>Right-click a tab to pin it, copy its path, show it in the explorer, open it to the side, or close the tabs to its right, the saved ones or all of them.</li>
+<li>When there are more tabs than fit, the edges fade and a list of every open tab sits at the right end.</li>
+<li><kbd>Ctrl</kbd>+<kbd>\</kbd> splits the editor (again: switch side); <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>\</kbd> closes the split.</li>
+</ul>
+</section>
+
+<section id="media">
+<h3>Music, video, pictures and other files</h3>
+<ul>
+<li><strong>Audio</strong> (MP3, WAV, OGG, Opus, FLAC, M4A, AAC) opens in its own tab with a waveform to click or drag through. It keeps playing while you work in other tabs, and the status bar shows what's playing. <kbd>Space</kbd> plays and pauses, <kbd>←</kbd> and <kbd>→</kbd> skip 5 seconds, <kbd>L</kbd> loops.</li>
+<li><strong>Video</strong> (MP4, WebM, MOV, OGV, and MKV where Windows can play it) plays in a tab too.</li>
+<li><strong>Fonts</strong> (TTF, OTF, WOFF, WOFF2) show as sample text.</li>
+<li><strong>Pictures</strong> (PNG, JPEG, GIF, WebP, SVG, AVIF, BMP, ICO) open in a viewer with zoom, a checkerboard behind see-through parts, and a pixel-art mode; SVGs can be edited as code.</li>
+<li><strong>Documents and archives</strong> (PDF, Word, Excel, PowerPoint, ZIP and the like) show a card saying what they are, with a button to open them in the app Windows uses.</li>
+<li><strong>Databases</strong> (<code>.db</code>, <code>.sqlite</code>) open in a tab with tables, sorting, filters, a SQL tab and editing with review. Right-click in the explorer for a new SQLite database.</li>
+<li><strong>CSV and TSV</strong> files colour each column; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> shows them as a table with sorting and a filter.</li>
+<li><strong>Binary files</strong> open in a hex view; right-click any file for <strong>Open as hex</strong>.</li>
+<li><strong>Files too big to edit</strong> (over 8 MB: logs, data dumps) can be read, their first or last 4 MB, read-only; <strong>Big file: show the end</strong> and <strong>show the start</strong> switch.</li>
+</ul>
+</section>
+
+<section id="markdown">
+<h3>Markdown preview</h3>
+<ul>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> shows the preview <strong>instead of</strong> the source, so you don't read the same file twice; the same keys go back to the source. Your place is kept across the switch.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>V</kbd> shows the preview <strong>beside</strong> the source, updating as you type.</li>
+<li>Settings › Markdown picks how a Markdown file opens the first time: in the editor, as the preview, or with both.</li>
+</ul>
+</section>
+
+<section id="history">
+<h3>Local history and encodings</h3>
+<ul>
+<li><strong>Every save keeps a copy</strong> (the last 50 per file, in Ledger's own folder, not your project), plus the file as it was before you started editing. <strong>Local history: this file's saved versions</strong> (or right-click a file) shows any of them next to the file now, with <strong>Restore this version</strong>. It works in folders without Git.</li>
+<li><strong>Encodings:</strong> UTF-8, UTF-16 and old Windows-1252 files open and save in the encoding they came in, shown in the status bar; <strong>Convert this file to UTF-8</strong> switches. Files with a byte-order mark or Windows line endings keep them.</li>
+<li>A file you're editing that changes on disk gets a warning.</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="editing">
+<h2>Editing</h2>
+
+<section id="completion">
+<h3>Completion and info</h3>
+<ul>
+<li>Suggestions show as you type; <kbd>Ctrl</kbd>+<kbd>Space</kbd> asks for them. <strong><kbd>Tab</kbd> or <kbd>Enter</kbd> takes the highlighted one</strong> and fills in the word. (Settings › Editing can make <kbd>Tab</kbd> always indent instead.)</li>
+<li>When a language's server isn't running, Ledger still suggests the words already in the file.</li>
+<li><kbd>Ctrl</kbd>+<kbd>K</kbd> shows info at the cursor (type, docs, errors); <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> shows parameter hints. <kbd>Ctrl</kbd>+<kbd>.</kbd> offers quick fixes and refactors.</li>
+<li><strong>Type hints</strong> (like <code>count: usize</code>) show in grey and aren't part of your file. <strong>Toggle type hints</strong> turns them off.</li>
+</ul>
+</section>
+
+<section id="cursors">
+<h3>Selecting and multiple cursors</h3>
+<ul>
+<li><kbd>Ctrl</kbd>+<kbd>L</kbd> selects the line; <kbd>Ctrl</kbd>+<kbd>D</kbd> adds the next match of the selection; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> selects every match.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Up</kbd>/<kbd>Down</kbd> add a cursor above or below.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line above; <kbd>Ctrl</kbd>+<kbd>/</kbd> comments lines out; <kbd>Alt</kbd>+<kbd>Z</kbd> wraps long lines.</li>
+<li>The command list sorts, de-duplicates and changes the case of lines.</li>
+</ul>
+</section>
+
+<section id="find">
+<h3>Find and replace in the file</h3>
+<p><kbd>Ctrl</kbd>+<kbd>F</kbd> finds, <kbd>Ctrl</kbd>+<kbd>H</kbd> replaces (<kbd>Tab</kbd> goes from the find box to the replace box). Match case, whole word and regular expressions are buttons on the bar, which says "3 of 20". <kbd>Ctrl</kbd>+<kbd>G</kbd> goes to a line.</p>
+</section>
+
+<section id="search">
+<h3>Search in files</h3>
+<p><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> searches the whole folder, with match case, whole word, regular expressions, and files to include and leave out. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd> replaces in files, with a preview first; replace one match or one file from its hover buttons, or leave it out. Unsaved changes in open files are searched as they are.</p>
+</section>
+
+<section id="formatting">
+<h3>Formatting and indentation</h3>
+<ul>
+<li><kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>F</kbd> formats the file (or on save, in Settings). Web files use the project's own Prettier, or Ledger's built-in one. Rust uses rustfmt, C# <code>dotnet format</code>.</li>
+<li>Each file is indented the way it already is (2 spaces, 4, tabs), shown in the status bar; click it to change it. A C# project's <code>.editorconfig</code> is followed.</li>
+</ul>
+</section>
+
+<section id="snippets">
+<h3>Snippets and Emmet</h3>
+<ul>
+<li><strong>Snippets</strong> come in the suggestion list (<code>prop</code>, <code>ctor</code>, <code>foreach</code> in C#; a snippet for each Lust piece, and more). <kbd>Tab</kbd> moves to the next place to fill in. Add your own per language in Settings › Editing › Edit snippets.</li>
+<li><strong>Emmet</strong> in HTML, JSX and CSS: type <code>ul&gt;li.item*3</code>, <code>div.card&gt;h2+p</code>, <code>!</code> for a whole page, or <code>m10</code>, <code>df</code> in CSS, then <kbd>Tab</kbd>. The suggestion list shows what it becomes.</li>
+</ul>
+</section>
+
+<section id="colours">
+<h3>Colours</h3>
+<p>Every colour in code (<code>#hex</code>, <code>rgb()</code>, <code>hsl()</code>, Godot's <code>Color()</code>, Lust's colour words) gets a small swatch. Click it for a colour wheel or hexagon grid, an alpha slider, Hex and RGB fields, the colours already in the file and your saved colours; the code changes as you pick, written the way it was. <strong>Pick a colour</strong> puts a new one at the cursor.</p>
+</section>
+
+<section id="view-helpers">
+<h3>Bookmarks, minimap, Zen and more</h3>
+<ul>
+<li><strong>Bookmarks:</strong> <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>K</kbd> marks a line, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd> and <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>J</kbd> go to the next and previous; <strong>Bookmarks: list</strong> shows them all. They're kept for next time.</li>
+<li><strong>The minimap</strong> at the right edge is a small picture of the file; click to jump, drag to scroll. Errors and Git changes show on it.</li>
+<li><strong>The overview ruler</strong> marks errors, search matches, Git changes and bookmarks along the scrollbar.</li>
+<li><strong>Zen mode</strong> (<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Z</kbd>) hides everything but the editor and goes full screen.</li>
+<li><strong>TODO panel:</strong> every <code>TODO</code>, <code>FIXME</code>, <code>HACK</code>, <code>XXX</code> and <code>BUG</code> comment in the folder.</li>
+<li>Folding, coloured bracket pairs, indent guides, and sticky scroll (the line opening the current function stays pinned at the top).</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="getting-around">
+<h2>Getting around</h2>
+
+<section id="goto-file">
+<h3>Go to file</h3>
+<p><kbd>Ctrl</kbd>+<kbd>E</kbd> opens any file by typing part of its name, recent files first. Type <code>@</code> or <code>#</code> to search symbols instead, and <code>file:line</code> to jump to a line.</p>
+</section>
+
+<section id="definition">
+<h3>Definitions and references</h3>
+<ul>
+<li><kbd>F12</kbd> (or <kbd>Ctrl</kbd>+click) goes to where something is defined; <kbd>Shift</kbd>+<kbd>F12</kbd> lists every use of it.</li>
+<li><kbd>F2</kbd> renames it everywhere.</li>
+<li><kbd>Alt</kbd>+<kbd>Left</kbd> and <kbd>Alt</kbd>+<kbd>Right</kbd> go back and forward through your jumps.</li>
+<li>C# adds go to implementation (<kbd>Ctrl</kbd>+<kbd>F12</kbd>), type definition, callers (<kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>H</kbd>), and base and derived types.</li>
+</ul>
+</section>
+
+<section id="red-thread">
+<h3>Red Thread: follow where it's used</h3>
+<p>Red Thread shows everywhere a piece of code is used, and everywhere <em>those</em> places are used, as columns side by side. It's for exploring: open it, follow the thread, close it.</p>
+<ol class="steps">
+<li>Put the cursor on anything (a variable, a function, a class, a method) and press <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>F12</kbd>.</li>
+<li>The first column is its definition and every place that uses it, grouped by file, each with the function or class it sits in.</li>
+<li>Pick one, and a column slides in to the right: that function's code with the use marked, and everywhere <em>it</em> is used. Keep pulling the thread; a red line joins each pick to where it leads.</li>
+<li>Double-click a place (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>) to open it in the editor.</li>
+</ol>
+<p>Nothing is saved: close the tab and the thread is gone. The language servers answer, so a use is a real use; for a language with no server (Lust, say), the uses are matches of the name, and say so.</p>
+</section>
+
+<section id="outline">
+<h3>Outline and symbols</h3>
+<p><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> lists the open file's classes, functions and the rest (a Markdown file's headings). <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>O</kbd> searches symbols across the whole folder.</p>
+</section>
+</section>
+
+<section class="chapter" id="running">
+<h2>Running, building and testing</h2>
+
+<section id="run">
+<h3>Run and stop</h3>
+<ul>
+<li><kbd>F5</kbd> runs the project of the open file: <code>cargo run</code>, <code>dotnet run</code>, the <code>dev</code> or <code>start</code> script, <code>node</code>, <code>lua</code>, <code>lust run</code>, or Godot's Play. Running saves all open files first.</li>
+<li><kbd>Shift</kbd>+<kbd>F5</kbd> stops it, endless loops and the programs it started included. While a program runs, the Stop button shows how long it has been going.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> builds, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd> runs the tests, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> checks (Rust, Lust). <strong>Scripts…</strong> runs any <code>package.json</code> script.</li>
+<li>Only one thing runs at a time. Starting another while one runs asks first, with <strong>Keep it running</strong> as the default.</li>
+<li>Links in the output (<code>file:line</code>, and <code>localhost:5173</code> with its port) are clickable.</li>
+</ul>
+</section>
+
+<section id="input-box">
+<h3>Typing to your program</h3>
+<p>While your program runs, an <strong>Input</strong> box appears under the output. Type a line and press <kbd>Enter</kbd>, and it reaches <code>read_line</code>, <code>Console.ReadLine</code>, Lust's <code>ask</code> and the like. <kbd>Ctrl</kbd>+<kbd>I</kbd> jumps to it; <strong>End input</strong> closes the program's input. Programs run without a console window.</p>
+</section>
+
+<section id="run-options">
+<h3>Arguments and input</h3>
+<p><strong>Run and Debug: arguments and input for the program…</strong> (in the command list) sets the arguments a project gets when you Run or Debug it, like <code>--verbose data.txt "two words"</code>, and the lines a debugged program reads (a program started by the debugger can't be typed to). They're kept per project.</p>
+</section>
+
+<section id="problems">
+<h3>Problems and output</h3>
+<ul>
+<li>Errors and warnings from the language servers and from builds (cargo, dotnet, <code>lust check</code>) go to Problems (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>) and into the editor as squiggles.</li>
+<li><kbd>F8</kbd> and <kbd>Shift</kbd>+<kbd>F8</kbd> go to the next and previous problem, with its message.</li>
+<li>The output keeps up with the program while you're at the bottom; scroll up to read and it stays put, and scrolling back down follows again. Output and error lines come in the order the program printed them.</li>
+<li>A build that finishes but didn't quite work (a package restore that failed, say) shows a warning instead of a green Finished.</li>
+</ul>
+</section>
+
+<section id="tests">
+<h3>The Tests panel</h3>
+<ul>
+<li>Finds Rust, C# and Lust tests. Run all of them, the failed ones, a file, or one test; the output shows live with a Stop button.</li>
+<li>Each failure shows its message and line, and results are marked next to each test in the editor. ▶ Run test and Debug sit above each Rust and C# test and above <code>main</code>.</li>
+<li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F10</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> run or debug the test at the cursor.</li>
+<li>Filter by name or category (<code>Category=Fast</code>). <strong>Coverage</strong> runs the C# tests with coverlet and marks the lines that ran. <strong>Tests: create a test for this file</strong> gets you started.</li>
+</ul>
+</section>
+</section>
+
+<section class="chapter" id="debugging">
+<h2>Debugging</h2>
+<ul>
+<li><kbd>F9</kbd> sets a breakpoint on the line; <kbd>Shift</kbd>+<kbd>F9</kbd> starts debugging; <kbd>F5</kbd> continues; <kbd>F10</kbd>, <kbd>F11</kbd> and <kbd>Shift</kbd>+<kbd>F11</kbd> step over, into and out; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F5</kbd> restarts; <kbd>Pause</kbd> pauses; <kbd>Shift</kbd>+<kbd>F5</kbd> stops.</li>
+<li>The Debug view (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>) shows variables, watches and the call stack, with a debug console in the panel.</li>
+<li><strong>Debug: pause on exceptions</strong> picks when to stop: when nothing catches them (the default, and on Rust panics), whenever one is thrown, or never.</li>
+<li><strong>Debug: attach to a running program</strong> picks a process.</li>
+<li>Rust uses codelldb, C# and Godot use netcoredbg; Ledger offers to download them the first time you need them.</li>
+<li>A debugged program can't be typed to: set its input in <a href="#run-options">Arguments and input</a>.</li>
+</ul>
+</section>
+
+<section class="chapter" id="languages">
+<h2>Languages</h2>
+<p>Settings › Languages installs Node.js, Lua, Rust, the .NET SDK, Git, Lust and the language servers with one click, and shows which tools it found.</p>
+
+<section id="rust">
+<h3>Rust</h3>
+<p>Run, check, test and Clippy with cargo; live errors, completions, hover docs, go to definition, rename, quick fixes and rustfmt through rust-analyzer (<code>rustup component add rust-analyzer rust-src</code>, or the button in Settings). Errors from cargo go to Problems even without rust-analyzer. In <code>Cargo.toml</code>, the newest version of each package shows at the end of its line; click it to update.</p>
+</section>
+
+<section id="csharp">
+<h3>C# and .NET</h3>
+<ul>
+<li>Build, run and test with dotnet, and the editor features through csharp-ls or Microsoft's Roslyn (Settings › C# and .NET).</li>
+<li><strong>The Solution view</strong> lists the projects with their packages, references, frameworks and launch profiles. Right-click a project to run, build, test, clean or publish it, set it as the startup project, manage its NuGet packages or add a reference; <strong>+</strong> makes a new project from any template.</li>
+<li><strong>NuGet:</strong> a page per project to search, install, update and remove packages, and list known vulnerabilities.</li>
+<li><strong>ASP.NET Core and EF Core:</strong> user secrets, the HTTPS development certificate, <code>.http</code> files with ▶ Send request, EF migrations, and <strong>C#: publish…</strong>.</li>
+<li>Go to definition reaches into NuGet packages and the framework, through Source Link or decompiled, read-only.</li>
+</ul>
+</section>
+
+<section id="web">
+<h3>Web projects and Go Live</h3>
+<ul>
+<li>HTML, CSS (SCSS, Less), JavaScript and TypeScript with React: completions, errors and go to definition through the TypeScript, HTML, CSS and JSON servers. Tailwind classes complete with colour swatches.</li>
+<li><code>package.json</code> projects run their <code>dev</code>/<code>start</code> script with <kbd>F5</kbd>; Build, Test and Lint use their scripts. A single <code>.js</code> or <code>.ts</code> file runs with Node. ESLint's problems link to the right file and line.</li>
+<li><strong>Go Live</strong> in the status bar serves the folder and reloads the browser on save (CSS changes swap in without a reload). Settings › Web picks the browser and port.</li>
+</ul>
+</section>
+
+<section id="lua">
+<h3>Lua</h3>
+<p>Highlighting, Run with <kbd>F5</kbd>, and the Lua language server, with a Lua version setting.</p>
+</section>
+
+<section id="lust">
+<h3>Lust</h3>
+<ul>
+<li><code>.lst</code> programs and <code>.lsc</code> LustScript files get highlighting, completions, snippets and their own icons: <strong>Lt</strong>, <strong>Ls</strong> and <strong>Lq</strong> for LustQL.</li>
+<li><strong>Views:</strong> pieces in the classes' blue and style words muted. Inside a piece's <code>[ ]</code>, completion offers only the style words that fit it, colours after <code>color</code>, <code>background</code> and <code>border</code>, and your named styles. Colours show a square of their real colour, and hovering a style word or piece explains it with an example.</li>
+<li><strong>Run</strong> (<kbd>F5</kbd>) runs the open file with <code>lust run</code> from the project's folder, with the Input box for <code>ask</code>; <strong>Check</strong> and <strong>Build</strong> use <code>lust check</code> and <code>lust build</code>.</li>
+<li>Every save checks the file quietly, and its mistakes show up in Problems and as squiggles. For a name Lust doesn't know, <kbd>Ctrl</kbd>+<kbd>.</kbd> offers <strong>Did you mean …</strong>.</li>
+<li><kbd>F12</kbd>, <kbd>Shift</kbd>+<kbd>F12</kbd>, <kbd>F2</kbd> and hovering work by name across the folder's Lust files, open tabs included, saved or not. Hovering a name shows where it's declared.</li>
+<li><strong>Lust: show the Lua this file turns into</strong> and <strong>show the Rust</strong> open in a read-only tab.</li>
+<li>Ledger needs <code>lust.exe</code>: <strong>Install Lust</strong> in Settings › Lust builds it from the Lust repo with Rust, or set the path to one you have.</li>
+</ul>
+<p>Everything about the language itself is in the <a href="lust.html#welcome">Lust language guide</a>.</p>
+</section>
+
+<section id="godot">
+<h3>Godot</h3>
+<ol class="steps">
+<li>In Settings › Godot, pick your Godot <code>.exe</code> (the .NET build for C# projects). That's what Play uses.</li>
+<li>The same section shows the values to paste into Godot's <strong>Editor › Editor Settings</strong>, with Copy buttons: <strong>Dotnet › Editor</strong> for C# scripts, and <strong>Text Editor › External</strong> for GDScript.</li>
+<li>Double-click a script in Godot, and it opens in Ledger at the right line.</li>
+</ol>
+<p><kbd>F5</kbd> builds the C# project and starts the game with its output in the panel; <kbd>Ctrl</kbd>+<kbd>F5</kbd> plays the open scene. Shaders (<code>.gdshader</code>) get highlighting and completion.</p>
+</section>
+</section>
+
+<section class="chapter" id="git">
+<h2>Git</h2>
+<ul>
+<li><strong>Source control</strong> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>) stages, commits, pulls and pushes. Hover a changed file for open, discard and stage buttons. <strong>Commit all</strong> asks before adding files Git doesn't track yet.</li>
+<li>Changed lines are marked by the line numbers; <kbd>Alt</kbd>+<kbd>F5</kbd> and <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>F5</kbd> go to the next and previous change. A side-by-side diff shows what changed.</li>
+<li><strong>Branches:</strong> click the branch in the status bar to switch, make, merge or delete one. If switching would lose changes, Ledger offers to stash them first.</li>
+<li><strong>Stashes:</strong> put changes aside and pop, apply, look at or drop them.</li>
+<li><strong>History</strong> lists the branch's commits; click one to see what it changed.</li>
+<li><strong>Blame:</strong> the cursor's line shows who last changed it and when, faintly at its end; <kbd>Ctrl</kbd>+click it for that commit.</li>
+<li><strong>Merge conflicts</strong> get Keep yours, Keep theirs, Keep both and Compare above each one; <kbd>Alt</kbd>+<kbd>F7</kbd> goes to the next.</li>
+<li>Starting a repository writes a <code>.gitignore</code> that fits the folder, and <a href="#gitignore">Add to .gitignore</a> is a right-click away.</li>
+</ul>
+</section>
+
+<section class="chapter" id="terminal">
+<h2>The terminal and the ledger command</h2>
+<ul>
+<li><kbd>Ctrl</kbd>+<kbd>`</kbd> shows a PowerShell terminal in the panel, <kbd>Ctrl</kbd>+<kbd>T</kbd> opens a new one.</li>
+<li>In a terminal, <kbd>Ctrl</kbd>+letter keys go to the shell, except <kbd>Ctrl</kbd>+<kbd>P</kbd>, <kbd>T</kbd>, <kbd>J</kbd> and <kbd>B</kbd>. <kbd>F6</kbd> or <kbd>Ctrl</kbd>+<kbd>`</kbd> gets you out.</li>
+</ul>
+<p>Ledger's terminal has a <code>ledger</code> command; <code>ledger help</code> lists everything.</p>
+<table>
+<thead><tr><th>Command</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>ledger src/main.rs:12</code>, <code>ledger .</code></td><td>Opens a file at a line, or the folder</td></tr>
+<tr><td><code>ledger run</code>, <code>build</code>, <code>test</code>, <code>check</code></td><td>What <kbd>F5</kbd> and the buttons run, in the terminal; anything after <code>--</code> goes to the program</td></tr>
+<tr><td><code>ledger new &lt;kind&gt; &lt;name&gt;</code></td><td>Makes a project (<code>ledger new --list</code> shows the kinds)</td></tr>
+<tr><td><code>ledger audit</code>, <code>ledger audit fix</code></td><td>Checks every Rust, npm and .NET package against known security problems, and fixes them (building and testing after)</td></tr>
+<tr><td><code>ledger update</code>, <code>ledger licenses</code></td><td>Package updates; every package's licence</td></tr>
+<tr><td><code>ledger doctor</code></td><td>Checks what's installed against what the folder needs; <code>--fix</code> installs it</td></tr>
+<tr><td><code>ledger clean</code></td><td>Deletes build output (<code>target</code>, <code>bin</code>/<code>obj</code>, <code>node_modules</code>), showing sizes and asking first</td></tr>
+<tr><td><code>ledger todo</code>, <code>ledger stats</code></td><td>Every TODO note; lines of code per language</td></tr>
+<tr><td><code>ledger history &lt;file&gt;</code></td><td>A file's saved versions</td></tr>
+<tr><td><code>ledger trust</code>, <code>ledger untrust</code>, <code>ledger self-update</code></td><td>Restricted mode, and updating Ledger</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="chapter" id="shortcuts">
+<h2>Keyboard shortcuts</h2>
+<p>Every command is in the command list with its shortcut, and any of them can be changed in Settings › Keyboard shortcuts.</p>
+
+<div class="table-wrap">
+<h3 id="keys-general">General</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>Ctrl Shift P</kbd>, <kbd>F1</kbd></td><td>All commands</td></tr>
+<tr><td><kbd>Ctrl P</kbd></td><td>Settings</td></tr>
+<tr><td><kbd>Ctrl E</kbd></td><td>Go to file</td></tr>
+<tr><td><kbd>Ctrl O</kbd></td><td>Open folder</td></tr>
+<tr><td><kbd>Ctrl Shift N</kbd> / <kbd>Ctrl Shift W</kbd></td><td>New window / close window</td></tr>
+<tr><td><kbd>Ctrl B</kbd>, <kbd>Ctrl J</kbd></td><td>Side bar, panel</td></tr>
+<tr><td><kbd>Ctrl Shift E</kbd> / <kbd>G</kbd> / <kbd>D</kbd></td><td>Files / Source control / Debug</td></tr>
+<tr><td><kbd>Ctrl Shift M</kbd> / <kbd>Ctrl Shift U</kbd></td><td>Problems / Output</td></tr>
+<tr><td><kbd>F6</kbd> / <kbd>Shift F6</kbd></td><td>Move between explorer, editor, panel and status bar</td></tr>
+<tr><td><kbd>Ctrl Alt Z</kbd></td><td>Zen mode</td></tr>
+<tr><td><kbd>Ctrl +</kbd> / <kbd>Ctrl -</kbd> / <kbd>Ctrl 0</kbd></td><td>Editor text size</td></tr>
+</tbody>
+</table>
+
+<h3 id="keys-files">Files and tabs</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>Ctrl S</kbd> / <kbd>Ctrl Alt S</kbd></td><td>Save / save all</td></tr>
+<tr><td><kbd>Ctrl N</kbd> / <kbd>Ctrl Alt N</kbd></td><td>New file / new folder</td></tr>
+<tr><td><kbd>Ctrl W</kbd> / <kbd>Ctrl Shift T</kbd></td><td>Close tab / reopen it</td></tr>
+<tr><td><kbd>Ctrl Tab</kbd>, <kbd>Ctrl PageDown</kbd> / <kbd>PageUp</kbd></td><td>Next / previous tab</td></tr>
+<tr><td><kbd>Ctrl 1</kbd> … <kbd>Ctrl 9</kbd></td><td>Go to tab (9 is the last)</td></tr>
+<tr><td><kbd>Ctrl \</kbd> / <kbd>Ctrl Shift \</kbd></td><td>Split the editor / close the split</td></tr>
+<tr><td><kbd>Ctrl Shift R</kbd></td><td>Show the file in the explorer</td></tr>
+<tr><td><kbd>Ctrl Shift V</kbd> / <kbd>Ctrl Alt V</kbd></td><td>Markdown preview instead / beside; a CSV file as a table</td></tr>
+</tbody>
+</table>
+
+<h3 id="keys-editing">Editing</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>Ctrl Space</kbd>, <kbd>Tab</kbd></td><td>Completions; take the highlighted one</td></tr>
+<tr><td><kbd>Ctrl F</kbd> / <kbd>Ctrl H</kbd></td><td>Find / replace in this file</td></tr>
+<tr><td><kbd>Ctrl Shift F</kbd> / <kbd>Ctrl Shift H</kbd></td><td>Search / replace in files</td></tr>
+<tr><td><kbd>Ctrl G</kbd></td><td>Go to line</td></tr>
+<tr><td><kbd>Ctrl L</kbd>, <kbd>Ctrl Shift L</kbd></td><td>Select the line; select every match</td></tr>
+<tr><td><kbd>Ctrl Alt Up</kbd> / <kbd>Down</kbd></td><td>Add a cursor above / below</td></tr>
+<tr><td><kbd>Ctrl Shift Enter</kbd></td><td>New line above</td></tr>
+<tr><td><kbd>Shift Alt F</kbd></td><td>Format the file</td></tr>
+<tr><td><kbd>Ctrl .</kbd></td><td>Quick fixes and refactors</td></tr>
+<tr><td><kbd>Ctrl K</kbd>, <kbd>Ctrl Shift Space</kbd></td><td>Info at the cursor; parameter hints</td></tr>
+<tr><td><kbd>Alt Z</kbd></td><td>Wrap long lines</td></tr>
+<tr><td><kbd>Ctrl Alt K</kbd> / <kbd>L</kbd> / <kbd>J</kbd></td><td>Bookmark / next / previous</td></tr>
+<tr><td><kbd>Tab</kbd></td><td>Expand an Emmet abbreviation (HTML, JSX, CSS)</td></tr>
+</tbody>
+</table>
+
+<h3 id="keys-navigation">Getting around</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>F12</kbd>, <kbd>Ctrl</kbd>+click</td><td>Go to definition</td></tr>
+<tr><td><kbd>Shift F12</kbd></td><td>Find all references</td></tr>
+<tr><td><kbd>Shift Alt F12</kbd></td><td>Red Thread: follow everywhere it's used</td></tr>
+<tr><td><kbd>F2</kbd></td><td>Rename symbol</td></tr>
+<tr><td><kbd>Ctrl Shift O</kbd> / <kbd>Ctrl Alt O</kbd></td><td>Outline of this file / symbol anywhere</td></tr>
+<tr><td><kbd>Alt Left</kbd> / <kbd>Alt Right</kbd></td><td>Back / forward</td></tr>
+<tr><td><kbd>F8</kbd> / <kbd>Shift F8</kbd></td><td>Next / previous problem</td></tr>
+<tr><td><kbd>Alt F5</kbd> / <kbd>Shift Alt F5</kbd></td><td>Next / previous changed lines</td></tr>
+<tr><td><kbd>Alt F7</kbd> / <kbd>Shift Alt F7</kbd></td><td>Next / previous merge conflict</td></tr>
+</tbody>
+</table>
+
+<h3 id="keys-running">Running and debugging</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>F5</kbd> / <kbd>Shift F5</kbd></td><td>Run or Play (Continue while debugging) / stop</td></tr>
+<tr><td><kbd>Ctrl I</kbd></td><td>Type input for the running program</td></tr>
+<tr><td><kbd>Ctrl Shift B</kbd></td><td>Build</td></tr>
+<tr><td><kbd>Ctrl Alt T</kbd>, <kbd>Ctrl Alt C</kbd></td><td>Run tests; check</td></tr>
+<tr><td><kbd>Shift F9</kbd> / <kbd>F9</kbd></td><td>Start debugging / breakpoint</td></tr>
+<tr><td><kbd>F10</kbd> / <kbd>F11</kbd> / <kbd>Shift F11</kbd></td><td>Step over / into / out</td></tr>
+<tr><td><kbd>Ctrl Shift F5</kbd>, <kbd>Pause</kbd></td><td>Restart debugging; pause</td></tr>
+<tr><td><kbd>Ctrl Shift F10</kbd> / <kbd>Ctrl Shift F9</kbd></td><td>Run / debug the test (or main) at the cursor</td></tr>
+<tr><td><kbd>Ctrl F5</kbd></td><td>Play the open scene (Godot)</td></tr>
+<tr><td><kbd>Ctrl `</kbd> / <kbd>Ctrl T</kbd></td><td>Terminal / new terminal</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section class="chapter" id="troubleshooting">
+<h2>Troubleshooting</h2>
+<ul>
+<li><strong>A language server shows a warning or error</strong> in the status bar: click it to read why. A missing one is red, with a button to the setting for it; Settings › Languages installs it.</li>
+<li><strong>Run asks for trust:</strong> the folder is in restricted mode. Click <strong>Restricted</strong> in the status bar if it's your own code.</li>
+<li><strong>A debugged program waits for input:</strong> it can't be typed to; set its input under <a href="#run-options">Arguments and input</a>, or use Run.</li>
+<li><strong>The browser doesn't open for Go Live:</strong> check Settings › Web's browser, or pick Windows default.</li>
+<li><strong>Lust isn't found:</strong> Settings › Lust › Install Lust, or set the path to your <code>lust.exe</code>. Building Lust programs needs Rust too.</li>
+<li><strong>Deleting from the explorer</strong> moves files to the Recycle Bin, so they can come back.</li>
+<li><strong>Lost a change?</strong> <a href="#history">Local history</a> keeps the last 50 saves of every file.</li>
+</ul>
+</section>
+
+<footer>
+<p>Ledger has no AI in it, and never will. This guide describes the version it came with; Ctrl Shift P › Docs always opens the guide for the Ledger you have.</p>
+</footer>
+</div>
+</main>
+</div>
+<button class="icon-button to-top" id="to-top" type="button" title="Back to the top">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+  <span class="label">Top</span>
+</button>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Picture, large" aria-hidden="true">
+  <button class="icon-button" type="button" aria-label="Close">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+  </button>
+  <img alt="">
+  <p></p>
+</div>
+<script>
+(function () {
+  "use strict";
+  var doc = document;
+  var root = doc.documentElement;
+  var main = doc.getElementById("main");
+  var toc = doc.getElementById("toc");
+  var input = doc.getElementById("guide-search");
+  var results = doc.getElementById("results");
+  var progress = doc.getElementById("progress");
+  var tocRead = doc.getElementById("toc-read");
+  var crumbChapter = doc.getElementById("crumb-chapter");
+  var crumbSection = doc.getElementById("crumb-section");
+  var crumbSep = doc.querySelector("#crumb .sep");
+  var toTop = doc.getElementById("to-top");
+  var toast = doc.getElementById("toast");
+  var each = function (list, f) { Array.prototype.forEach.call(list, f); };
+  var store = {
+    get: function (k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { try { window.localStorage.setItem(k, v); } catch (e) { /* file:// or a private window */ } }
+  };
+  function here() { return location.pathname + location.search; }
+  function setHash(id) {
+    try { history.replaceState(null, "", id ? "#" + id : here()); } catch (e) { /* some file:// setups refuse */ }
+  }
+  var toastTimer = null;
+  function say(text) {
+    toast.textContent = text;
+    toast.classList.add("shown");
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(function () { toast.classList.remove("shown"); }, 1600);
+  }
+
+  /* Theme: as the system (Auto), light or dark. The <head> script has
+     already set the stored one, so this only keeps the button right. */
+  var themeButton = doc.getElementById("theme-button");
+  var modes = ["system", "light", "dark"];
+  var names = { system: "Auto", light: "Light", dark: "Dark" };
+  var says = { system: "follows the system", light: "light", dark: "dark" };
+  function applyTheme(t) {
+    if (t === "light" || t === "dark") { root.setAttribute("data-theme", t); } else { root.removeAttribute("data-theme"); t = "system"; }
+    themeButton.dataset.mode = t;
+    themeButton.querySelector(".label").textContent = names[t];
+    var next = modes[(modes.indexOf(t) + 1) % modes.length];
+    themeButton.title = "Theme: " + names[t] + " (" + says[t] + "). Click for " + names[next] + ".";
+    themeButton.setAttribute("aria-label", themeButton.title);
+    return t;
+  }
+  var theme = applyTheme(store.get("guide-theme") || "system");
+  themeButton.addEventListener("click", function () {
+    theme = applyTheme(modes[(modes.indexOf(theme) + 1) % modes.length]);
+    store.set("guide-theme", theme);
+  });
+
+  /* Tables scroll sideways on their own on a narrow screen. */
+  each(main.querySelectorAll("table"), function (t) {
+    if (t.parentNode.classList.contains("table-wrap")) { return; }
+    var wrap = doc.createElement("div");
+    wrap.className = "table-wrap";
+    t.parentNode.insertBefore(wrap, t);
+    wrap.appendChild(t);
+  });
+
+  function headingOf(el) {
+    if (/^H[1-4]$/.test(el.tagName)) { return el; }
+    return el.querySelector("h1, h2, h3, h4");
+  }
+  function titleOf(h) {
+    var c = h.cloneNode(true);
+    each(c.querySelectorAll(".anchor"), function (a) { a.remove(); });
+    return c.textContent.replace(/\s+/g, " ").trim();
+  }
+
+  /* Every heading with a place to link to gets its "#". */
+  each(main.querySelectorAll("h2, h3"), function (h) {
+    if (h.querySelector(".anchor")) { return; }
+    var id = h.id || (h.parentNode.id && h.parentNode.firstElementChild === h ? h.parentNode.id : "");
+    if (!id) { return; }
+    var a = doc.createElement("a");
+    a.className = "anchor";
+    a.href = "#" + id;
+    a.setAttribute("aria-label", "Link to this section");
+    a.textContent = "#";
+    h.appendChild(a);
+  });
+
+  /* Contents: the chapters, numbered, each with its sections. Only the
+     chapter being read is opened out, so the list stays short. */
+  var chapters = Array.prototype.slice.call(main.querySelectorAll("section.chapter"));
+  var places = [];   /* chapters and sections in page order: {id, el, chapter, link, title} */
+  var list = doc.createElement("ol");
+  chapters.forEach(function (chapter, i) {
+    var head = headingOf(chapter);
+    var title = chapter.id === "welcome" ? "Welcome" : titleOf(head);
+    chapter.guideTitle = title;
+    chapter.guideNum = i;
+    if (i > 0) { head.setAttribute("data-num", String(i)); }
+    var li = doc.createElement("li");
+    var a = doc.createElement("a");
+    a.href = "#" + chapter.id;
+    a.innerHTML = '<span class="num">' + (i > 0 ? i : "") + "</span>";
+    a.appendChild(doc.createTextNode(title));
+    li.appendChild(a);
+    chapter.tocItem = li;
+    places.push({ id: chapter.id, el: chapter, chapter: chapter, link: a, title: title, sub: false });
+    var subs = chapter.querySelectorAll(":scope > section[id], :scope > .table-wrap > h3[id]");
+    if (subs.length) {
+      var inner = doc.createElement("ol");
+      each(subs, function (sub) {
+        var h = headingOf(sub);
+        if (!h) { return; }
+        var li2 = doc.createElement("li");
+        var a2 = doc.createElement("a");
+        a2.href = "#" + sub.id;
+        var t = titleOf(h);
+        a2.textContent = t;
+        li2.appendChild(a2);
+        inner.appendChild(li2);
+        places.push({ id: sub.id, el: sub, chapter: chapter, link: a2, title: t, sub: true });
+      });
+      li.appendChild(inner);
+    }
+    list.appendChild(li);
+  });
+  toc.appendChild(list);
+  var placeById = {};
+  places.forEach(function (p) { placeById[p.id] = p; });
+
+  /* At the end of each chapter: the one before and the one after. */
+  chapters.forEach(function (chapter, i) {
+    var pager = doc.createElement("nav");
+    pager.className = "pager";
+    pager.setAttribute("aria-label", "Chapters before and after");
+    function card(other, dir) {
+      var a = doc.createElement("a");
+      a.className = dir;
+      a.href = "#" + other.id;
+      var label = dir === "prev" ? "← Previous" : "Next →";
+      if (other.guideNum > 0) { label += " · Chapter " + other.guideNum; }
+      a.innerHTML = '<span class="dir"></span><span class="name"></span>';
+      a.firstChild.textContent = label;
+      a.lastChild.textContent = other.guideTitle;
+      pager.appendChild(a);
+    }
+    if (i > 0) { card(chapters[i - 1], "prev"); }
+    if (i < chapters.length - 1) { card(chapters[i + 1], "next"); }
+    chapter.appendChild(pager);
+  });
+
+  /* Where you are: lit in the contents, named in the top bar, kept in the
+     address (replaced, never added, so Back still leaves the page). */
+  function topBar() { return doc.querySelector(".top").getBoundingClientRect().height; }
+  var current = null;
+  var hashTimer = null;
+  var userScrolled = false;
+  function readingLine() { return topBar() + 64; }
+  function findCurrent() {
+    var line = readingLine();
+    var best = places[0];
+    for (var i = 0; i < places.length; i++) {
+      if (places[i].el.getBoundingClientRect().top <= line) { best = places[i]; } else { break; }
+    }
+    /* At the very bottom the last short sections never reach the line. */
+    if (window.innerHeight + window.scrollY >= doc.documentElement.scrollHeight - 4) {
+      for (var j = places.length - 1; j >= 0; j--) {
+        if (places[j].el.getBoundingClientRect().top < window.innerHeight * 0.6) { best = places[j]; break; }
+      }
+    }
+    return best;
+  }
+  function keepInView(a) {
+    /* Closed behind its button on a narrow screen: nothing to keep. */
+    if (window.getComputedStyle(toc).visibility === "hidden") { return; }
+    var tr = toc.getBoundingClientRect(), ar = a.getBoundingClientRect();
+    if (ar.top < tr.top + 60 || ar.bottom > tr.bottom - 60) {
+      toc.scrollTop += ar.top - tr.top - tr.height / 3;
+    }
+  }
+  function show(place) {
+    if (place === current) { return; }
+    var oldChapter = current && current.chapter;
+    if (current && current.sub) { current.link.classList.remove("current"); current.link.removeAttribute("aria-current"); }
+    if (oldChapter && oldChapter !== place.chapter) { oldChapter.tocItem.classList.remove("open", "active"); }
+    current = place;
+    var ch = place.chapter;
+    ch.tocItem.classList.add("open", "active");
+    if (place.sub) { place.link.classList.add("current"); place.link.setAttribute("aria-current", "location"); }
+    crumbChapter.textContent = "";
+    if (ch.guideNum > 0) {
+      var n = doc.createElement("span");
+      n.className = "num";
+      n.textContent = ch.guideNum + ". ";
+      crumbChapter.appendChild(n);
+    }
+    crumbChapter.appendChild(doc.createTextNode(ch.guideTitle));
+    crumbChapter.href = "#" + ch.id;
+    crumbSection.textContent = place.sub ? place.title : "";
+    crumbSep.classList.toggle("hidden", !place.sub);
+    keepInView(place.sub ? place.link : ch.tocItem.firstChild);
+    if (userScrolled) {
+      window.clearTimeout(hashTimer);
+      hashTimer = window.setTimeout(function () {
+        setHash(window.scrollY < 40 ? "" : current.id);
+      }, 200);
+    }
+  }
+  function onScroll() {
+    var max = doc.documentElement.scrollHeight - window.innerHeight;
+    var f = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
+    progress.style.transform = "scaleX(" + f.toFixed(4) + ")";
+    tocRead.textContent = Math.round(f * 100) + "% read";
+    toTop.classList.toggle("shown", window.scrollY > 900);
+    show(findCurrent());
+  }
+  var ticking = false;
+  window.addEventListener("scroll", function () {
+    if (!ticking) { ticking = true; window.requestAnimationFrame(function () { ticking = false; onScroll(); }); }
+  }, { passive: true });
+  ["wheel", "touchmove", "keydown"].forEach(function (t) {
+    window.addEventListener(t, function () { userScrolled = true; }, { passive: true });
+  });
+  window.addEventListener("resize", onScroll);
+  window.addEventListener("load", onScroll);
+  onScroll();
+
+  /* Landing somewhere lights its heading for a moment, so the eye finds it. */
+  function landed(el) {
+    var h = el && headingOf(el);
+    if (!h) { return; }
+    h.classList.remove("landed");
+    void h.offsetWidth;
+    h.classList.add("landed");
+  }
+  function goTo(id) {
+    var el = doc.getElementById(id);
+    if (!el) { return; }
+    el.scrollIntoView({ block: "start" });
+    landed(el);
+  }
+  doc.addEventListener("click", function (e) {
+    var a = e.target.closest && e.target.closest('a[href^="#"]');
+    if (!a || e.ctrlKey || e.metaKey || e.shiftKey) { return; }
+    var id = decodeURIComponent(a.getAttribute("href").slice(1));
+    if (!doc.getElementById(id)) { return; }
+    e.preventDefault();
+    if (a.classList.contains("anchor")) {
+      setHash(id);
+      var url = location.href;
+      try {
+        if (navigator.clipboard) { navigator.clipboard.writeText(url).then(function () { say("Link copied"); }, function () { say("Link in the address bar"); }); }
+        else { say("Link in the address bar"); }
+      } catch (err) { say("Link in the address bar"); }
+      landed(doc.getElementById(id));
+      return;
+    }
+    /* A link inside the page is a step you may want to go back from. */
+    try { history.pushState(null, "", "#" + id); } catch (err) { /* refused */ }
+    setToc(false);
+    goTo(id);
+    userScrolled = true;
+    onScroll();
+  });
+  window.addEventListener("hashchange", function () { goTo(decodeURIComponent(location.hash.slice(1))); });
+  window.addEventListener("popstate", function () {
+    var id = decodeURIComponent(location.hash.slice(1));
+    if (id) { goTo(id); } else { window.scrollTo(0, 0); }
+  });
+  if (location.hash.length > 1) {
+    var start = doc.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (start) { window.requestAnimationFrame(function () { start.scrollIntoView({ block: "start" }); landed(start); onScroll(); }); }
+  }
+
+  toTop.addEventListener("click", function () {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setHash("");
+    toc.scrollTop = 0;
+  });
+
+  /* Contents on a narrow screen: a button (or the line saying where you
+     are) opens it; a link, the shade, or Esc closes it. */
+  var tocButton = doc.getElementById("toc-button");
+  function setToc(open) {
+    doc.body.classList.toggle("toc-open", open);
+    tocButton.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open && current) { keepInView(current.sub ? current.link : current.chapter.tocItem.firstChild); }
+  }
+  tocButton.addEventListener("click", function () { setToc(!doc.body.classList.contains("toc-open")); });
+  doc.getElementById("scrim").addEventListener("click", function () { setToc(false); });
+  doc.getElementById("crumb").addEventListener("click", function (e) {
+    if (window.getComputedStyle(tocButton).display === "none") { return; }
+    e.preventDefault();
+    e.stopPropagation();
+    setToc(true);
+  }, true);
+
+  /* Search. The guide is cut into places to find: each section, each
+     chapter's opening words and each shortcut table. A place matches when
+     every word typed is in it; the results list says where each is, with
+     the words around the match. The words are marked on the page while the
+     search stands, and choosing a result goes to the first mark there and
+     makes it flash. */
+  var units = [];
+  chapters.forEach(function (chapter) {
+    var intro = [];
+    each(chapter.children, function (n) {
+      if (n.tagName === "SECTION" || n.classList.contains("pager")) { return; }
+      if (n.classList.contains("table-wrap") && n.querySelector("h3[id]")) {
+        /* The shortcut tables: one place per heading. */
+        var unit = null;
+        each(n.children, function (k) {
+          if (k.tagName === "H3" && k.id) {
+            unit = { id: k.id, nodes: [k], chapter: chapter, title: titleOf(k) };
+            units.push(unit);
+          } else if (unit) { unit.nodes.push(k); } else { intro.push(k); }
+        });
+        return;
+      }
+      intro.push(n);
+    });
+    units.push({ id: chapter.id, nodes: intro, chapter: chapter, title: chapter.guideTitle, intro: true });
+    each(chapter.querySelectorAll(":scope > section[id]"), function (s) {
+      var h = headingOf(s);
+      units.push({ id: s.id, nodes: [s], chapter: chapter, title: h ? titleOf(h) : chapter.guideTitle });
+    });
+  });
+  var order = {};
+  places.forEach(function (p, i) { order[p.id] = i; });
+  units.forEach(function (u) {
+    u.text = u.nodes.map(function (n) { return n.textContent; }).join(" ").replace(/\s+/g, " ").replace(/#(?=\s|$)/g, "").trim();
+    u.lower = u.text.toLowerCase();
+    /* The words after the heading, for the result's preview. */
+    u.body = u.text.indexOf(u.title) === 0 ? u.text.slice(u.title.length).trim() : u.text;
+    u.bodyLower = u.body.toLowerCase();
+    u.order = order[u.id] !== undefined ? order[u.id] : 0;
+  });
+  units.sort(function (a, b) { return a.order - b.order || (a.intro ? -1 : 1); });
+
+  function escapeHtml(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+  function clearMarks() {
+    var parents = [];
+    each(main.querySelectorAll("mark.hl"), function (m) {
+      var p = m.parentNode;
+      p.replaceChild(doc.createTextNode(m.textContent), m);
+      if (parents.indexOf(p) < 0) { parents.push(p); }
+    });
+    parents.forEach(function (p) { p.normalize(); });
+  }
+  function markWords(el, re) {
+    var walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) {
+        var p = n.parentNode;
+        if (!p || /^(SCRIPT|STYLE|MARK|BUTTON)$/.test(p.nodeName) || p.classList.contains("anchor")) { return NodeFilter.FILTER_REJECT; }
+        re.lastIndex = 0;
+        return re.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+      }
+    });
+    var nodes = [];
+    while (walker.nextNode()) { nodes.push(walker.currentNode); }
+    nodes.forEach(function (node) {
+      var text = node.nodeValue, frag = doc.createDocumentFragment(), last = 0, m;
+      re.lastIndex = 0;
+      while ((m = re.exec(text)) !== null) {
+        if (m[0].length === 0) { re.lastIndex++; continue; }
+        frag.appendChild(doc.createTextNode(text.slice(last, m.index)));
+        var mark = doc.createElement("mark");
+        mark.className = "hl";
+        mark.textContent = m[0];
+        frag.appendChild(mark);
+        last = m.index + m[0].length;
+      }
+      frag.appendChild(doc.createTextNode(text.slice(last)));
+      node.parentNode.replaceChild(frag, node);
+    });
+  }
+  function snippet(u, words) {
+    var text = u.body, lower = u.bodyLower, at = -1;
+    words.forEach(function (w) { var i = lower.indexOf(w); if (i >= 0 && (at < 0 || i < at)) { at = i; } });
+    if (at < 0) { at = 0; }
+    var from = Math.max(0, at - 60), to = Math.min(text.length, at + 160);
+    if (from > 0) { var sp = text.indexOf(" ", from); if (sp >= 0 && sp < at) { from = sp + 1; } }
+    var piece = (from > 0 ? "… " : "") + text.slice(from, to) + (to < text.length ? " …" : "");
+    return escapeHtml(piece).replace(new RegExp("(" + words.map(function (w) { return escapeRe(escapeHtml(w)); }).join("|") + ")", "gi"), "<mark>$1</mark>");
+  }
+
+  var hits = [];
+  var selected = 0;
+  function setResults(open) {
+    results.classList.toggle("shown", open);
+    input.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  function select(i) {
+    var items = results.querySelectorAll("a.result");
+    if (!items.length) { return; }
+    selected = (i + items.length) % items.length;
+    each(items, function (a, k) { a.classList.toggle("selected", k === selected); a.setAttribute("aria-selected", k === selected ? "true" : "false"); });
+    var a = items[selected], rr = results.getBoundingClientRect(), ar = a.getBoundingClientRect();
+    if (ar.top < rr.top + 30) { results.scrollTop += ar.top - rr.top - 30; }
+    else if (ar.bottom > rr.bottom - 40) { results.scrollTop += ar.bottom - rr.bottom + 40; }
+  }
+  function search(query) {
+    clearMarks();
+    each(toc.querySelectorAll("a"), function (a) { a.classList.remove("dim", "hit"); });
+    each(toc.querySelectorAll("li.has-hits"), function (li) { li.classList.remove("has-hits"); });
+    hits = [];
+    var words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) { results.innerHTML = ""; setResults(false); return; }
+    var re = new RegExp(words.map(escapeRe).join("|"), "gi");
+    var inTitle = [], inText = [];
+    units.forEach(function (u) {
+      if (!words.every(function (w) { return u.lower.indexOf(w) >= 0; })) { return; }
+      var t = u.title.toLowerCase();
+      (words.every(function (w) { return t.indexOf(w) >= 0; }) ? inTitle : inText).push(u);
+    });
+    hits = inTitle.concat(inText);
+    var hitIds = {};
+    hits.forEach(function (u) {
+      u.nodes.forEach(function (n) { markWords(n, re); });
+      hitIds[u.id] = true;
+      if (u.chapter.tocItem) { u.chapter.tocItem.classList.add("has-hits"); }
+    });
+    places.forEach(function (p) {
+      if (hitIds[p.id]) { p.link.classList.add("hit"); }
+      else if (p.sub || !p.chapter.tocItem.classList.contains("has-hits")) { p.link.classList.add("dim"); }
+    });
+    var html = "";
+    if (hits.length) {
+      html += '<div class="count">' + hits.length + (hits.length === 1 ? " place matches" : " places match") + "</div>";
+      hits.forEach(function (u, i) {
+        var num = u.chapter.guideNum > 0 ? "Chapter " + u.chapter.guideNum : "Start";
+        var where = u.intro ? num : num + " · " + u.chapter.guideTitle;
+        html += '<a class="result" role="option" href="#' + escapeHtml(u.id) + '" data-i="' + i + '">' +
+          '<span class="where">' + escapeHtml(where) + "</span>" +
+          '<span class="title">' + escapeHtml(u.title) + "</span>" +
+          '<span class="snippet">' + snippet(u, words) + "</span></a>";
+      });
+      html += '<div class="keys-help"><span><kbd>↑</kbd> <kbd>↓</kbd> choose</span><span><kbd>Enter</kbd> go there</span><span><kbd>Esc</kbd> clear</span></div>';
+    } else {
+      html = '<div class="empty">Nothing in the guide matches that. Try fewer or other words, such as “proxy”, “ripple” or “loudness”.</div>';
+    }
+    results.innerHTML = html;
+    results.scrollTop = 0;
+    setResults(true);
+    select(0);
+  }
+  function jump(i) {
+    var u = hits[i];
+    if (!u) { return; }
+    setResults(false);
+    input.blur();
+    var target = null;
+    for (var k = 0; k < u.nodes.length && !target; k++) { target = u.nodes[k].querySelector("mark.hl"); }
+    var el = target || u.nodes[0];
+    /* The match a third of the way down, but its section's top above the
+       reading line, so the contents and the top bar name that section. */
+    var at = el.getBoundingClientRect().top + window.scrollY;
+    var start = u.nodes[0].getBoundingClientRect().top + window.scrollY;
+    var y = Math.max(at - window.innerHeight * 0.3, start - readingLine() + 1);
+    window.scrollTo(0, Math.max(0, Math.min(y, at - topBar() - 24)));
+    if (target) {
+      each(main.querySelectorAll("mark.flash"), function (m) { m.classList.remove("flash"); });
+      void target.offsetWidth;
+      target.classList.add("flash");
+    } else { landed(u.nodes[0]); }
+    userScrolled = true;
+    setHash(u.id);
+    onScroll();
+  }
+
+  var timer = null;
+  input.addEventListener("input", function () {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(function () { search(input.value); }, 80);
+  });
+  function clearSearch() {
+    window.clearTimeout(timer);
+    input.value = "";
+    search("");
+  }
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "ArrowDown") { e.preventDefault(); if (!results.classList.contains("shown")) { search(input.value); } else { select(selected + 1); } }
+    else if (e.key === "ArrowUp") { e.preventDefault(); select(selected - 1); }
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      window.clearTimeout(timer);
+      if (!results.classList.contains("shown") || !hits.length) { search(input.value); }
+      jump(selected);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (results.classList.contains("shown") && input.value) { setResults(false); }
+      else { clearSearch(); input.blur(); }
+    }
+  });
+  input.addEventListener("focus", function () { if (input.value) { search(input.value); } });
+  results.addEventListener("mousedown", function (e) { e.preventDefault(); });
+  results.addEventListener("click", function (e) {
+    var a = e.target.closest("a.result");
+    if (!a) { return; }
+    e.preventDefault();
+    e.stopPropagation();
+    jump(Number(a.dataset.i));
+  }, true);
+  results.addEventListener("mousemove", function (e) {
+    var a = e.target.closest("a.result");
+    if (a && Number(a.dataset.i) !== selected) { select(Number(a.dataset.i)); }
+  });
+  input.addEventListener("blur", function () { window.setTimeout(function () { setResults(false); }, 120); });
+
+  doc.addEventListener("keydown", function (e) {
+    var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(doc.activeElement && doc.activeElement.tagName);
+    if ((e.key === "k" || e.key === "K") && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault(); setToc(false); input.focus(); input.select();
+    } else if (e.key === "/" && !typing) {
+      e.preventDefault(); setToc(false); input.focus(); input.select();
+    } else if (e.key === "Escape") {
+      if (lightbox.classList.contains("open")) { closeLightbox(); }
+      else if (doc.body.classList.contains("toc-open")) { setToc(false); }
+      else if (!typing && input.value) { clearSearch(); }
+    }
+  });
+
+  /* Pictures: click to see them large, with their caption. */
+  var lightbox = doc.getElementById("lightbox");
+  var big = lightbox.querySelector("img");
+  var bigCaption = lightbox.querySelector("p");
+  var closeButton = lightbox.querySelector("button");
+  var opener = null;
+  function closeLightbox() {
+    lightbox.classList.remove("open");
+    lightbox.setAttribute("aria-hidden", "true");
+    big.removeAttribute("src");
+    if (opener) { opener.focus({ preventScroll: true }); opener = null; }
+  }
+  each(main.querySelectorAll("figure img"), function (img) {
+    img.tabIndex = 0;
+    img.setAttribute("role", "button");
+    img.title = "Click to see it large";
+  });
+  function openLightbox(img) {
+    opener = img;
+    big.src = img.currentSrc || img.src;
+    big.alt = img.alt;
+    var cap = img.closest("figure").querySelector("figcaption");
+    bigCaption.textContent = cap ? cap.textContent : img.alt;
+    lightbox.classList.add("open");
+    lightbox.setAttribute("aria-hidden", "false");
+    closeButton.focus({ preventScroll: true });
+  }
+  main.addEventListener("click", function (e) {
+    if (e.target.tagName === "IMG" && e.target.closest("figure")) { openLightbox(e.target); }
+  });
+  main.addEventListener("keydown", function (e) {
+    if ((e.key === "Enter" || e.key === " ") && e.target.tagName === "IMG" && e.target.closest("figure")) { e.preventDefault(); openLightbox(e.target); }
+  });
+  lightbox.addEventListener("click", closeLightbox);
+  /* Code blocks get a Copy button. Added last, so search never finds the word "Copy". */
+  each(main.querySelectorAll("pre.code"), function (pre) {
+    var b = doc.createElement("button");
+    b.type = "button";
+    b.className = "copy";
+    b.textContent = "Copy";
+    b.setAttribute("aria-label", "Copy this code");
+    b.addEventListener("click", function () {
+      var text = pre.querySelector("code").textContent;
+      function done() { b.textContent = "Copied"; window.setTimeout(function () { b.textContent = "Copy"; }, 1400); }
+      function fallback() {
+        var t = doc.createElement("textarea");
+        t.value = text;
+        t.style.position = "fixed"; t.style.opacity = "0";
+        doc.body.appendChild(t);
+        t.select();
+        try { doc.execCommand("copy"); done(); } catch (e) { say("Select the code and press Ctrl+C"); }
+        t.remove();
+      }
+      try {
+        if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(done, fallback); } else { fallback(); }
+      } catch (e) { fallback(); }
+    });
+    pre.appendChild(b);
+  });
+}());
+</script>
+</body>
+</html>

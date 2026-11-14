@@ -172,9 +172,10 @@ const WORKLOADS = [["maui", ".NET MAUI (Android, iOS, Mac and Windows apps)"], [
 
 // The browser Ledger opens web pages in (HTML files now, Live Server later).
 const BROWSERS = { chrome: "chrome.exe", edge: "msedge.exe", firefox: "firefox.exe", brave: "brave.exe" };
+/** The browser picked in Settings › Web, as the program to open links with (none: Windows' own). */
+export const browserApp = () => (settings.browser === "custom" ? settings.browserPath.trim() || undefined : BROWSERS[settings.browser]);
 export function openInBrowser(url) {
-  const app = settings.browser === "custom" ? settings.browserPath.trim() || undefined : BROWSERS[settings.browser];
-  return openUrl(url, app);
+  return openUrl(url, browserApp());
 }
 
 export const refreshSettingsTools = () => refreshTools();
