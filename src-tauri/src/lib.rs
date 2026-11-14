@@ -1710,6 +1710,31 @@ async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_,
     Ok(run)
 }
 
+/// The guides (the Lust language guide and the Ledger user guide), carried inside the app.
+/// scripts/guides.mjs makes them from guides/; the Docs commands open them.
+const GUIDES: [(&str, &str); 2] = [
+    ("lust.html", include_str!("../guides/lust.html")),
+    ("ledger.html", include_str!("../guides/ledger.html")),
+];
+
+/// Opens a guide in the browser (`browser` as Settings › Web has it; none for Windows' own).
+/// Both are written to Ledger's own folder first, together, so their links to each other work,
+/// and only when they changed (a new Ledger brings new guides).
+#[tauri::command]
+async fn open_guide(app: AppHandle, name: String, browser: Option<String>) -> Res<()> {
+    let file = GUIDES.iter().find(|(f, _)| f.trim_end_matches(".html") == name).ok_or_else(|| format!("There's no guide called {name}."))?.0;
+    let dir = app.path().app_data_dir().map_err(err)?.join("guides");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Couldn't make {} ({e}).", dir.display()))?;
+    for (f, text) in GUIDES {
+        let p = dir.join(f);
+        if std::fs::read_to_string(&p).ok().as_deref() != Some(text) {
+            std::fs::write(&p, text).map_err(|e| format!("Couldn't write {} ({e}).", p.display()))?;
+        }
+    }
+    let url = tauri::Url::from_file_path(dir.join(file)).map_err(|_| "Couldn't make a link to the guide.".to_string())?;
+    tauri_plugin_opener::open_url(url.as_str(), browser.filter(|b| !b.trim().is_empty())).map_err(err)
+}
+
 /// Waits for a thread up to `limit`; its result if it finished.
 fn finish_within<T>(h: thread::JoinHandle<T>, limit: Duration) -> Option<T> {
     let until = std::time::Instant::now() + limit;
@@ -3046,6 +3071,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            open_guide,
             refresh_path,
             list_processes,
             home_dir,
