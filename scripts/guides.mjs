@@ -14,7 +14,9 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const read = (p) => readFileSync(join(ROOT, p), "utf8");
+// Line endings are taken as \n, so a Windows checkout (CRLF) builds the same pages.
+const lf = (s) => s.replace(/\r\n/g, "\n");
+const read = (p) => lf(readFileSync(join(ROOT, p), "utf8"));
 
 // ---------- colouring Lust, as Ledger's quiet colours do ----------
 const words = (s) => new Set(s.split(/\s+/).filter(Boolean));
@@ -239,7 +241,7 @@ export const outPath = (name) => join(ROOT, "src-tauri", "guides", `${name}.html
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const pages = buildGuides();
   if (process.argv.includes("--check")) {
-    const stale = Object.entries(pages).filter(([n, h]) => { try { return readFileSync(outPath(n), "utf8") !== h; } catch { return true; } });
+    const stale = Object.entries(pages).filter(([n, h]) => { try { return lf(readFileSync(outPath(n), "utf8")) !== h; } catch { return true; } });
     if (stale.length) { console.error(`Out of date: ${stale.map(([n]) => n).join(", ")}. Run: node scripts/guides.mjs`); process.exit(1); }
     console.log("The guides are up to date.");
   } else {

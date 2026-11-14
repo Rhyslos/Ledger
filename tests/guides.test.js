@@ -7,7 +7,7 @@ import { buildGuides, outPath, highlightLust, checkLinks } from "../scripts/guid
 
 test("the built guides are up to date with guides/ (run: npm run guides)", () => {
   const pages = buildGuides(); // throws on a broken link
-  for (const [name, html] of Object.entries(pages)) assert.equal(readFileSync(outPath(name), "utf8"), html, `${name}.html is out of date`);
+  for (const [name, html] of Object.entries(pages)) assert.equal(readFileSync(outPath(name), "utf8").replace(/\r\n/g, "\n"), html, `${name}.html is out of date`);
 });
 
 test("a link to a place that isn't there is caught", () => {
