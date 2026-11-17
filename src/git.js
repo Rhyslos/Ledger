@@ -433,6 +433,11 @@ export function initGit(app) {
     const box = $("git");
     const focusKey = box.contains(document.activeElement) ? (document.activeElement.dataset.gp ? `${document.activeElement.dataset.gk}|${document.activeElement.dataset.gp}` : document.activeElement.id || document.activeElement.dataset.gact) : null;
     const msg = $("commitMsg")?.value || G.draft || "";
+    // The commit box is kept, not made again: the view redraws on every status refresh (every
+    // few seconds, and after file changes), and a new box put the cursor back at the start
+    // while you were typing, and lost undo too.
+    const oldBox = $("commitMsg");
+    const caret = oldBox && document.activeElement === oldBox ? [oldBox.selectionStart, oldBox.selectionEnd, oldBox.selectionDirection, oldBox.scrollTop] : null;
     if (!S.root) { box.innerHTML = '<p class="hint" style="padding:10px 14px">Open a folder first.</p>'; return; }
     if (G.missing) { box.innerHTML = `<div class="pad" style="padding:10px 14px;display:grid;gap:8px"><p class="hint" style="margin:0">Git isn't installed, or Ledger can't find it.</p><p class="hint" style="margin:0">Install it from <a href="https://git-scm.com/download/win" target="_blank">git-scm.com</a>, then reopen the folder.</p></div>`; return; }
     if (G.blocked) { box.innerHTML = `<div style="padding:10px 14px;display:grid;gap:8px"><p class="hint" style="margin:0">${esc(G.blocked)}</p><div class="bar"><button class="btn primary" data-gact="trust">Trust this folder</button></div></div>`; return; }
@@ -454,7 +459,15 @@ export function initGit(app) {
       <div class="sec"><h3>Changes <span>${un.length}</span></h3><div class="rows" role="tree">${un.map(([p, s]) => fileRow(p, s, "changes", i++)).join("") || `<p class="hint" style="padding:2px 8px">${st.length ? "Nothing else changed." : "No changes since the last commit."}</p>`}</div></div>
       ${G.stashes.length ? `<div class="sec"><h3>Stashes <span>${G.stashes.length}</span></h3><div class="rows">${G.stashes.map((x) => `<button class="node gstash" data-gstash="${esc(x.ref)}" title="${esc(x.ref)} · ${esc(x.when)}. Click to pop, apply, look at or drop it."><span class="lbl">${esc(x.msg.replace(/^On [^:]+: /, ""))}</span><span class="sub">${esc(x.when)}</span></button>`).join("")}</div></div>` : ""}
       <p class="hint" style="padding:8px 14px">Enter shows the changes, Space stages or unstages, Delete throws a change away, Shift F10 for more.</p>`;
-    if (focusKey) {
+    if (oldBox) {
+      box.querySelector("#commitMsg")?.replaceWith(oldBox);
+      if (caret) {
+        oldBox.focus({ preventScroll: true });
+        oldBox.setSelectionRange(caret[0], caret[1], caret[2]);
+        oldBox.scrollTop = caret[3];
+      }
+    }
+    if (focusKey && !caret) {
       const el = focusKey.includes("|") ? box.querySelector(`[data-gk="${CSS.escape(focusKey.split("|")[0])}"][data-gp="${CSS.escape(focusKey.slice(focusKey.indexOf("|") + 1))}"]`) || box.querySelector(".node") : box.querySelector("#" + CSS.escape(focusKey)) || box.querySelector(`[data-gact="${CSS.escape(focusKey)}"]`);
       if (el) { if (el.matches(".node")) box.querySelectorAll(".node").forEach((n) => (n.tabIndex = n === el ? 0 : -1)); el.focus({ preventScroll: true }); }
     }
