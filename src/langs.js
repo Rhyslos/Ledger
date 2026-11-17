@@ -208,7 +208,7 @@ const lustStyle = HighlightStyle.define([
   { tag: LT.plain, color: "var(--ink)" },
 ]);
 
-const lustMode = {
+export const lustMode = {
   name: "lust",
   // depth: open { and [ for indenting. def: the next name is being defined
   // ("type" after class, "obj" after object/node/assembly/database, "fn" after method). after:
@@ -254,13 +254,13 @@ const lustMode = {
       if (lineStart && after == null && LK.pieces.has(word) && !stream.match(/^\s*[=(.:,]/, false)) { st.styled = true; return "lustClass"; }
       // Your own piece: TodoRow [width 300] { label = task };
       if (lineStart && /^[A-Z]/.test(word) && stream.match(/^\s*\[/, false)) { st.styled = true; return "lustClass"; }
-      // States: state Mood = [Calm, Busy [Rushed]];  state is Mood.Calm;
+      // States: state Mood = [Calm, Busy [Rushed]];  and a thing's own state: state = Mood.Calm;
+      if (word === "state" && stream.match(/^\s*=(?!=)/, false)) { st.def = "stateIs"; return "lustState"; }
       if (word === "state") { st.def = "state"; return "lustState"; }
       if (st.opts != null && st.depth >= st.opts) return "lustPlain";   // the options themselves stay plain
-      if (st.def === "state" && word === "is") { st.def = "stateIs"; return "lustFlow"; }
       if (st.def === "state" && (word === "in" || word === "not" || LK.control.has(word))) st.def = null;
       else if (st.def === "state") return "lustState";
-      if (st.def === "stateIs") return "lustPlain";   // state is Mood.Calm: plain, like the options
+      if (st.def === "stateIs") return "lustPlain";   // state = Mood.Calm: plain, like the options
       if (after === ":" || after === ".") return "lustPlain";
       if (word === "true" || word === "false" || word === "nothing") return "lustValue";
       if (word === "not" || word === "in") return "lustFlow";
