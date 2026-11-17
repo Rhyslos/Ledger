@@ -51,7 +51,7 @@ end
 <a href="#collections"><strong>Arrays, cMaps and maps</strong><code>int array</code>, <code>cMap(int id, …)</code>, <code>int map</code></a>
 <a href="#classes"><strong>Classes and objects</strong><code>class</code>, <code>has</code>, <code>new</code>, <code>object</code>, <code>like</code>, <code>node</code>, <code>assembly</code></a>
 <a href="#methods"><strong>Methods and hooks</strong><code>method</code>, <code>return</code>, <code>hook</code>, <code>new hook { }</code></a>
-<a href="#states"><strong>States</strong><code>state</code>, <code>is</code>, <code>keep</code></a>
+<a href="#states"><strong>States</strong><code>state</code>, <code>keep</code></a>
 <a href="#sharing"><strong>Sharing between files</strong><code>pass</code>, <code>fetch</code>, <code>get</code></a>
 <a href="#views"><strong>Windows</strong><code>view</code>, pieces, <code>[styles]</code>, inputs, tables</a>
 <a href="#library"><strong>The library</strong><code>print</code>, <code>Maths</code>, <code>Random</code>, <code>Files</code>, <code>Time</code>, <code>Json</code></a>
@@ -200,7 +200,7 @@ maxLives = 4;          -- a mistake, caught before anything runs
 main.lst:2:1  maxLives is locked, so it keeps the value it started with. To change it, leave out lock where it's declared.
 </pre>
 <ul>
-<li>Giving a locked variable a new value (<code>=</code>, <code>+=</code>, <code>is</code>) is a mistake.</li>
+<li>Giving a locked variable a new value (<code>=</code>, <code>+=</code> and the rest) is a mistake.</li>
 <li>A field can be locked too: <code>has { lock int maxHp = 20; }</code>. It gets its value when the thing is made (its starting value, or one given in <code>new Player { maxHp = 30 }</code>) and keeps it.</li>
 <li>Locking a thing (<code>lock Bag bag = new Bag;</code>) means <code>bag</code> is always that same bag, but its fields can still change: <code>bag.size += 4;</code> is fine. The same goes for a locked array's or map's items.</li>
 <li>A class's own <code>state</code> changes as it goes, so it can't be locked, and neither can a loop's counter.</li>
@@ -251,7 +251,7 @@ print(pet.name);
 
 <section class="chapter" id="questions">
 <h2>Questions and choices</h2>
-<p>Lust has no <code>if</code>. A check is a question: it starts with <code>is</code> and ends with <code>?</code>.</p>
+<p>Lust has no <code>if</code>. A check is a question: it starts with <code>is</code> and ends with <code>?</code>. That's the only job <code>is</code> has: a value, a state included, is changed with <code>=</code>.</p>
 
 <section id="is-then">
 <h3>is … ? then</h3>
@@ -648,7 +648,7 @@ state GameState = [
 ];
 
 GameState now = GameState.MainMenu;
-now is GameState.ActiveGame.Combat;      -- or: now = …;
+now = GameState.ActiveGame.Combat;
 
 is now == GameState.ActiveGame? then {
     print("playing");                     -- yes: Combat is inside ActiveGame
@@ -667,22 +667,22 @@ is now === GameState.ActiveGame? then {
 
 <section id="own-state">
 <h3>A thing's own state</h3>
-<p>A class or object can have a state of its own, written <code>state is …;</code> in its <code>has</code>. Inside its methods, <code>state is …;</code> changes it, and <code>state</code> reads it:</p>
+<p>A class or object can have a state of its own, written <code>state = …;</code> in its <code>has</code>. Inside its methods, <code>state = …;</code> changes it, and <code>state</code> reads it:</p>
 <pre data-lang="lust">
 state Phase = [Calm, Battle];
 
 class Guard {
     has {
-        state is Phase.Calm;
+        state = Phase.Calm;
     }
 
     method alarm() {
-        state is Phase.Battle;
+        state = Phase.Battle;
         is state == Phase.Battle? then { print("To arms!"); }
     }
 }
 </pre>
-<p>Outside a class or object there's no <code>state</code> to change; use a variable.</p>
+<p>Outside a class or object there's no <code>state</code> to change; use a variable. Older Lust set states with <code>is</code> (<code>state is Phase.Calm;</code>); that's a mistake now, and Lust says to write <code>=</code>.</p>
 </section>
 
 <section id="keep">
@@ -699,7 +699,7 @@ class Item {
 
 class Hero {
     has {
-        state is Phase.Calm;
+        state = Phase.Calm;
         Item array bag = [];
     }
 
@@ -2398,7 +2398,7 @@ pass Health, Gun;
 <tr><td><code>&amp;</code>, then <code>^</code>, then <code>|</code></td><td>Bitwise and, xor, or</td></tr>
 <tr><td><code>==</code> <code>!=</code> <code>===</code> <code>!==</code> <code>&lt;</code> <code>&gt;</code> <code>&lt;=</code> <code>&gt;=</code></td><td>Comparisons</td></tr>
 <tr><td><code>&amp;&amp;</code> <code>||</code></td><td>Both, either</td></tr>
-<tr><td><code>=</code> <code>+=</code> <code>-=</code> <code>*=</code> <code>/=</code> <code>&amp;=</code> <code>|=</code> <code>^=</code> <code>&lt;&lt;=</code> <code>&gt;&gt;=</code> <code>is</code></td><td>Giving a value</td></tr>
+<tr><td><code>=</code> <code>+=</code> <code>-=</code> <code>*=</code> <code>/=</code> <code>&amp;=</code> <code>|=</code> <code>^=</code> <code>&lt;&lt;=</code> <code>&gt;&gt;=</code></td><td>Giving a value</td></tr>
 </tbody>
 </table>
 </section>
