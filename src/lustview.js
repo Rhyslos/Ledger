@@ -6,8 +6,8 @@
 //   words and "#hex" text in [ ];
 // - hovering a style word or a piece explains it, with an example.
 import { autocompletion, insertCompletionText, pickedCompletion, startCompletion, snippet } from "@codemirror/autocomplete";
-import { hoverTooltip, ViewPlugin, Decoration, WidgetType } from "@codemirror/view";
-import { RangeSetBuilder } from "@codemirror/state";
+import { hoverTooltip, ViewPlugin, Decoration, WidgetType, keymap } from "@codemirror/view";
+import { RangeSetBuilder, Prec } from "@codemirror/state";
 import { styleContext, suggestions, colourSpots, explainAt, takes } from "./luststyles.js";
 
 // ----- completion -----
@@ -144,5 +144,28 @@ const hover = hoverTooltip(async (view, pos) => {
   };
 }, { hoverTime: 350 });
 
+/** True when the text before the cursor ends in exactly three dashes that would start a comment:
+ *  not a longer line of dashes, not inside text, and not already inside a comment. */
+export function startsBlockComment(before) {
+  if (!before.endsWith("---")) return false;
+  const lead = before.slice(0, -3);
+  if (lead.endsWith("-") || lead.includes("--")) return false;
+  return (lead.split('"').length - 1) % 2 === 0;
+}
+
+/** --- then Tab becomes a block comment, --[[ | ]], with the cursor inside. */
+const blockComment = Prec.high(keymap.of([{
+  key: "Tab",
+  run(view) {
+    const sel = view.state.selection;
+    if (sel.ranges.length !== 1 || !sel.main.empty) return false;
+    const head = sel.main.head;
+    const line = view.state.doc.lineAt(head);
+    if (!startsBlockComment(line.text.slice(0, head - line.from))) return false;
+    view.dispatch({ changes: { from: head - 3, to: head, insert: "--[[  ]]" }, selection: { anchor: head + 1 }, userEvent: "input" });
+    return true;
+  },
+}]));
+
 /** Everything above, for the Lust language. */
-export const lustViewHelp = () => [autocompletion({ addToOptions: [listSwatch] }), swatchPlugin, hover];
+export const lustViewHelp = () => [autocompletion({ addToOptions: [listSwatch] }), swatchPlugin, hover, blockComment];

@@ -229,7 +229,7 @@ export const lustMode = {
       if (stream.skipTo("]]")) stream.match("]]"); else { stream.skipToEnd(); st.block = true; }
       return "lustComment";
     }
-    if (stream.match("//") || stream.match("--")) { stream.skipToEnd(); return "lustComment"; }
+    if (stream.match("--")) { stream.skipToEnd(); return "lustComment"; }
     // lua { … } in LustScript: the Lua inside is shown as it is.
     if (stream.match(/^"(?:[^"\\]|\\.)*"?/)) return "lustValue";
     const after = st.after;
