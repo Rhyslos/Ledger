@@ -33,3 +33,8 @@ test("asking about a state is still a question", () => {
   const c = colours("is state == Phase.Calm? then { }");
   assert.deepEqual(c[0], ["is", "lustFlow"]);
 });
+
+test("-- starts a comment, and // doesn't any more", () => {
+  assert.deepEqual(colours("-- a note"), [["-- a note", "lustComment"]]);
+  assert.ok(colours("int a = 1; // not a note").every(([, style]) => style !== "lustComment"));
+});

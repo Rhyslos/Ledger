@@ -515,7 +515,7 @@ td pre.code { margin: 0.2em 0; }
 <p class="lead">Lust is a small, strict language for apps, games, tools and scripting. Checks are written as questions, states are built in and own their memory, and every file ends with <code>end</code>. This guide covers all of it, with an example for each part.</p>
 <p>Use the search box at the top (press <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd>) to find anything: a word like <code>cMap</code>, a piece like <code>slider</code>, or a question like "loop backwards". Every heading has its own link: point at it and click the hash sign beside it to copy where it is.</p>
 <div class="note">
-<p>This guide follows Lust 2.0.0 alpha 74. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
+<p>This guide follows Lust 2.0.0 alpha 75. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
 </div>
 
 <h3 id="the-short-version">The short version</h3>
@@ -601,9 +601,10 @@ ada<span class="tk-p">:</span>hurt<span class="tk-p">(</span><span class="tk-v">
 <section id="comments">
 <h3>Comments</h3>
 <pre class="code" data-lang="lust"><code><span class="tk-c">-- a comment, the Lua way</span>
-<span class="tk-c">// also a comment</span>
 <span class="tk-c">--[[ a block comment,
      over several lines ]]</span></code></pre>
+<p><code>--</code> is the only way to start a comment. <code>//</code> is a mistake, and Lust says to write <code>--</code> instead.</p>
+<p>In Ledger, type <code>---</code> and press <kbd>Tab</kbd> to get a block comment, <code>--[[ ]]</code>, with the cursor inside it. A longer line of dashes, like <code>----------</code>, stays as you typed it.</p>
 <div class="warn"><p>Because <code>--</code> starts a comment, subtracting a negative number needs a space: <code>a - -b</code>, not <code>a--b</code>.</p></div>
 </section>
 
