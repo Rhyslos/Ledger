@@ -2686,9 +2686,10 @@ function taskSteps(action, P = S.ctx) {
     // Run from the project's folder (the one with main.lst), so Lust's messages
     // (entities/player.lst:3:5) link back to the right files.
     const file = S.active, prog = settings.lust || "lust", root = lustRoots.get(norm(file)) || parent(file);
-    const step = (sub, input) => ({ label: "lust " + sub, program: prog, args: [sub, lustRel(root, file)], cwd: root, input, lust: true });
+    const step = (sub, input, extra = []) => ({ label: ["lust", sub, ...extra].join(" "), program: prog, args: [sub, lustRel(root, file), ...extra], cwd: root, input, lust: true });
     const script = /\.lsc$/i.test(file);
-    return { run: [step("run", true)], check: [step("check")], build: [step("build")], lua: [step("lua")], rust: script ? null : [step("rust")] }[action] || null;
+    // A release build takes longer and makes the fastest program, for sharing (.lst only).
+    return { run: [step("run", true)], check: [step("check")], build: [step("build")], release: script ? null : [step("build", false, ["--release"])], lua: [step("lua")], rust: script ? null : [step("rust")] }[action] || null;
   }
   const nodeFile = () => {
     const b = S.bufs.get(S.active);
@@ -2742,7 +2743,7 @@ function taskSteps(action, P = S.ctx) {
   return T[kind][action] || null;
 }
 function taskLabel(action) {
-  return { run: taskKind() === "godot" ? "Play" : taskKind() === "html" ? "Open in browser" : "Run", build: "Build", check: taskKind() === "node" ? "Lint" : "Check", test: "Test", lint: "Clippy", scene: "Play scene", debug: "Debug", scripts: "Scripts…", lua: "Show the Lua", rust: "Show the Rust" }[action];
+  return { run: taskKind() === "godot" ? "Play" : taskKind() === "html" ? "Open in browser" : "Run", build: "Build", check: taskKind() === "node" ? "Lint" : "Check", test: "Test", lint: "Clippy", scene: "Play scene", debug: "Debug", scripts: "Scripts…", lua: "Show the Lua", rust: "Show the Rust", release: "Build for release" }[action];
 }
 async function runAction(action) {
   if (!S.root) { toast("Open a folder first."); return; }
@@ -2773,8 +2774,8 @@ async function runAction(action) {
     else if (taskKind(P) === "dotnet" && action === "run" && P.sln) { toast("This solution has several projects: pick the one Run starts.", 4000); dotnetHooks.pickStartup?.().then((ok) => ok && runAction("run")); }
     else if (taskKind(P) === "node") toast(action === "run" ? "package.json has no dev, start or serve script. Pick one from Scripts." : `package.json has no script for ${taskLabel(action)}.`, 5000);
     else if (action === "scene") toast("Open a .tscn scene file to play it.");
-    else if (action === "rust" && /\.lsc$/i.test(S.active || "")) toast("LustScript turns into Lua, not Rust: use Show the Lua.");
-    else if ((action === "lua" || action === "rust") && taskKind(P) !== "lust") toast("Open a Lust file (.lst or .lsc) first.");
+    else if ((action === "rust" || action === "release") && /\.lsc$/i.test(S.active || "")) toast(action === "rust" ? "LustScript turns into Lua, not Rust: use Show the Lua." : "LustScript turns into Lua, which has no release build: Build writes the Lua.");
+    else if ((action === "lua" || action === "rust" || action === "release") && taskKind(P) !== "lust") toast(action === "release" ? "Open a Lust program (.lst) first." : "Open a Lust file (.lst or .lsc) first.");
     else toast(`${taskLabel(action)} isn't available for this project.`);
     return;
   }
@@ -3656,6 +3657,7 @@ C("app.update", "Check for updates", [], () => updater?.check()?.catch(() => {})
 C("panel.dock", "Move the panel (terminal, output) to the right or the bottom", [], togglePanelDock);
 C("lust.lua", "Lust: show the Lua this file turns into", [], () => runAction("lua"));
 C("lust.rust", "Lust: show the Rust this file turns into (.lst)", [], () => runAction("rust"));
+C("lust.release", "Lust: build for release, the fastest program to share (.lst)", [], () => runAction("release"));
 // The guides open in the browser (they're carried inside Ledger, so they work offline).
 const GUIDE_NAMES = { lust: "Lust language guide", ledger: "Ledger user guide" };
 async function openGuide(name) {

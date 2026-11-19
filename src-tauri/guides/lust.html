@@ -515,7 +515,7 @@ td pre.code { margin: 0.2em 0; }
 <p class="lead">Lust is a small, strict language for apps, games, tools and scripting. Checks are written as questions, states are built in and own their memory, and every file ends with <code>end</code>. This guide covers all of it, with an example for each part.</p>
 <p>Use the search box at the top (press <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd>) to find anything: a word like <code>cMap</code>, a piece like <code>slider</code>, or a question like "loop backwards". Every heading has its own link: point at it and click the hash sign beside it to copy where it is.</p>
 <div class="note">
-<p>This guide follows Lust 2.0.0 alpha 75. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
+<p>This guide follows Lust 2.0.0 alpha 76. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
 </div>
 
 <h3 id="the-short-version">The short version</h3>
@@ -2681,7 +2681,8 @@ registerHook<span class="tk-p">(</span><span class="tk-p">)</span><span class="t
 <tbody>
 <tr><td><code>lust run file</code></td><td>Checks the file, then runs it straight away through Lua. <code>lust file</code> works too</td></tr>
 <tr><td><code>lust check file</code></td><td>Only checks, and lists any mistakes</td></tr>
-<tr><td><code>lust build file.lst</code></td><td>Builds a real program next to it, through Rust (needs Rust installed)</td></tr>
+<tr><td><code>lust build file.lst</code></td><td>Builds a real program next to it, through Rust (needs Rust installed). About a second, once Lust's libraries are ready</td></tr>
+<tr><td><code>lust build file.lst --release</code></td><td>The same, taking longer (about 20 seconds) to make the fastest program, for sharing</td></tr>
 <tr><td><code>lust build file.lst --library</code></td><td>Makes a Rust library from it, for a Rust program to use</td></tr>
 <tr><td><code>lust build file.lsc</code></td><td>Writes the Lua next to it, as <code>file.lua</code></td></tr>
 <tr><td><code>lust lua file</code>, <code>lust rust file.lst</code></td><td>Shows the Lua or Rust it turns into</td></tr>
