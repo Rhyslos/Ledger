@@ -71,6 +71,21 @@ export const DEFAULTS = {
 };
 
 export const settings = structuredClone(DEFAULTS);
+// Lust's installer, the newest from its releases (alphas are pre-releases, so not GitHub's
+// "latest"), run quietly: it installs for this user, with no administrator needed.
+const LUST_SETUP = [
+  "$ErrorActionPreference = 'Stop'",
+  "$list = Invoke-RestMethod 'https://api.github.com/repos/Rhyslos/Lust/releases?per_page=20' -Headers @{ 'User-Agent' = 'ledger' }",
+  "$asset = $list | ForEach-Object { $_.assets } | Where-Object { $_.name -eq 'lust-setup.exe' } | Select-Object -First 1",
+  "if (-not $asset) { throw 'No Lust installer was found on github.com/Rhyslos/Lust.' }",
+  "$file = Join-Path $env:TEMP 'lust-setup.exe'",
+  "Write-Host ('Downloading ' + $asset.browser_download_url)",
+  "Invoke-WebRequest $asset.browser_download_url -OutFile $file -UseBasicParsing",
+  "Write-Host 'Installing Lust...'",
+  "$p = Start-Process $file -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru",
+  "exit $p.ExitCode",
+].join("; ");
+
 let ctx = null; // { keymap, apply(key), runTask(program, args, label), toast, restartServer(id), appName }
 let recording = null;
 let filter = "";
@@ -353,7 +368,7 @@ export function settingsHtml() {
     </section>
 
     <section aria-labelledby="sLust"><h2 id="sLust">Lust</h2>
-      ${row("lust", text("sLustPath", "lust", "lust") + `<div class="tool">${tools.lustVersion ? esc(tools.lustVersion) + " · " : ""}${found(tools.lust, 'Use <b>Install Lust</b> below, or put the full path to lust.exe here.')}</div><div class="bar"><button class="btn" data-act="lust-install">${tools.lust ? "Update" : "Install"} Lust</button></div>`, "Install builds Lust from github.com/Rhyslos/Lust with Rust (installed first if needed), which takes a few minutes. Runs Lust files, .lst and .lsc (Run, Check, Build), and checks them for mistakes when you save. A name on PATH or a full path to lust.exe.", "sLustPath")}
+      ${row("lust", text("sLustPath", "lust", "lust") + `<div class="tool">${tools.lustVersion ? esc(tools.lustVersion) + " · " : ""}${found(tools.lust, 'Use <b>Install Lust</b> below, or put the full path to lust.exe here.')}</div><div class="bar"><button class="btn" data-act="lust-install">${tools.lust ? "Update" : "Install"} Lust</button></div>`, "On Windows, Install runs Lust's installer from github.com/Rhyslos/Lust and Update runs lust update: both get a ready-made lust.exe, with nothing to compile. Building programs (Build) also needs Rust. Elsewhere, Install builds Lust with Rust. Runs Lust files, .lst and .lsc (Run, Check, Build), and checks them for mistakes when you save. A name on PATH or a full path to lust.exe.", "sLustPath")}
     </section>
 
     <section aria-labelledby="sLua"><h2 id="sLua">Lua</h2>
@@ -457,7 +472,25 @@ export function wireSettings(root, redraw) {
       return;
     }
     if (act === "lust-install") {
-      // cargo install builds lust.exe into ~/.cargo/bin, which Ledger already looks in.
+      // On Windows, Lust's releases carry a ready-made lust.exe, so nothing is compiled (compiling
+      // needs Visual Studio's build tools): Update runs Lust's own updater, and Install runs Lust's
+      // installer. Then Lust's libraries for built programs get ready, when Rust is there.
+      if (navigator.userAgent.includes("Windows")) {
+        const ready = async () => {
+          await invoke("refresh_path").catch(() => {});
+          if (settings.lust && settings.lust !== "lust" && (await invoke("tool_info", { name: "lust" }).catch(() => null))) setSetting("lust", "lust");
+          await refreshTools();
+          rerender(true);
+          if (!tools.lust) { ctx.toast("Lust didn't install. Check the Output panel.", 7000); return; }
+          ctx.toast((tools.lustVersion || "Lust") + " is ready.");
+          if (tools.cargo) ctx.runTask(settings.lust || "lust", ["warm-up"], "Getting Lust's libraries for built programs ready", () => {}, () => {});
+        };
+        if (tools.lust) ctx.runTask(settings.lust || "lust", ["update"], "Updating Lust", ready, ready);
+        else ctx.runTask("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", LUST_SETUP], "Installing Lust", ready, ready);
+        return;
+      }
+      // Elsewhere there's no release to download: cargo install builds lust into ~/.cargo/bin,
+      // which Ledger already looks in.
       const go = () => {
         const after = async () => {
           // A path set by hand (an old lust.exe) would hide the one just installed: use the installed one.
