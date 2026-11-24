@@ -515,7 +515,7 @@ td pre.code { margin: 0.2em 0; }
 <p class="lead">Lust is a small, strict language for apps, games, tools and scripting. Checks are written as questions, states are built in and own their memory, and every file ends with <code>end</code>. This guide covers all of it, with an example for each part.</p>
 <p>Use the search box at the top (press <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd>) to find anything: a word like <code>cMap</code>, a piece like <code>slider</code>, or a question like "loop backwards". Every heading has its own link: point at it and click the hash sign beside it to copy where it is.</p>
 <div class="note">
-<p>This guide follows Lust 2.0.0 alpha 78. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
+<p>This guide follows Lust 2.0.0 alpha 79. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
 </div>
 
 <h3 id="the-short-version">The short version</h3>
@@ -1914,7 +1914,7 @@ classes.lsc:18:19  Dog has no field called nam. Did you mean name?</code></pre>
             <span class="tk-n">column</span> <span class="tk-v">"Name"</span> p<span class="tk-p">.</span>name <span class="tk-p">[</span>width <span class="tk-v">160</span><span class="tk-p">]</span><span class="tk-p">;</span>
             <span class="tk-n">column</span> <span class="tk-v">"Age"</span> p<span class="tk-p">.</span>age<span class="tk-p">;</span>
             <span class="tk-n">column</span> <span class="tk-v">""</span> <span class="tk-p">[</span>width <span class="tk-v">40</span><span class="tk-p">]</span> <span class="tk-p">{</span>
-                <span class="tk-n">button</span> <span class="tk-p">[</span>icon <span class="tk-v">"trash"</span><span class="tk-p">,</span> subtle<span class="tk-p">,</span> label <span class="tk-v">"Forget"</span><span class="tk-p">]</span> <span class="tk-p">{</span> forget<span class="tk-p">(</span>p<span class="tk-p">)</span><span class="tk-p">;</span> <span class="tk-p">}</span>
+                <span class="tk-n">button</span> <span class="tk-p">[</span>icon <span class="tk-n">Icon</span><span class="tk-p">.</span><span class="tk-s">Trash</span><span class="tk-p">,</span> subtle<span class="tk-p">,</span> label <span class="tk-v">"Forget"</span><span class="tk-p">]</span> <span class="tk-p">{</span> forget<span class="tk-p">(</span>p<span class="tk-p">)</span><span class="tk-p">;</span> <span class="tk-p">}</span>
             <span class="tk-p">}</span>
         <span class="tk-p">}</span> <span class="tk-f">open</span> <span class="tk-p">{</span>
             <span class="tk-o">print</span><span class="tk-p">(</span><span class="tk-v">"Opened {chosen.name}"</span><span class="tk-p">)</span><span class="tk-p">;</span>
@@ -2061,7 +2061,7 @@ classes.lsc:18:19  Dog has no field called nam. Did you mean name?</code></pre>
         <span class="tk-n">column</span> <span class="tk-p">[</span>gap <span class="tk-v">8</span><span class="tk-p">,</span> pad <span class="tk-v">16</span><span class="tk-p">]</span> <span class="tk-p">{</span>
             <span class="tk-n">text</span> <span class="tk-v">"Hello "</span> + name<span class="tk-p">;</span>
             <span class="tk-n">button</span> <span class="tk-v">"Delete"</span> <span class="tk-p">[</span>red<span class="tk-p">]</span> <span class="tk-p">{</span> confirming = <span class="tk-v">true</span><span class="tk-p">;</span> <span class="tk-p">}</span>
-            <span class="tk-n">button</span> <span class="tk-p">[</span>icon <span class="tk-v">"settings"</span><span class="tk-p">,</span> tip <span class="tk-v">"Settings"</span><span class="tk-p">]</span> <span class="tk-p">{</span> showingSettings = <span class="tk-v">true</span><span class="tk-p">;</span> <span class="tk-p">}</span>
+            <span class="tk-n">button</span> <span class="tk-p">[</span>icon <span class="tk-n">Icon</span><span class="tk-p">.</span><span class="tk-s">Settings</span><span class="tk-p">,</span> tip <span class="tk-v">"Settings"</span><span class="tk-p">]</span> <span class="tk-p">{</span> showingSettings = <span class="tk-v">true</span><span class="tk-p">;</span> <span class="tk-p">}</span>
         <span class="tk-p">}</span>
 
         <span class="tk-n">dialog</span> confirming <span class="tk-p">[</span>width <span class="tk-v">320</span><span class="tk-p">]</span> <span class="tk-p">{</span>
@@ -2133,10 +2133,10 @@ classes.lsc:18:19  Dog has no field called nam. Did you mean name?</code></pre>
     <span class="tk-k">view</span> <span class="tk-p">[</span>title <span class="tk-v">"Icons"</span><span class="tk-p">]</span> <span class="tk-p">{</span>
         <span class="tk-n">column</span> <span class="tk-p">[</span>gap <span class="tk-v">8</span><span class="tk-p">,</span> pad <span class="tk-v">16</span><span class="tk-p">]</span> <span class="tk-p">{</span>
             <span class="tk-n">row</span> <span class="tk-p">[</span>gap <span class="tk-v">8</span><span class="tk-p">]</span> <span class="tk-p">{</span>
-                <span class="tk-n">icon</span> <span class="tk-v">"star"</span> <span class="tk-p">[</span>size <span class="tk-v">18</span><span class="tk-p">,</span> yellow6<span class="tk-p">]</span><span class="tk-p">;</span>
+                <span class="tk-n">icon</span> <span class="tk-n">Icon</span><span class="tk-p">.</span><span class="tk-s">Star</span> <span class="tk-p">[</span>size <span class="tk-v">18</span><span class="tk-p">,</span> yellow6<span class="tk-p">]</span><span class="tk-p">;</span>
                 <span class="tk-n">text</span> <span class="tk-v">"Favourites"</span><span class="tk-p">;</span>
             <span class="tk-p">}</span>
-            <span class="tk-n">button</span> <span class="tk-v">"Delete"</span> <span class="tk-p">[</span>icon <span class="tk-v">"trash"</span><span class="tk-p">,</span> red<span class="tk-p">]</span> <span class="tk-p">{</span> <span class="tk-p">}</span>
+            <span class="tk-n">button</span> <span class="tk-v">"Delete"</span> <span class="tk-p">[</span>icon <span class="tk-n">Icon</span><span class="tk-p">.</span><span class="tk-s">Trash</span><span class="tk-p">,</span> red<span class="tk-p">]</span> <span class="tk-p">{</span> <span class="tk-p">}</span>
             <span class="tk-n">image</span> <span class="tk-v">"cat.png"</span> <span class="tk-p">[</span>width <span class="tk-v">48</span><span class="tk-p">,</span> height <span class="tk-v">48</span><span class="tk-p">,</span> cover<span class="tk-p">,</span> round <span class="tk-v">24</span><span class="tk-p">]</span><span class="tk-p">;</span>
             <span class="tk-n">text</span> <span class="tk-v">"Pancakes"</span> <span class="tk-p">[</span>huge<span class="tk-p">,</span> font <span class="tk-v">"fonts/Lobster.ttf"</span><span class="tk-p">]</span><span class="tk-p">;</span>
         <span class="tk-p">}</span>
@@ -2145,7 +2145,7 @@ classes.lsc:18:19  Dog has no field called nam. Did you mean name?</code></pre>
 
 <span class="tk-n">Icons</span><span class="tk-p">:</span>open<span class="tk-p">(</span><span class="tk-p">)</span><span class="tk-p">;</span></code></pre>
 <ul>
-<li><strong>Icons</strong> come from a built-in set of about 150 (Lucide's shapes), sharp at any size: arrows, chevrons, <code>check</code>, <code>x</code>, <code>plus</code>, <code>trash</code>, <code>pencil</code>, <code>copy</code>, <code>search</code>, <code>settings</code>, <code>user</code>, <code>folder</code>, <code>file</code>, <code>save</code>, <code>play</code>, <code>pause</code>, <code>bell</code>, <code>star</code>, <code>heart</code>, <code>calendar</code>, <code>clock</code>, <code>mail</code>, <code>sun</code>, <code>moon</code>, <code>code</code>, <code>bug</code>, <code>rocket</code> and more. A name Lust doesn't have is a mistake that suggests the nearest one.</li>
+<li><strong>Icons</strong> come from a built-in set of about 150 (Lucide's shapes), sharp at any size. They're a built-in state, <code>Icon</code>, so an icon is written like any state's option: arrows and chevrons (<code>Icon.ArrowLeft</code>, <code>Icon.ChevronDown</code>), <code>Icon.Check</code>, <code>Icon.X</code>, <code>Icon.Plus</code>, <code>Icon.Trash</code>, <code>Icon.Pencil</code>, <code>Icon.Copy</code>, <code>Icon.Search</code>, <code>Icon.Settings</code>, <code>Icon.User</code>, <code>Icon.Folder</code>, <code>Icon.File</code>, <code>Icon.Save</code>, <code>Icon.Play</code>, <code>Icon.Pause</code>, <code>Icon.Bell</code>, <code>Icon.Star</code>, <code>Icon.Heart</code>, <code>Icon.Calendar</code>, <code>Icon.Clock</code>, <code>Icon.Mail</code>, <code>Icon.Sun</code>, <code>Icon.Moon</code>, <code>Icon.Code</code>, <code>Icon.Bug</code>, <code>Icon.Rocket</code> and more. A name Lust doesn't have is a mistake that suggests the nearest one, and one that changes is kept in a variable: <code>Icon shown = Icon.Star;</code>. Text (<code>icon "trash"</code>), the way icons used to be written, is a mistake now.</li>
 <li><strong>Pictures:</strong> <code>image "cat.png";</code> shows a PNG, JPEG or SVG. Give a <code>width</code> or <code>height</code> and the other follows; both with <code>cover</code> fills the box. A <code>cat@2x.png</code> beside it is used on sharp screens.</li>
 <li><strong>Fonts:</strong> <code>font "file.ttf"</code> on a piece, or on the view's <code>[ ]</code> for the whole window. Lust's own font is Inter.</li>
 </ul>
@@ -2192,11 +2192,11 @@ classes.lsc:18:19  Dog has no field called nam. Did you mean name?</code></pre>
 <h3>Toasts, notifications and the tray</h3>
 <pre class="code" data-lang="lust" data-check="no"><code><span class="tk-n">button</span> <span class="tk-v">"Save"</span> <span class="tk-p">{</span>
     <span class="tk-k">save</span><span class="tk-p">(</span><span class="tk-p">)</span><span class="tk-p">;</span>
-    <span class="tk-n">toast</span> <span class="tk-v">"Saved"</span> <span class="tk-p">[</span>green<span class="tk-p">,</span> icon <span class="tk-v">"check"</span><span class="tk-p">]</span><span class="tk-p">;</span>
+    <span class="tk-n">toast</span> <span class="tk-v">"Saved"</span> <span class="tk-p">[</span>green<span class="tk-p">,</span> icon <span class="tk-n">Icon</span><span class="tk-p">.</span><span class="tk-s">Check</span><span class="tk-p">]</span><span class="tk-p">;</span>
 <span class="tk-p">}</span>
 <span class="tk-o">App</span><span class="tk-p">:</span>notify<span class="tk-p">(</span><span class="tk-v">"Saved"</span><span class="tk-p">,</span> <span class="tk-v">"Your notes are safe."</span><span class="tk-p">)</span><span class="tk-p">;</span>
 
-<span class="tk-n">tray</span> <span class="tk-p">[</span>icon <span class="tk-v">"bell"</span><span class="tk-p">,</span> tip <span class="tk-v">"Notes"</span><span class="tk-p">]</span> <span class="tk-p">{</span>
+<span class="tk-n">tray</span> <span class="tk-p">[</span>icon <span class="tk-n">Icon</span><span class="tk-p">.</span><span class="tk-s">Bell</span><span class="tk-p">,</span> tip <span class="tk-v">"Notes"</span><span class="tk-p">]</span> <span class="tk-p">{</span>
     <span class="tk-n">item</span> <span class="tk-v">"Show"</span> <span class="tk-p">{</span> shown = <span class="tk-v">true</span><span class="tk-p">;</span> <span class="tk-p">}</span>
     <span class="tk-n">divider</span><span class="tk-p">;</span>
     <span class="tk-n">item</span> <span class="tk-v">"Quit"</span> <span class="tk-p">{</span> <span class="tk-o">App</span><span class="tk-p">:</span>quit<span class="tk-p">(</span><span class="tk-p">)</span><span class="tk-p">;</span> <span class="tk-p">}</span>
@@ -2236,7 +2236,7 @@ classes.lsc:18:19  Dog has no field called nam. Did you mean name?</code></pre>
 <ul>
 <li>Windows are sharp at any screen scaling, and keep their size in units when moved between screens.</li>
 <li>Inputs take typing through input methods for Chinese, Japanese, Korean and other languages.</li>
-<li>Every piece is described to screen readers (Narrator, NVDA, Orca) with no extra code. Give an icon-only button or a picture a name with <code>label</code>: <code>button [icon "trash", label "Delete the note"] { … }</code>.</li>
+<li>Every piece is described to screen readers (Narrator, NVDA, Orca) with no extra code. Give an icon-only button or a picture a name with <code>label</code>: <code>button [icon Icon.Trash, label "Delete the note"] { … }</code>.</li>
 </ul>
 </section>
 

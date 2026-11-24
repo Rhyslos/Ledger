@@ -149,7 +149,7 @@ export const STYLES = [
   { name: "alpha", takes: "none", on: "colourPicker", doc: "Adds a strip for how see-through the colour is.", example: "colourPicker glass [alpha]" },
   { name: "swatches", takes: "text", on: "colourPicker", doc: "The ready-made colours to choose from, instead of Lust's own.", example: "swatches [brand, accent]" },
   { name: "across", takes: "none", on: "radio", doc: "Puts the choices side by side instead of one under another.", example: "radio size [across]" },
-  { name: "icon", takes: "text", on: "button toast tray", doc: "An icon from Lust's own set, on a button, a toast or the tray.", example: "button \"Delete\" [icon \"trash\"]" },
+  { name: "icon", takes: "icon", on: "button toast tray", doc: "An icon from Lust's own set, one of the Icon state's options, on a button, a toast or the tray.", example: "button \"Delete\" [icon Icon.Trash]" },
   { name: "picture", takes: "text", on: "tray", doc: "A picture file for the tray icon, instead of one of Lust's icons.", example: "picture \"tray.png\"" },
   { name: "seconds", takes: "number", on: "toast", doc: "How long a toast stays before it fades.", example: "seconds 8" },
   // screen readers
