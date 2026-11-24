@@ -10,7 +10,7 @@ const cx = (src) => { const { text, pos } = at(src); return styleContext(text, p
 const labels = (src) => { const { text, pos } = at(src); return (suggestions(styleContext(text, pos), text) || []).map((s) => s.label); };
 
 test("the table is complete and consistent", () => {
-  const kinds = new Set(["none", "number", "colour", "text", "bool", "fill", "styles"]);
+  const kinds = new Set(["none", "number", "colour", "text", "bool", "fill", "styles", "icon"]);
   const places = new Set(["pieces", "view", ...Object.keys(PIECES)]);
   const names = new Set();
   for (const s of STYLES) {

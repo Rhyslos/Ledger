@@ -3,7 +3,7 @@
 <p class="lead">Lust is a small, strict language for apps, games, tools and scripting. Checks are written as questions, states are built in and own their memory, and every file ends with <code>end</code>. This guide covers all of it, with an example for each part.</p>
 <p>Use the search box at the top (press <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd>) to find anything: a word like <code>cMap</code>, a piece like <code>slider</code>, or a question like "loop backwards". Every heading has its own link: point at it and click the hash sign beside it to copy where it is.</p>
 <div class="note">
-<p>This guide follows Lust 2.0.0 alpha 78. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
+<p>This guide follows Lust 2.0.0 alpha 79. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
 </div>
 
 <h3 id="the-short-version">The short version</h3>
@@ -1499,7 +1499,7 @@ assembly People {
             column "Name" p.name [width 160];
             column "Age" p.age;
             column "" [width 40] {
-                button [icon "trash", subtle, label "Forget"] { forget(p); }
+                button [icon Icon.Trash, subtle, label "Forget"] { forget(p); }
             }
         } open {
             print("Opened {chosen.name}");
@@ -1654,7 +1654,7 @@ assembly Notes {
         column [gap 8, pad 16] {
             text "Hello " + name;
             button "Delete" [red] { confirming = true; }
-            button [icon "settings", tip "Settings"] { showingSettings = true; }
+            button [icon Icon.Settings, tip "Settings"] { showingSettings = true; }
         }
 
         dialog confirming [width 320] {
@@ -1730,10 +1730,10 @@ assembly Icons {
     view [title "Icons"] {
         column [gap 8, pad 16] {
             row [gap 8] {
-                icon "star" [size 18, yellow6];
+                icon Icon.Star [size 18, yellow6];
                 text "Favourites";
             }
-            button "Delete" [icon "trash", red] { }
+            button "Delete" [icon Icon.Trash, red] { }
             image "cat.png" [width 48, height 48, cover, round 24];
             text "Pancakes" [huge, font "fonts/Lobster.ttf"];
         }
@@ -1743,7 +1743,7 @@ assembly Icons {
 Icons:open();
 </pre>
 <ul>
-<li><strong>Icons</strong> come from a built-in set of about 150 (Lucide's shapes), sharp at any size: arrows, chevrons, <code>check</code>, <code>x</code>, <code>plus</code>, <code>trash</code>, <code>pencil</code>, <code>copy</code>, <code>search</code>, <code>settings</code>, <code>user</code>, <code>folder</code>, <code>file</code>, <code>save</code>, <code>play</code>, <code>pause</code>, <code>bell</code>, <code>star</code>, <code>heart</code>, <code>calendar</code>, <code>clock</code>, <code>mail</code>, <code>sun</code>, <code>moon</code>, <code>code</code>, <code>bug</code>, <code>rocket</code> and more. A name Lust doesn't have is a mistake that suggests the nearest one.</li>
+<li><strong>Icons</strong> come from a built-in set of about 150 (Lucide's shapes), sharp at any size. They're a built-in state, <code>Icon</code>, so an icon is written like any state's option: arrows and chevrons (<code>Icon.ArrowLeft</code>, <code>Icon.ChevronDown</code>), <code>Icon.Check</code>, <code>Icon.X</code>, <code>Icon.Plus</code>, <code>Icon.Trash</code>, <code>Icon.Pencil</code>, <code>Icon.Copy</code>, <code>Icon.Search</code>, <code>Icon.Settings</code>, <code>Icon.User</code>, <code>Icon.Folder</code>, <code>Icon.File</code>, <code>Icon.Save</code>, <code>Icon.Play</code>, <code>Icon.Pause</code>, <code>Icon.Bell</code>, <code>Icon.Star</code>, <code>Icon.Heart</code>, <code>Icon.Calendar</code>, <code>Icon.Clock</code>, <code>Icon.Mail</code>, <code>Icon.Sun</code>, <code>Icon.Moon</code>, <code>Icon.Code</code>, <code>Icon.Bug</code>, <code>Icon.Rocket</code> and more. A name Lust doesn't have is a mistake that suggests the nearest one, and one that changes is kept in a variable: <code>Icon shown = Icon.Star;</code>. Text (<code>icon "trash"</code>), the way icons used to be written, is a mistake now.</li>
 <li><strong>Pictures:</strong> <code>image "cat.png";</code> shows a PNG, JPEG or SVG. Give a <code>width</code> or <code>height</code> and the other follows; both with <code>cover</code> fills the box. A <code>cat@2x.png</code> beside it is used on sharp screens.</li>
 <li><strong>Fonts:</strong> <code>font "file.ttf"</code> on a piece, or on the view's <code>[ ]</code> for the whole window. Lust's own font is Inter.</li>
 </ul>
@@ -1793,11 +1793,11 @@ Clock:open();
 <pre data-lang="lust" data-check="no">
 button "Save" {
     save();
-    toast "Saved" [green, icon "check"];
+    toast "Saved" [green, icon Icon.Check];
 }
 App:notify("Saved", "Your notes are safe.");
 
-tray [icon "bell", tip "Notes"] {
+tray [icon Icon.Bell, tip "Notes"] {
     item "Show" { shown = true; }
     divider;
     item "Quit" { App:quit(); }
@@ -1838,7 +1838,7 @@ tray [icon "bell", tip "Notes"] {
 <ul>
 <li>Windows are sharp at any screen scaling, and keep their size in units when moved between screens.</li>
 <li>Inputs take typing through input methods for Chinese, Japanese, Korean and other languages.</li>
-<li>Every piece is described to screen readers (Narrator, NVDA, Orca) with no extra code. Give an icon-only button or a picture a name with <code>label</code>: <code>button [icon "trash", label "Delete the note"] { … }</code>.</li>
+<li>Every piece is described to screen readers (Narrator, NVDA, Orca) with no extra code. Give an icon-only button or a picture a name with <code>label</code>: <code>button [icon Icon.Trash, label "Delete the note"] { … }</code>.</li>
 </ul>
 </section>
 

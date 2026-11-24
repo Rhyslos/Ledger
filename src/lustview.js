@@ -40,7 +40,7 @@ const insertThen = (text, reopen) => (view, c, from, to) => {
 };
 const hoverSnippet = snippet("hover:[${}]");
 
-const WHAT = { number: "a number", colour: "a colour", text: "text", bool: "a bool", fill: "fill", styles: "styles" };
+const WHAT = { number: "a number", colour: "a colour", text: "text", bool: "a bool", fill: "fill", styles: "styles", icon: "an icon (Icon.Star)" };
 function styleOption(s) {
   const alone = takes(s, "none");
   const needs = s.takes.split(" ").filter((k) => k !== "none").map((k) => WHAT[k]);
