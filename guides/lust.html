@@ -3,7 +3,7 @@
 <p class="lead">Lust is a small, strict language for apps, games, tools and scripting. Checks are written as questions, states are built in and own their memory, and every file ends with <code>end</code>. This guide covers all of it, with an example for each part.</p>
 <p>Use the search box at the top (press <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd>) to find anything: a word like <code>cMap</code>, a piece like <code>slider</code>, or a question like "loop backwards". Every heading has its own link: point at it and click the hash sign beside it to copy where it is.</p>
 <div class="note">
-<p>This guide follows Lust 2.0.0 alpha 76. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
+<p>This guide follows Lust 2.0.0 alpha 78. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
 </div>
 
 <h3 id="the-short-version">The short version</h3>
@@ -683,6 +683,7 @@ class Guard {
     }
 }
 </pre>
+<p><strong>Only a thing's own methods change its state.</strong> From outside, <code>guard.state</code> can be read, and given a starting value in <code>new Guard { state = Phase.Battle }</code>, but <code>guard.state = Phase.Battle;</code> is a mistake: call <code>guard:alarm();</code> instead. So the class's methods are the one way in and out of its states, and what they do on the way (like shouting "To arms!") can't be skipped.</p>
 <p>Outside a class or object there's no <code>state</code> to change; use a variable. Older Lust set states with <code>is</code> (<code>state is Phase.Calm;</code>); that's a mistake now, and Lust says to write <code>=</code>.</p>
 </section>
 
