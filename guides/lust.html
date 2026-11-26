@@ -3,7 +3,7 @@
 <p class="lead">Lust is a small, strict language for apps, games, tools and scripting. Checks are written as questions, states are built in and own their memory, and every file ends with <code>end</code>. This guide covers all of it, with an example for each part.</p>
 <p>Use the search box at the top (press <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd>) to find anything: a word like <code>cMap</code>, a piece like <code>slider</code>, or a question like "loop backwards". Every heading has its own link: point at it and click the hash sign beside it to copy where it is.</p>
 <div class="note">
-<p>This guide follows Lust 2.0.0 alpha 79. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
+<p>This guide follows Lust 2.0.0 alpha 81. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
 </div>
 
 <h3 id="the-short-version">The short version</h3>
@@ -957,6 +957,50 @@ shop:sell("bread", 3);
 <li>A hook in a variable is called like a method on its own: <code>triple(5)</code>. One kept in a field is called with <code>:</code> from outside (<code>shop:onSell("bread", 3);</code>), or by name inside the class.</li>
 <li>A <code>new hook</code> can read the variables around it, as they were when it was made, but can't change them. To share changes, keep the value in an object's field: objects are shared, not copied.</li>
 <li>Calling a hook that's <code>nothing</code> stops the program, so check first: <code>is shop.onSell !== nothing?</code>.</li>
+</ul>
+</section>
+
+<section id="events">
+<h3>Events: telling everyone something happened</h3>
+<p>An event is an announcement. The code that sends it doesn't need to know who's listening: every thing that has the event in its <code>on { }</code> block hears it. Like <code>has { }</code> holds a thing's fields, <code>on { }</code> holds what it does when each event arrives.</p>
+<pre data-lang="lust">
+event Saved(string file);
+
+object AutoBackup {
+    has {
+        int copies = 0;
+    }
+
+    on {
+        Saved(string file) {
+            copies += 1;
+            print("backup of {file}, {copies} so far");
+        }
+    }
+}
+
+class Editor {
+    has {
+        string title = "untitled";
+    }
+
+    on {
+        Saved(string file) {
+            title = file;
+        }
+    }
+}
+
+Editor ed = new Editor;
+send Saved("notes.txt");            -- everyone with Saved in their on block
+send Saved("todo.txt") to ed;       -- just this one
+end
+</pre>
+<ul>
+<li><strong><code>event Name(…)</code></strong> says what it carries, in order: anything a variable can hold, your own things too (<code>event Picked(Item it);</code>).</li>
+<li><strong>When:</strong> the <code>on</code> blocks run right after the code that sent it is done, never in the middle of it, in a fixed order (objects first, as written, then things in the order they were made). So a program runs the same way every time.</li>
+<li><strong>Who:</strong> classes, objects, nodes, assemblies and components can have one <code>on { }</code> block, with each event once. A thing that has ended (its state ended) doesn't hear any more.</li>
+<li>Sending <code>to</code> a thing whose class doesn't handle the event, or the wrong values, is a mistake before running. The old way, <code>on Saved(…) { }</code> on its own, is a mistake that shows the block.</li>
 </ul>
 </section>
 </section>
@@ -2265,8 +2309,10 @@ component Health {
         float hp = 10;
     }
 
-    on Hit(entity by, float damage) {
-        hp = hp - damage;
+    on {
+        Hit(entity by, float damage) {
+            hp = hp - damage;
+        }
     }
 }
 
@@ -2286,7 +2332,7 @@ pass Health, Gun;
 <ul>
 <li><strong>A <code>component</code></strong> is a class whose fields the engine keeps and shows in its inspector, and whose <code>update(float dt)</code> it runs once a tick. Fields hold <code>bool</code>, <code>int</code>, <code>float</code>, <code>string</code>, a state, <code>vec3</code>, <code>vec2</code>, <code>rotation</code>, <code>colour</code> and <code>entity</code>.</li>
 <li><strong><code>this</code></strong> is the entity the component is on. The engine's abilities on <code>entity</code> are called bare inside a component: <code>moveTo(position() + [1, 0, 0])</code>.</li>
-<li><strong><code>event Name(…)</code></strong> says what an event carries; <strong><code>on Name(…) { }</code></strong> in a component handles it; <strong><code>send Name(…) to target;</code></strong> queues it with the engine.</li>
+<li><strong>Events</strong> work in components as everywhere (see <a href="#events">Events</a>), with one difference: <strong><code>send Name(…) to target;</code></strong> with an entity as the target hands it to the engine, which delivers it to the components on that entity. Such events carry what the engine can keep: the same kinds as a component's fields.</li>
 <li><strong>A passed <code>object</code></strong> is one for the whole game: the engine ticks its <code>update</code> and saves its fields.</li>
 <li><strong>Data files</strong> are ordinary <code>.lst</code> files holding only <code>lock</code> values of fixed values, which an engine reads without running anything.</li>
 </ul>
