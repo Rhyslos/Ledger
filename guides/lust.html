@@ -3,7 +3,7 @@
 <p class="lead">Lust is a small, strict language for apps, games, tools and scripting. Checks are written as questions, states are built in and own their memory, and every file ends with <code>end</code>. This guide covers all of it, with an example for each part.</p>
 <p>Use the search box at the top (press <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd>) to find anything: a word like <code>cMap</code>, a piece like <code>slider</code>, or a question like "loop backwards". Every heading has its own link: point at it and click the hash sign beside it to copy where it is.</p>
 <div class="note">
-<p>This guide follows Lust 2.0.0 alpha 81. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
+<p>This guide follows Lust 2.0.0 alpha 83. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
 </div>
 
 <h3 id="the-short-version">The short version</h3>
@@ -1232,8 +1232,23 @@ try {
     print("That didn't work: " + message);
 }
 </pre>
+<pre data-lang="lust">
+try {
+    string text = Files:read("save.json");
+} error (Problem p, string message) {
+    is p == Problem.NotFound? then {
+        print("No save yet: a new game.");
+    } or is p == Problem.BadSave? then {
+        print("The save is damaged.");
+    } or {
+        print(message);
+    }
+}
+</pre>
 <ul>
 <li><code>try</code> runs the block. If something goes wrong inside it, the program carries on in <code>error</code> instead of stopping.</li>
+<li><strong>What kind of problem</strong> it was comes as <code>Problem</code>, a built-in state: <code>NotFound</code>, <code>AlreadyThere</code>, <code>NotAllowed</code>, <code>BadJson</code>, <code>BadText</code> (text that should be a number, a date, a colour or a web address), <code>BadSave</code>, <code>OutOfRange</code>, <code>DividedByZero</code>, <code>Nothing</code>, <code>NoAnswer</code> (a website), <code>Database</code>, <code>Stopped</code> and <code>Other</code>. The message is for showing to people; the problem is for code to decide with. <code>error (string message)</code> on its own still works.</li>
+<li>Pick out one or two kinds with <code>is p == Problem.NotFound?</code>. A <code>check</code> over a problem has to list all thirteen, as every <code>check</code> covers every option.</li>
 <li>Without <code>try</code>, an error stops the program with the file, line and a plain message: <em>missing-row.lst:2  there's no row with id 7. The ids are 1, 2.</em></li>
 </ul>
 </section>
@@ -2019,7 +2034,7 @@ method User getUser(int id) {
     loop (User u in Users.all) {
         is u.id == id? then { return u; }
     }
-    Web:fail(404, "there's no user {id}.");
+    Web:fail(Answer.NotFound, "there's no user {id}.");
     return nothing;
 }
 
@@ -2034,13 +2049,13 @@ route "/api" {
     post "/users" =&gt; createUser;
 }
 
-print(Web:request("POST", "/api/users", "{\"name\": \"Ada\"}"));
-print(Web:request("GET", "/api/users/1", ""));
+print(Web:request(Request.Post, "/api/users", "{\"name\": \"Ada\"}"));
+print(Web:request(Request.Get, "/api/users/1", ""));
 </pre>
 <ul>
 <li><code>get</code>, <code>post</code>, <code>put</code> and <code>delete</code> are the kinds of request. The text after <code>route</code> goes in front of every path.</li>
 <li>A value named like a <code>:name</code> in the path comes from the path; any other value comes from the body, read as JSON (usually a schema).</li>
-<li>What the method gives back is the answer, as JSON, with status 200; a method that gives nothing back answers 204. <code>Web:fail(404, "…");</code> answers with an error. A bad path value or body answers 400 by itself.</li>
+<li>What the method gives back is the answer, as JSON, with status 200; a method that gives nothing back answers 204. <code>Web:fail(Answer.NotFound, "…");</code> answers with an error: an <code>Answer</code> is one of <code>BadRequest</code> (400), <code>NotSignedIn</code> (401), <code>NotAllowed</code> (403), <code>NotFound</code> (404), <code>Conflict</code> (409), <code>Gone</code> (410), <code>TooBig</code> (413), <code>TooMany</code> (429), <code>Broken</code> (500) and <code>Busy</code> (503). <code>Web:request</code> takes a <code>Request</code>: <code>Get</code>, <code>Post</code>, <code>Put</code> or <code>Delete</code>. A bad path value or body answers 400 by itself.</li>
 <li><strong><code>Web:serve(8080);</code></strong> answers requests on that port until the program is stopped. <code>Web:request(…)</code> tries a route without a network, for tests.</li>
 </ul>
 </section>
@@ -2210,7 +2225,7 @@ print(words:join(" and "), words:has("cake"));
 <tr><td><code>Time:clock()</code></td><td>Seconds since the program started: for timing things</td></tr>
 <tr><td><code>Time:date()</code>, <code>Time:time()</code></td><td>Today as <code>"2026-10-21"</code>, the time as <code>"14:05:09"</code></td></tr>
 <tr><td><code>Time:addDays(date, n)</code>, <code>Time:daysBetween(from, to)</code></td><td>Date sums</td></tr>
-<tr><td><code>Time:weekday(date)</code></td><td><code>"Monday"</code> to <code>"Sunday"</code></td></tr>
+<tr><td><code>Time:weekday(date)</code></td><td><code>Day.Monday</code> to <code>Day.Sunday</code>, a built-in state</td></tr>
 <tr><td><code>Time:isDate(text)</code></td><td>true if it's a real date</td></tr>
 </tbody>
 </table>
@@ -2423,7 +2438,7 @@ pass Health, Gun;
 <tr><td><code>class B : A</code>, <code>extends</code></td><td><code>class B like A</code></td></tr>
 <tr><td><code>x is Wizard</code>, <code>instanceof</code></td><td><code>is x like Wizard?</code></td></tr>
 <tr><td><code>static class</code>, a singleton</td><td><code>object</code></td></tr>
-<tr><td><code>try { } catch (e) { }</code></td><td><code>try { } error (string message) { }</code></td></tr>
+<tr><td><code>try { } catch (e) { }</code></td><td><code>try { } error (Problem p, string message) { }</code></td></tr>
 <tr><td><code>import</code>, <code>using</code></td><td><code>fetch "path":Thing;</code>, <code>get "path":method;</code></td></tr>
 <tr><td><code>export</code>, <code>public</code></td><td><code>pass Thing;</code></td></tr>
 <tr><td><code>Dictionary&lt;string, int&gt;</code></td><td><code>int map</code></td></tr>
