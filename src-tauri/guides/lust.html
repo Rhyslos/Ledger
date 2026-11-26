@@ -515,7 +515,7 @@ td pre.code { margin: 0.2em 0; }
 <p class="lead">Lust is a small, strict language for apps, games, tools and scripting. Checks are written as questions, states are built in and own their memory, and every file ends with <code>end</code>. This guide covers all of it, with an example for each part.</p>
 <p>Use the search box at the top (press <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>K</kbd>) to find anything: a word like <code>cMap</code>, a piece like <code>slider</code>, or a question like "loop backwards". Every heading has its own link: point at it and click the hash sign beside it to copy where it is.</p>
 <div class="note">
-<p>This guide follows Lust 2.0.0 alpha 83. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
+<p>This guide follows Lust 2.0.0 alpha 89. The full rulebook is <code>LUST.md</code> in Lust's own folder; when the two ever differ, the rulebook wins. In Ledger, press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> and type <strong>Docs</strong> to open this guide again.</p>
 </div>
 
 <h3 id="the-short-version">The short version</h3>
@@ -1447,6 +1447,44 @@ shop<span class="tk-p">:</span>sell<span class="tk-p">(</span><span class="tk-v"
 <li>Sending <code>to</code> a thing whose class doesn't handle the event, or the wrong values, is a mistake before running. The old way, <code>on Saved(…) { }</code> on its own, is a mistake that shows the block.</li>
 </ul>
 </section>
+
+<section id="waiting">
+<h3>Waiting: only the work that waits pauses</h3>
+<p>Any method can wait. Only that piece of work pauses: the window keeps drawing and answering, the game keeps running, and other work carries on. There are no labels like <code>async</code>: a method that calls one that waits simply waits with it.</p>
+<pre class="code" data-lang="lust"><code><span class="tk-k">state</span> <span class="tk-n">Door</span> = <span class="tk-p">[</span><span class="tk-n">Shut</span><span class="tk-p">,</span> <span class="tk-n">Open</span><span class="tk-p">]</span><span class="tk-p">;</span>
+
+<span class="tk-k">object</span> <span class="tk-n">Gate</span> <span class="tk-p">{</span>
+    <span class="tk-k">has</span> <span class="tk-p">{</span>
+        <span class="tk-k">state</span> = <span class="tk-n">Door</span><span class="tk-p">.</span><span class="tk-s">Shut</span><span class="tk-p">;</span>
+    <span class="tk-p">}</span>
+
+    <span class="tk-k">method</span> unlock<span class="tk-p">(</span><span class="tk-p">)</span> <span class="tk-p">{</span>
+        <span class="tk-o">print</span><span class="tk-p">(</span><span class="tk-v">"creak"</span><span class="tk-p">)</span><span class="tk-p">;</span>
+        <span class="tk-o">wait</span> <span class="tk-v">2</span><span class="tk-p">;</span>
+        <span class="tk-k">state</span> = <span class="tk-n">Door</span><span class="tk-p">.</span><span class="tk-s">Open</span><span class="tk-p">;</span>
+    <span class="tk-p">}</span>
+<span class="tk-p">}</span>
+
+start <span class="tk-n">Gate</span><span class="tk-p">:</span>unlock<span class="tk-p">(</span><span class="tk-p">)</span><span class="tk-p">;</span>             <span class="tk-c">-- runs alongside: the next line runs at once</span>
+<span class="tk-o">print</span><span class="tk-p">(</span><span class="tk-v">"waiting for the gate"</span><span class="tk-p">)</span><span class="tk-p">;</span>
+
+<span class="tk-o">wait</span> <span class="tk-p">{</span>                           <span class="tk-c">-- until every question is true</span>
+    <span class="tk-f">is</span> <span class="tk-n">Gate</span><span class="tk-p">.</span>state == <span class="tk-n">Door</span><span class="tk-p">.</span><span class="tk-s">Open</span><span class="tk-p">?</span>
+<span class="tk-p">}</span> <span class="tk-f">or</span> after <span class="tk-v">5</span> <span class="tk-p">{</span>
+    <span class="tk-o">print</span><span class="tk-p">(</span><span class="tk-v">"The gate never opened."</span><span class="tk-p">)</span><span class="tk-p">;</span>
+<span class="tk-p">}</span>
+<span class="tk-o">print</span><span class="tk-p">(</span><span class="tk-v">"through the gate"</span><span class="tk-p">)</span><span class="tk-p">;</span>
+<span class="tk-k">end</span></code></pre>
+<ul>
+<li><strong><code>wait seconds;</code></strong> lets that much time go by for this piece of work only.</li>
+<li><strong><code>start call;</code></strong> runs a method alongside; it runs straight away until its first wait. <strong><code>start gate = openGate();</code></strong> gives it a name, and <strong><code>cancel gate;</code></strong> stops it wherever it's waiting. Its state, <code>gate.state</code>, is a <code>Run</code>: <code>Waiting</code>, <code>Going</code>, <code>Done</code> or <code>Cancelled</code>.</li>
+<li><strong><code>wait { … }</code></strong> holds questions (<code>is …?</code>, all of which have to be true) and at most one <code>check</code>, which waits until a state is one of its <code>when</code>s and then runs that one. This <code>check</code> doesn't have to list every option. Lust looks again once a frame (once a tick in a game).</li>
+<li><strong><code>… or after seconds { … }</code></strong> is a time limit on any wait. Its block runs if time runs out; either way the code carries on after it.</li>
+<li><strong>Slow built-ins</strong> (<code>Web:get</code>, <code>Web:post</code>, the file boxes) pause only their own work, written as ordinary calls.</li>
+<li><strong>States clean up:</strong> work started during a state is cancelled when that state ends (<code>keep</code> keeps it). Work that could never move again (each waiting for something only the other could change) stops the program with a message naming each one.</li>
+<li><strong>In a game,</strong> waits count the game's own time, so a paused game pauses them. A component's <code>update</code> can't wait itself: <code>start</code> a method from it instead.</li>
+</ul>
+</section>
 </section>
 
 <section class="chapter" id="loops">
@@ -2372,7 +2410,7 @@ classes.lsc:18:19  Dog has no field called nam. Did you mean name?</code></pre>
 <h3>When tweens move</h3>
 <ul>
 <li><strong>In a window,</strong> each frame, on the same clock as <code>every</code> timers and <code>animate</code>.</li>
-<li><strong>In a plain program,</strong> during <code>wait seconds;</code>, in steps of 1/60 s. Without a <code>wait</code>, nothing moves, and tweens still running when the program ends just stop.</li>
+<li><strong>In a plain program,</strong> while any of its work waits, in steps of 1/60 s. Tweens still running when all its work is done just stop.</li>
 <li><strong>In a game engine,</strong> once a tick (see <a href="#engines">Lust in other programs</a>).</li>
 <li>A tween takes the same steps in <code>lust run</code> and a built program, so both end with the same numbers.</li>
 </ul>
@@ -2468,7 +2506,7 @@ classes.lsc:18:19  Dog has no field called nam. Did you mean name?</code></pre>
 <tr><td><code>print(x);</code></td><td>Shows <code>x</code> on its own line: numbers, text, bools, lists, vectors, colours, states and <code>nothing</code></td></tr>
 <tr><td><code>print(a, b, c);</code></td><td>Several values on one line, with a space between each</td></tr>
 <tr><td><code>ask(question)</code></td><td>Shows a question and gives back what's typed (in Ledger, the Input box under the output)</td></tr>
-<tr><td><code>wait seconds;</code></td><td>Pauses, while <a href="#tween">tweens</a> move on</td></tr>
+<tr><td><code>wait seconds;</code></td><td>Pauses this piece of work only, while everything else (and <a href="#tween">tweens</a>) moves on: see <a href="#waiting">Waiting</a></td></tr>
 </tbody>
 </table>
 <pre class="code" data-lang="lust"><code><span class="tk-t">string</span> name = <span class="tk-o">ask</span><span class="tk-p">(</span><span class="tk-v">"What's your name?"</span><span class="tk-p">)</span><span class="tk-p">;</span>
