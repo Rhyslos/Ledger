@@ -1253,6 +1253,7 @@ pet<span class="tk-p">.</span>hp -= <span class="tk-v">3</span><span class="tk-p
 <li><strong><code>.</code> reads a field, <code>:</code> calls a method:</strong> <code>pet.hp</code>, <code>pet:bark()</code>.</li>
 <li>Inside its own methods, a thing's fields and methods are used by name alone: <code>name</code>, <code>bark()</code>.</li>
 <li>Things are shared, not copied: <code>Dog same = pet;</code> is the same dog.</li>
+<li><strong>Starting in a state:</strong> for a class with a state of its own, <code>new Hero in Phase.Battle { hp = 5 }</code> is the same as <code>new Hero { state = Phase.Battle, hp = 5 }</code>. Write the option's full name. Any value of the state works after <code>in</code>, a variable too. To <code>keep</code> one, use brackets: <code>keep (new Hero in Phase.Battle) in squad;</code></li>
 </ul>
 </section>
 
