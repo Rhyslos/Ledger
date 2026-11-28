@@ -1156,6 +1156,24 @@ now = <span class="tk-n">GameState</span><span class="tk-p">.</span><span class=
 </ul>
 </section>
 
+<section id="state-moves">
+<h3>Allowed moves between options</h3>
+<p>A state can say which option may follow which, so a move the rules don't allow is caught while the program runs.</p>
+<pre class="code" data-lang="lust"><code><span class="tk-k">state</span> <span class="tk-n">Door</span> = <span class="tk-p">[</span><span class="tk-n">Locked</span> -&gt; <span class="tk-n">Shut</span><span class="tk-p">,</span> <span class="tk-n">Shut</span> -&gt; <span class="tk-p">[</span><span class="tk-n">Open</span><span class="tk-p">,</span> <span class="tk-n">Locked</span><span class="tk-p">]</span><span class="tk-p">,</span> <span class="tk-n">Open</span> -&gt; <span class="tk-n">Shut</span><span class="tk-p">]</span><span class="tk-p">;</span>
+
+<span class="tk-n">Door</span> door = <span class="tk-n">Door</span><span class="tk-p">.</span><span class="tk-s">Locked</span><span class="tk-p">;</span>
+door = <span class="tk-n">Door</span><span class="tk-p">.</span><span class="tk-s">Shut</span><span class="tk-p">;</span>                          <span class="tk-c">-- fine</span>
+door = <span class="tk-n">Door</span><span class="tk-p">.</span><span class="tk-s">Open</span><span class="tk-p">;</span>                          <span class="tk-c">-- fine: Shut can go to Open</span>
+door = <span class="tk-n">Door</span><span class="tk-p">.</span><span class="tk-s">Locked</span><span class="tk-p">;</span>                        <span class="tk-c">-- stops: a Door can't go from Open to Locked.</span></code></pre>
+<ul>
+<li><code>Option -&gt; Next</code>, or <code>-&gt; [A, B]</code> for several. Once any option has an arrow, only the moves written are allowed. An option with no arrow is an end: nothing follows it.</li>
+<li>Write an option's parts in this order: name, <code>{ values }</code>, <code>[ inner options ]</code>, then <code>-&gt;</code>. Inner options' arrows go inside the outer one's <code>[ ]</code>, and their targets are written from the state: <code>Melee -&gt; Battle.Ranged</code>.</li>
+<li>An arrow from an outer option covers its inner ones, and an arrow to an outer option allows its inner ones too. Staying in the same option is always fine.</li>
+<li>A move that isn't allowed stops with <code>Problem.WrongState</code>, which <code>try</code> catches. Starting values (in <code>has</code>, <code>new</code> or a declaration) can be any option.</li>
+<li>A state without arrows works exactly as before.</li>
+</ul>
+</section>
+
 <section id="own-state">
 <h3>A thing's own state</h3>
 <p>A class or object can have a state of its own, written <code>state = …;</code> in its <code>has</code>. Inside its methods, <code>state = …;</code> changes it, and <code>state</code> reads it:</p>
@@ -1831,7 +1849,7 @@ currentDay += <span class="tk-v">1</span><span class="tk-p">;</span>
 <span class="tk-p">}</span></code></pre>
 <ul>
 <li><code>try</code> runs the block. If something goes wrong inside it, the program carries on in <code>error</code> instead of stopping.</li>
-<li><strong>What kind of problem</strong> it was comes as <code>Problem</code>, a built-in state: <code>NotFound</code>, <code>AlreadyThere</code>, <code>NotAllowed</code>, <code>BadJson</code>, <code>BadText</code> (text that should be a number, a date, a colour or a web address), <code>BadSave</code>, <code>OutOfRange</code>, <code>DividedByZero</code>, <code>Nothing</code>, <code>NoAnswer</code> (a website), <code>Database</code>, <code>Stopped</code>, <code>WrongState</code> (a method called in an option it isn't for) and <code>Other</code>. The message is for showing to people; the problem is for code to decide with. <code>error (string message)</code> on its own still works.</li>
+<li><strong>What kind of problem</strong> it was comes as <code>Problem</code>, a built-in state: <code>NotFound</code>, <code>AlreadyThere</code>, <code>NotAllowed</code>, <code>BadJson</code>, <code>BadText</code> (text that should be a number, a date, a colour or a web address), <code>BadSave</code>, <code>OutOfRange</code>, <code>DividedByZero</code>, <code>Nothing</code>, <code>NoAnswer</code> (a website), <code>Database</code>, <code>Stopped</code>, <code>WrongState</code> (a method called in an option it isn't for, or a move a state doesn't allow) and <code>Other</code>. The message is for showing to people; the problem is for code to decide with. <code>error (string message)</code> on its own still works.</li>
 <li>Pick out one or two kinds with <code>is p == Problem.NotFound?</code>. A <code>check</code> over a problem has to list all fourteen, as every <code>check</code> covers every option.</li>
 <li>Without <code>try</code>, an error stops the program with the file, line and a plain message: <em>missing-row.lst:2  there's no row with id 7. The ids are 1, 2.</em></li>
 </ul>
