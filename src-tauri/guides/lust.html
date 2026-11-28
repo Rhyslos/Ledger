@@ -1132,6 +1132,30 @@ now = <span class="tk-n">GameState</span><span class="tk-p">.</span><span class=
 </ul>
 </section>
 
+<section id="state-data">
+<h3>Values on options</h3>
+<p>Each option can carry its own values in <code>{ }</code> after its name, so code reads them instead of a long <code>check</code>.</p>
+<pre class="code" data-lang="lust"><code><span class="tk-k">state</span> <span class="tk-n">Pose</span> = <span class="tk-p">[</span>
+    <span class="tk-n">Idle</span>   <span class="tk-p">{</span> clip = <span class="tk-v">"idle"</span><span class="tk-p">,</span>  speed = <span class="tk-v">0.0</span> <span class="tk-p">}</span><span class="tk-p">,</span>
+    <span class="tk-n">Run</span>    <span class="tk-p">{</span> clip = <span class="tk-v">"run"</span><span class="tk-p">,</span>   speed = <span class="tk-v">6.5</span> <span class="tk-p">}</span><span class="tk-p">,</span>
+    <span class="tk-n">Battle</span> <span class="tk-p">{</span> clip = <span class="tk-v">"fight"</span><span class="tk-p">,</span> speed = <span class="tk-v">4.0</span> <span class="tk-p">}</span> <span class="tk-p">[</span>
+        <span class="tk-n">Melee</span>  <span class="tk-p">{</span> clip = <span class="tk-v">"swing"</span> <span class="tk-p">}</span><span class="tk-p">,</span>             <span class="tk-c">-- speed 4.0 comes from Battle</span>
+        <span class="tk-n">Ranged</span> <span class="tk-p">{</span> clip = <span class="tk-v">"aim"</span><span class="tk-p">,</span> speed = <span class="tk-v">2.5</span> <span class="tk-p">}</span><span class="tk-p">,</span>
+    <span class="tk-p">]</span><span class="tk-p">,</span>
+<span class="tk-p">]</span><span class="tk-p">;</span>
+
+<span class="tk-n">Pose</span> pose = <span class="tk-n">Pose</span><span class="tk-p">.</span><span class="tk-s">Battle</span><span class="tk-p">.</span><span class="tk-s">Melee</span><span class="tk-p">;</span>
+<span class="tk-o">print</span><span class="tk-p">(</span>pose<span class="tk-p">.</span>clip<span class="tk-p">)</span><span class="tk-p">;</span>                          <span class="tk-c">-- swing</span>
+<span class="tk-t">float</span> s = <span class="tk-n">Pose</span><span class="tk-p">.</span><span class="tk-s">Run</span><span class="tk-p">.</span>speed<span class="tk-p">;</span>                  <span class="tk-c">-- 6.5</span></code></pre>
+<ul>
+<li>Every option has the same names, and each name keeps one type. A whole number next to a decimal counts as a decimal.</li>
+<li>Inner options take their outer option's values and can change any of them. An outer option like <code>Battle</code> needs every value too.</li>
+<li>Values can be numbers, text, true/false, other states, vectors (<code>[1, 2]</code>) and colours.</li>
+<li>The values never change: <code>pose.speed = 7.0;</code> is a mistake.</li>
+<li>Value names start with a small letter, options with a capital.</li>
+</ul>
+</section>
+
 <section id="own-state">
 <h3>A thing's own state</h3>
 <p>A class or object can have a state of its own, written <code>state = …;</code> in its <code>has</code>. Inside its methods, <code>state = …;</code> changes it, and <code>state</code> reads it:</p>
