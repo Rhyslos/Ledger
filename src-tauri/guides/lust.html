@@ -1238,6 +1238,32 @@ pet<span class="tk-p">.</span>hp -= <span class="tk-v">3</span><span class="tk-p
 </ul>
 </section>
 
+<section id="records">
+<h3>Records: plain groups of values</h3>
+<p>A record groups a few simple values under one name. Unlike a thing made from a class, it's <strong>copied</strong> whenever it's given, the way a number is.</p>
+<pre class="code" data-lang="lust"><code><span class="tk-k">state</span> <span class="tk-n">Gun</span> = <span class="tk-p">[</span><span class="tk-n">M4a1</span><span class="tk-p">,</span> <span class="tk-n">Glock</span><span class="tk-p">]</span><span class="tk-p">;</span>
+
+record <span class="tk-n">Loadout</span> <span class="tk-p">{</span>
+    <span class="tk-n">Gun</span> primary<span class="tk-p">;</span>
+    <span class="tk-n">Gun</span> secondary<span class="tk-p">;</span>
+    <span class="tk-t">int</span> grenades = <span class="tk-v">2</span><span class="tk-p">;</span>
+<span class="tk-p">}</span>
+
+<span class="tk-n">Loadout</span> kit = <span class="tk-k">new</span> <span class="tk-n">Loadout</span> <span class="tk-p">{</span> primary = <span class="tk-n">Gun</span><span class="tk-p">.</span><span class="tk-s">M4a1</span><span class="tk-p">,</span> secondary = <span class="tk-n">Gun</span><span class="tk-p">.</span><span class="tk-s">Glock</span> <span class="tk-p">}</span><span class="tk-p">;</span>
+<span class="tk-n">Loadout</span> spare = kit<span class="tk-p">;</span>
+spare<span class="tk-p">.</span>grenades = <span class="tk-v">3</span><span class="tk-p">;</span>
+<span class="tk-o">print</span><span class="tk-p">(</span>kit<span class="tk-p">.</span>grenades<span class="tk-p">,</span> spare<span class="tk-p">.</span>grenades<span class="tk-p">)</span><span class="tk-p">;</span>       <span class="tk-c">-- 2 3</span>
+<span class="tk-o">print</span><span class="tk-p">(</span>kit<span class="tk-p">)</span><span class="tk-p">;</span>                                <span class="tk-c">-- Loadout { primary = M4a1, secondary = Glock, grenades = 2 }</span></code></pre>
+<ul>
+<li><strong>Only simple values:</strong> numbers, text, true/false, states, vectors, rotations, colours, entities and other records. No methods, classes, arrays, maps or hooks.</li>
+<li><strong>Copied when given:</strong> setting a variable or field, passing it, returning it, sending it in an event or putting it in an array makes a copy. Changing one copy never changes another.</li>
+<li>Change a value in place through any path: <code>hero.kit.grenades -= 1;</code></li>
+<li><code>==</code> and <code>!=</code> compare every value. A record is never <code>nothing</code>.</li>
+<li>A value with no starting value must be given in <code>new</code>.</li>
+<li>Records work as values on states' options, as named values, in JSON and saves, and in a game engine's components once the engine supports them.</li>
+</ul>
+</section>
+
 <section id="object">
 <h3>object: one ready-made thing</h3>
 <pre class="code" data-lang="lust"><code><span class="tk-k">object</span> <span class="tk-n">Game</span> <span class="tk-p">{</span>

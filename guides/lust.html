@@ -782,6 +782,34 @@ pet.hp -= 3;
 </ul>
 </section>
 
+<section id="records">
+<h3>Records: plain groups of values</h3>
+<p>A record groups a few simple values under one name. Unlike a thing made from a class, it's <strong>copied</strong> whenever it's given, the way a number is.</p>
+<pre data-lang="lust">
+state Gun = [M4a1, Glock];
+
+record Loadout {
+    Gun primary;
+    Gun secondary;
+    int grenades = 2;
+}
+
+Loadout kit = new Loadout { primary = Gun.M4a1, secondary = Gun.Glock };
+Loadout spare = kit;
+spare.grenades = 3;
+print(kit.grenades, spare.grenades);       -- 2 3
+print(kit);                                -- Loadout { primary = M4a1, secondary = Glock, grenades = 2 }
+</pre>
+<ul>
+<li><strong>Only simple values:</strong> numbers, text, true/false, states, vectors, rotations, colours, entities and other records. No methods, classes, arrays, maps or hooks.</li>
+<li><strong>Copied when given:</strong> setting a variable or field, passing it, returning it, sending it in an event or putting it in an array makes a copy. Changing one copy never changes another.</li>
+<li>Change a value in place through any path: <code>hero.kit.grenades -= 1;</code></li>
+<li><code>==</code> and <code>!=</code> compare every value. A record is never <code>nothing</code>.</li>
+<li>A value with no starting value must be given in <code>new</code>.</li>
+<li>Records work as values on states' options, as named values, in JSON and saves, and in a game engine's components once the engine supports them.</li>
+</ul>
+</section>
+
 <section id="object">
 <h3>object: one ready-made thing</h3>
 <pre data-lang="lust">
