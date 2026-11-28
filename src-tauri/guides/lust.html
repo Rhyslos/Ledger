@@ -1392,6 +1392,25 @@ greet<span class="tk-p">(</span><span class="tk-v">"Ada"</span><span class="tk-p
 </ul>
 </section>
 
+<section id="named-values">
+<h3>Named values</h3>
+<p>A call or a <code>send</code> can name each value, so a long list reads clearly and two values can't be swapped by mistake.</p>
+<pre class="code" data-lang="lust"><code><span class="tk-k">method</span> spawn<span class="tk-p">(</span><span class="tk-t">int</span> x<span class="tk-p">,</span> <span class="tk-t">int</span> y<span class="tk-p">)</span> <span class="tk-p">{</span>
+    <span class="tk-o">print</span><span class="tk-p">(</span><span class="tk-v">"at {x}, {y}"</span><span class="tk-p">)</span><span class="tk-p">;</span>
+<span class="tk-p">}</span>
+
+spawn<span class="tk-p">(</span>x = <span class="tk-v">3</span><span class="tk-p">,</span> y = <span class="tk-v">5</span><span class="tk-p">)</span><span class="tk-p">;</span>
+spawn<span class="tk-p">(</span>y = <span class="tk-v">5</span><span class="tk-p">,</span> x = <span class="tk-v">3</span><span class="tk-p">)</span><span class="tk-p">;</span>                <span class="tk-c">-- the same call</span>
+<span class="tk-f">send</span> <span class="tk-n">Wants</span><span class="tk-p">(</span>jump = <span class="tk-v">true</span><span class="tk-p">,</span> crouch = <span class="tk-v">false</span><span class="tk-p">,</span> fire = <span class="tk-v">true</span><span class="tk-p">)</span> <span class="tk-f">to</span> body<span class="tk-p">;</span></code></pre>
+<ul>
+<li><strong>The names are the method's or event's own.</strong> A wrong name suggests the nearest one, and a missing one says which.</li>
+<li><strong>All or none:</strong> name every value or none of them. Any order, each name once.</li>
+<li>Works for your own methods, <code>send</code>, an engine's <code>entity</code> methods, and hooks whose type names their values. Built-in methods like <code>print</code> take their values in order.</li>
+<li>It costs nothing while the program runs: Lust puts the values back in order before writing the program out.</li>
+<li>When two values swap places and both do work (call a method, use <code>Random</code>, …), that's a mistake, since the order could matter. Write them in the method's order, or work one out into a variable first.</li>
+</ul>
+</section>
+
 <section id="hooks">
 <h3>Hooks: methods kept as values</h3>
 <p><code>hook</code> is the type of a method kept in a variable, field, array or map. The names in a hook's type are the names its body uses.</p>
