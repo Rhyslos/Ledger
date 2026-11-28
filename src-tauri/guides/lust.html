@@ -1548,6 +1548,28 @@ shop<span class="tk-p">:</span>sell<span class="tk-p">(</span><span class="tk-v"
 </ul>
 </section>
 
+<section id="methods-in">
+<h3>Methods in some options: in</h3>
+<p>The same idea for methods: a method can have a body for each option, so what it does follows the thing's state.</p>
+<pre class="code" data-lang="lust"><code><span class="tk-k">class</span> <span class="tk-n">Hero</span> <span class="tk-p">{</span>
+    <span class="tk-k">has</span> <span class="tk-p">{</span>
+        <span class="tk-k">state</span> = <span class="tk-n">Phase</span><span class="tk-p">.</span><span class="tk-s">Calm</span><span class="tk-p">;</span>
+    <span class="tk-p">}</span>
+
+    <span class="tk-k">method</span> fire<span class="tk-p">(</span><span class="tk-p">)</span> <span class="tk-f">in</span> <span class="tk-n">Battle</span> <span class="tk-p">{</span>
+        <span class="tk-o">print</span><span class="tk-p">(</span><span class="tk-v">"bang"</span><span class="tk-p">)</span><span class="tk-p">;</span>
+    <span class="tk-p">}</span>
+    <span class="tk-k">method</span> fire<span class="tk-p">(</span><span class="tk-p">)</span> <span class="tk-f">in</span> <span class="tk-n">Calm</span> <span class="tk-p">{</span>
+        <span class="tk-o">print</span><span class="tk-p">(</span><span class="tk-v">"put the gun away first"</span><span class="tk-p">)</span><span class="tk-p">;</span>
+    <span class="tk-p">}</span>
+<span class="tk-p">}</span></code></pre>
+<ul>
+<li>The rules are the same as for events: the option is written on its own, <code>in Battle</code> covers the options inside it, the most precise body wins, and a body without <code>in</code> covers the rest.</li>
+<li>Every body takes the same values and gives back the same type.</li>
+<li>Calling the method in an option no body covers stops with <code>Problem.WrongState</code>: <em>fire is only for Battle, but this Hero is Dead.</em> <code>try</code> catches it like any other problem.</li>
+</ul>
+</section>
+
 <section id="waiting">
 <h3>Waiting: only the work that waits pauses</h3>
 <p>Any method can wait. Only that piece of work pauses: the window keeps drawing and answering, the game keeps running, and other work carries on. There are no labels like <code>async</code>: a method that calls one that waits simply waits with it.</p>
@@ -1809,8 +1831,8 @@ currentDay += <span class="tk-v">1</span><span class="tk-p">;</span>
 <span class="tk-p">}</span></code></pre>
 <ul>
 <li><code>try</code> runs the block. If something goes wrong inside it, the program carries on in <code>error</code> instead of stopping.</li>
-<li><strong>What kind of problem</strong> it was comes as <code>Problem</code>, a built-in state: <code>NotFound</code>, <code>AlreadyThere</code>, <code>NotAllowed</code>, <code>BadJson</code>, <code>BadText</code> (text that should be a number, a date, a colour or a web address), <code>BadSave</code>, <code>OutOfRange</code>, <code>DividedByZero</code>, <code>Nothing</code>, <code>NoAnswer</code> (a website), <code>Database</code>, <code>Stopped</code> and <code>Other</code>. The message is for showing to people; the problem is for code to decide with. <code>error (string message)</code> on its own still works.</li>
-<li>Pick out one or two kinds with <code>is p == Problem.NotFound?</code>. A <code>check</code> over a problem has to list all thirteen, as every <code>check</code> covers every option.</li>
+<li><strong>What kind of problem</strong> it was comes as <code>Problem</code>, a built-in state: <code>NotFound</code>, <code>AlreadyThere</code>, <code>NotAllowed</code>, <code>BadJson</code>, <code>BadText</code> (text that should be a number, a date, a colour or a web address), <code>BadSave</code>, <code>OutOfRange</code>, <code>DividedByZero</code>, <code>Nothing</code>, <code>NoAnswer</code> (a website), <code>Database</code>, <code>Stopped</code>, <code>WrongState</code> (a method called in an option it isn't for) and <code>Other</code>. The message is for showing to people; the problem is for code to decide with. <code>error (string message)</code> on its own still works.</li>
+<li>Pick out one or two kinds with <code>is p == Problem.NotFound?</code>. A <code>check</code> over a problem has to list all fourteen, as every <code>check</code> covers every option.</li>
 <li>Without <code>try</code>, an error stops the program with the file, line and a plain message: <em>missing-row.lst:2  there's no row with id 7. The ids are 1, 2.</em></li>
 </ul>
 </section>
