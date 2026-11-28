@@ -1519,6 +1519,35 @@ shop<span class="tk-p">:</span>sell<span class="tk-p">(</span><span class="tk-v"
 </ul>
 </section>
 
+<section id="events-in">
+<h3>Events in some options: in</h3>
+<p>A thing with a state of its own can say which of its options a handler is for, so the same event can do different things in different options.</p>
+<pre class="code" data-lang="lust"><code><span class="tk-k">state</span> <span class="tk-n">Phase</span> = <span class="tk-p">[</span><span class="tk-n">Calm</span><span class="tk-p">,</span> <span class="tk-n">Battle</span> <span class="tk-p">[</span><span class="tk-n">Melee</span><span class="tk-p">,</span> <span class="tk-n">Ranged</span><span class="tk-p">]</span><span class="tk-p">,</span> <span class="tk-n">Dead</span><span class="tk-p">]</span><span class="tk-p">;</span>
+
+<span class="tk-k">class</span> <span class="tk-n">Hero</span> <span class="tk-p">{</span>
+    <span class="tk-k">has</span> <span class="tk-p">{</span>
+        <span class="tk-t">float</span> hp = <span class="tk-v">10</span><span class="tk-p">;</span>
+        <span class="tk-k">state</span> = <span class="tk-n">Phase</span><span class="tk-p">.</span><span class="tk-s">Calm</span><span class="tk-p">;</span>
+    <span class="tk-p">}</span>
+
+    <span class="tk-f">on</span> <span class="tk-p">{</span>
+        <span class="tk-n">Hit</span><span class="tk-p">(</span><span class="tk-t">entity</span> by<span class="tk-p">,</span> <span class="tk-t">float</span> damage<span class="tk-p">)</span> <span class="tk-f">in</span> <span class="tk-n">Battle</span> <span class="tk-p">{</span>
+            hp -= damage<span class="tk-p">;</span>
+        <span class="tk-p">}</span>
+        <span class="tk-n">Hit</span><span class="tk-p">(</span><span class="tk-t">entity</span> by<span class="tk-p">,</span> <span class="tk-t">float</span> damage<span class="tk-p">)</span> <span class="tk-f">in</span> <span class="tk-n">Calm</span> <span class="tk-p">{</span>
+            <span class="tk-k">state</span> = <span class="tk-n">Phase</span><span class="tk-p">.</span><span class="tk-s">Battle</span><span class="tk-p">;</span>
+        <span class="tk-p">}</span>
+    <span class="tk-p">}</span>
+<span class="tk-p">}</span></code></pre>
+<ul>
+<li>Write the option on its own, as in a <code>when</code>: <code>in Battle</code>, or <code>in Battle.Melee</code> for an inner one.</li>
+<li><code>in Battle</code> covers the options inside it too. The most precise entry wins.</li>
+<li>An entry without <code>in</code> covers every option no other entry covers. An event that comes in an option no entry covers is ignored: the Hero above shrugs off a hit once it's <code>Dead</code>.</li>
+<li>The entry is chosen when the event is heard, by the option the thing is in then.</li>
+<li>Every entry for an event takes the same values.</li>
+</ul>
+</section>
+
 <section id="waiting">
 <h3>Waiting: only the work that waits pauses</h3>
 <p>Any method can wait. Only that piece of work pauses: the window keeps drawing and answering, the game keeps running, and other work carries on. There are no labels like <code>async</code>: a method that calls one that waits simply waits with it.</p>
