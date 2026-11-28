@@ -733,6 +733,7 @@ class Guard {
 </pre>
 <p><strong>Only a thing's own methods change its state.</strong> From outside, <code>guard.state</code> can be read, and given a starting value in <code>new Guard { state = Phase.Battle }</code>, but <code>guard.state = Phase.Battle;</code> is a mistake: call <code>guard:alarm();</code> instead. So the class's methods are the one way in and out of its states, and what they do on the way (like shouting "To arms!") can't be skipped.</p>
 <p>Outside a class or object there's no <code>state</code> to change; use a variable. Older Lust set states with <code>is</code> (<code>state is Phase.Calm;</code>); that's a mistake now, and Lust says to write <code>=</code>.</p>
+<div class="note"><p><strong>Watching states while it runs.</strong> In Ledger, open the <strong>States</strong> panel (next to Output) and run the program with <kbd>F5</kbd>: it lists each thing with a state of its own, by its variable or field name and its class, with the option it's in now, and the last few changes, timed (<em>+1.24s scout Calm → Battle.Melee</em>). Lust sends the states only while Ledger asks, so programs run at full speed otherwise. It needs Lust alpha 101 or newer, and works with <code>lust run</code>, not built programs. More in the <a href="ledger.html#states-panel">Ledger guide</a>.</p></div>
 </section>
 
 <section id="keep">

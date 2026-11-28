@@ -14,6 +14,7 @@ import { initPrettier } from "./prettier.js";
 import { initEmmet, emmetSource } from "./emmet.js";
 import { initMarks } from "./marks.js";
 import { initTodo } from "./todo.js";
+import { initStates } from "./states.js";
 import { initCsv } from "./csv.js";
 import { initHex } from "./hex.js";
 import { initMedia } from "./media.js";
@@ -2868,7 +2869,11 @@ async function startStep(step) {
   renderStatus();
   const run = ++S.runSeq;
   S.run = run; // set before starting, so events from an older run are ignored
-  try { await invoke("run_task", { run, root: cwd, program: step.program, args: step.args, install: !!step.install, env: step.env ? Object.entries(step.env).map(([k, v]) => [k, String(v)]) : null }); }
+  // lust run sends the States panel its things' states, once the panel has been opened (states.js).
+  const isLustRun = !!step.lust && step.args[0] === "run";
+  const states = isLustRun && !!statesPanel?.wants();
+  if (isLustRun) statesPanel?.started(run, states);
+  try { await invoke("run_task", { run, root: cwd, program: step.program, args: step.args, install: !!step.install, env: step.env ? Object.entries(step.env).map(([k, v]) => [k, String(v)]) : null, states }); }
   catch (e) {
     S.running = false; S.runInput = false;
     // A restricted folder: ask, and go on from this step if the answer is yes.
@@ -4207,7 +4212,7 @@ const app = {
   openPaletteWith: (prefix) => openPalette("files", prefix),
   get fp() { return fp; },
 };
-let term = null, snippets = null, debug = null, navx = null;
+let term = null, snippets = null, debug = null, navx = null, statesPanel = null;
 if (import.meta.env.VITE_DEBUG) window.__app = app;
 
 // ---------- boot ----------
@@ -4340,6 +4345,7 @@ async function boot() {
   initEmmet(app);
   initMarks(app);
   initTodo(app);
+  statesPanel = initStates(app);
   initCsv(app);
   initHex(app);
   initMedia(app);
