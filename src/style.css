@@ -731,6 +731,31 @@ th.db-n { z-index: 2; background: var(--side); }
 .app.zen.status-top { grid-template-rows: 0 minmax(0, 1fr); }
 .todo-row { padding-left: 28px; }
 
+/* States panel (src/states.js): things on the left, the last changes on the right; one under the
+   other when the panel is narrow (docked to the right). A changed row is tinted, fading out. */
+.st-body { display: flex; flex-wrap: wrap; align-items: flex-start; }
+.st-things { flex: 3 1 320px; min-width: 0; padding: 4px 0 10px; }
+.st-changes { flex: 2 1 240px; min-width: 0; padding: 4px 0 10px; border-left: 1px solid var(--line); }
+.st-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; padding: 2px 10px; border-radius: var(--r); }
+.st-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-headrow { color: var(--faint); font-size: 11.5px; padding-top: 2px; padding-bottom: 2px; }
+.st-name { font-family: var(--code-font); font-size: 12.5px; }
+.st-cls { color: var(--lust-class); font-family: var(--code-font); font-size: 12.5px; }
+.st-opt { color: var(--lust-state); font-family: var(--code-font); font-size: 12.5px; }
+.st-hot { animation: st-glow 1400ms ease-out both; }
+@keyframes st-glow { from { background: color-mix(in srgb, var(--accent) 16%, transparent); } to { background: transparent; } }
+.st-head { color: var(--faint); font-size: 11.5px; padding: 2px 10px; }
+.st-changes ol { list-style: none; margin: 0; padding: 0; }
+.st-changes li { display: flex; gap: 8px; align-items: baseline; padding: 2px 10px; min-width: 0; }
+.st-changes .hint, .st-more { padding: 2px 10px; margin: 0; }
+.st-when { flex: none; width: 5.2em; text-align: right; color: var(--faint); font: 11.5px var(--mono); font-variant-numeric: tabular-nums; }
+.st-who { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--code-font); font-size: 12.5px; }
+.st-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.st-set .st-what { color: var(--lust-state); font-family: var(--code-font); font-size: 12.5px; }
+.st-end .st-what, .st-skip .st-what { font-style: italic; }
+.st-live::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: var(--good); vertical-align: 1px; }
+@media (prefers-reduced-motion: reduce) { .st-hot { animation: none; background: color-mix(in srgb, var(--accent) 10%, transparent); } }
+
 /* Merge conflicts and blame (src/gitmore.js), branches and stashes (src/git.js). */
 .cm-conflict-bar { display: flex; align-items: center; gap: 2px; padding: 2px 6px; font: 12px var(--sans); color: var(--muted); background: var(--side); border-top: 1px solid var(--line); }
 .cm-conflict-bar .cm-conflict-what { font-weight: 500; color: var(--warn); margin-right: 6px; }

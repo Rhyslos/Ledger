@@ -1629,7 +1629,7 @@ fn push_line(app: &AppHandle, label: &str, run: u64, name: &'static str, cargo: 
 /// Anything already running in this window is stopped first.
 /// `run` is chosen by the frontend, so it knows the id before any event arrives.
 #[tauri::command]
-async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_, Procs>, run: u64, root: String, program: String, args: Vec<String>, install: Option<bool>, env: Option<Vec<(String, String)>>) -> Res<u64> {
+async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_, Procs>, run: u64, root: String, program: String, args: Vec<String>, install: Option<bool>, env: Option<Vec<(String, String)>>, states: Option<bool>) -> Res<u64> {
     let label = window.label().to_string();
     // Extra variables for the program (a launch profile's, or VSTEST_HOST_DEBUG to debug a test).
     // Never for installs, and never ones that change what gets loaded into a process.
@@ -1661,6 +1661,12 @@ async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_,
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
         .envs(env)
         .stdin(Stdio::piped()); // the Input box under the output writes here
+    // The States panel: lust run writes its things' states to a file of their own (states.rs).
+    let states_file = (states.unwrap_or(false) && !install.unwrap_or(false)).then(|| states::file_for(&label, run));
+    if let Some(f) = &states_file {
+        let _ = std::fs::remove_file(f);
+        cmd.env("LUST_STATES", f);
+    }
     // Output and errors share one pipe, as in a terminal, so they arrive in the order the program
     // wrote them. Two pipes read by two threads let either overtake the other (an error printed
     // between two lines of output showed up after both).
@@ -1682,6 +1688,7 @@ async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_,
     job::adopt(child.id());
     let stdin = child.stdin.take();
     let out = pump(app.clone(), label.clone(), run, reader, "stdout", is_cargo);
+    let tail = states_file.map(|f| states::start(app.clone(), label.clone(), run, f));
     let child = Arc::new(Mutex::new(child));
     // Two Run presses close together both get here: whatever the other one started is stopped
     // rather than left running with no Stop button.
@@ -1705,6 +1712,10 @@ async fn run_task(app: AppHandle, window: tauri::WebviewWindow, procs: State<'_,
         // (a dev server cargo run launched, say) would hold "finished" back forever, so give it
         // two seconds.
         let _ = finish_within(out, Duration::from_secs(2));
+        // The last states, before the run is over.
+        if let Some(t) = tail {
+            t.finish();
+        }
         let _ = app.emit_to(&label, "task-done", Done { run, code });
     });
     Ok(run)
@@ -3034,6 +3045,7 @@ mod db;
 mod trust;
 mod job;
 mod live;
+mod states;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

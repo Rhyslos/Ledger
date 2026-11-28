@@ -342,6 +342,19 @@
 </ul>
 </section>
 
+<section id="states-panel">
+<h3>The States panel</h3>
+<p>For Lust programs, the <strong>States</strong> tab beside Output shows what state each thing in the running program is in. Open it once, then run with <kbd>F5</kbd>:</p>
+<ul>
+<li><strong>Things</strong> lists each thing with a state of its own: its name (the variable or field it was made into, or its class and a number), its class, and the option it's in now. A row that just changed is tinted for a moment, fading out.</li>
+<li><strong>Last changes</strong> lists the newest changes first, timed from when the program started: <em>+1.24s scout Calm → Battle.Melee</em>, things being made, and things ending (with their owner's state, or let go).</li>
+<li>Run brings Output to the front as always; click <strong>States</strong> to look, and it keeps up behind the scenes. When the program ends, the list stays as it was at the end.</li>
+<li><strong>Only when you look.</strong> Ledger asks Lust for the states once the panel has been opened in the window, so programs run at full speed until then. A run started before you opened it says to run again.</li>
+<li>It needs Lust alpha 101 or newer; with an older Lust, the panel says to update it in Settings › Lust. Very busy programs (thousands of changes a second) get the changes gathered up, with a line saying how many weren't listed one by one.</li>
+<li><strong>States: show what state each thing in the running Lust program is in</strong>, in the command list, opens it.</li>
+</ul>
+</section>
+
 <section id="tests">
 <h3>The Tests panel</h3>
 <ul>
@@ -408,6 +421,7 @@
 <li>Every save checks the file quietly, and its mistakes show up in Problems and as squiggles. For a name Lust doesn't know, <kbd>Ctrl</kbd>+<kbd>.</kbd> offers <strong>Did you mean …</strong>.</li>
 <li><kbd>F12</kbd>, <kbd>Shift</kbd>+<kbd>F12</kbd>, <kbd>F2</kbd> and hovering work by name across the folder's Lust files, open tabs included, saved or not. Hovering a name shows where it's declared.</li>
 <li><strong>Lust: show the Lua this file turns into</strong> and <strong>show the Rust</strong> open in a read-only tab.</li>
+<li>The <a href="#states-panel">States panel</a> shows each thing's state while the program runs, and its last changes.</li>
 <li>Ledger needs <code>lust.exe</code>: <strong>Install Lust</strong> in Settings › Lust runs Lust's installer, and <strong>Update Lust</strong> runs <code>lust update</code>. Both get a ready-made <code>lust.exe</code> from Lust's releases, so nothing is compiled. Or set the path to one you have.</li>
 </ul>
 <p>Everything about the language itself is in the <a href="lust.html#welcome">Lust language guide</a>.</p>
