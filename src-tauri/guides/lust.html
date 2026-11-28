@@ -805,7 +805,9 @@ maxLives = <span class="tk-v">4</span><span class="tk-p">;</span>          <span
 <h3>either: one of two values</h3>
 <pre class="code" data-lang="lust"><code><span class="tk-t">int</span> hp = <span class="tk-v">12</span><span class="tk-p">;</span>
 <span class="tk-t">string</span> mood = <span class="tk-f">either</span> hp &gt; <span class="tk-v">10</span><span class="tk-p">?</span> <span class="tk-v">"happy"</span> <span class="tk-f">or</span> <span class="tk-v">"grumpy"</span><span class="tk-p">;</span>
-<span class="tk-o">print</span><span class="tk-p">(</span><span class="tk-v">"{either hp &gt; 0? "</span>alive<span class="tk-v">" or "</span>down<span class="tk-v">"}"</span><span class="tk-p">)</span><span class="tk-p">;</span></code></pre>
+<span class="tk-o">print</span><span class="tk-p">(</span><span class="tk-v">"{either hp &gt; 0? "</span>alive<span class="tk-v">" or "</span>down<span class="tk-v">"}"</span><span class="tk-p">)</span><span class="tk-p">;</span>
+<span class="tk-o">print</span><span class="tk-p">(</span><span class="tk-v">"{1 + (either hp &gt; 0? 1 or 0)}"</span><span class="tk-p">)</span><span class="tk-p">;</span></code></pre>
+<p>After an operator such as <code>+</code>, put the <code>either</code> in brackets. Inside <code>{ }</code> in text, a value can start with a number, <code>[</code> or a minus sign too.</p>
 </section>
 
 <section id="check">

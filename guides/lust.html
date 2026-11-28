@@ -313,7 +313,9 @@ is not alive? then { print("gone"); }
 int hp = 12;
 string mood = either hp &gt; 10? "happy" or "grumpy";
 print("{either hp &gt; 0? "alive" or "down"}");
+print("{1 + (either hp &gt; 0? 1 or 0)}");
 </pre>
+<p>After an operator such as <code>+</code>, put the <code>either</code> in brackets. Inside <code>{ }</code> in text, a value can start with a number, <code>[</code> or a minus sign too.</p>
 </section>
 
 <section id="check">
