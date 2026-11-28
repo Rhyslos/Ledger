@@ -668,6 +668,32 @@ is now === GameState.ActiveGame? then {
 </ul>
 </section>
 
+<section id="state-data">
+<h3>Values on options</h3>
+<p>Each option can carry its own values in <code>{ }</code> after its name, so code reads them instead of a long <code>check</code>.</p>
+<pre data-lang="lust">
+state Pose = [
+    Idle   { clip = "idle",  speed = 0.0 },
+    Run    { clip = "run",   speed = 6.5 },
+    Battle { clip = "fight", speed = 4.0 } [
+        Melee  { clip = "swing" },             -- speed 4.0 comes from Battle
+        Ranged { clip = "aim", speed = 2.5 },
+    ],
+];
+
+Pose pose = Pose.Battle.Melee;
+print(pose.clip);                          -- swing
+float s = Pose.Run.speed;                  -- 6.5
+</pre>
+<ul>
+<li>Every option has the same names, and each name keeps one type. A whole number next to a decimal counts as a decimal.</li>
+<li>Inner options take their outer option's values and can change any of them. An outer option like <code>Battle</code> needs every value too.</li>
+<li>Values can be numbers, text, true/false, other states, vectors (<code>[1, 2]</code>) and colours.</li>
+<li>The values never change: <code>pose.speed = 7.0;</code> is a mistake.</li>
+<li>Value names start with a small letter, options with a capital.</li>
+</ul>
+</section>
+
 <section id="own-state">
 <h3>A thing's own state</h3>
 <p>A class or object can have a state of its own, written <code>state = …;</code> in its <code>has</code>. Inside its methods, <code>state = …;</code> changes it, and <code>state</code> reads it:</p>
